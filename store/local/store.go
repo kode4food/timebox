@@ -9,7 +9,7 @@ import (
 	"github.com/kode4food/timebox/store"
 	"github.com/kode4food/timebox/store/internal/lock"
 	"github.com/kode4food/timebox/store/internal/option"
-	"github.com/prologic/bitcask"
+	"git.mills.io/prologic/bitcask"
 )
 
 // Error messages

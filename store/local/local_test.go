@@ -9,7 +9,7 @@ import (
 	"github.com/kode4food/timebox/store"
 	"github.com/kode4food/timebox/store/local"
 	st "github.com/kode4food/timebox/store/test"
-	"github.com/prologic/bitcask"
+	"git.mills.io/prologic/bitcask"
 	"github.com/stretchr/testify/assert"
 )
 
