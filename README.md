@@ -1,6 +1,6 @@
 # Timebox
 
-An event sourcing library for Go with built-in distributed coordination.
+An event sourcing library for Go and Redis with built-in distributed coordination.
 
 ## Features
 
