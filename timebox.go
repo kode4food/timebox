@@ -12,7 +12,6 @@ import (
 type (
 	Timebox struct {
 		config Config
-		store  *Store
 		hub    EventHub
 		ctx    context.Context
 		cancel context.CancelFunc
@@ -42,19 +41,7 @@ func NewTimebox(cfg Config) (*Timebox, error) {
 		cancel: cancel,
 	}
 
-	store, err := newStore(tb)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	tb.store = store
 	return tb, nil
-}
-
-// GetStore returns the underlying Store instance.
-func (tb *Timebox) GetStore() *Store {
-	return tb.store
 }
 
 // GetHub returns the EventHub instance.
@@ -70,5 +57,5 @@ func (tb *Timebox) Context() context.Context {
 // Close gracefully shuts down the Timebox
 func (tb *Timebox) Close() error {
 	tb.cancel()
-	return tb.store.Close()
+	return nil
 }

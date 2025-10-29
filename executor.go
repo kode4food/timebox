@@ -25,14 +25,14 @@ type (
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 
 func NewExecutor[T any](
-	tb *Timebox, apps Appliers[T], cons constructor[T],
+	store *Store, apps Appliers[T], cons constructor[T],
 ) *Executor[T] {
 	return &Executor[T]{
-		store:      tb.store,
+		store:      store,
 		appliers:   apps,
 		construct:  cons,
-		cache:      newLRUCache[*projection[T]](tb.config.CacheSize),
-		maxRetries: tb.config.MaxRetries,
+		cache:      newLRUCache[*projection[T]](store.tb.config.CacheSize),
+		maxRetries: store.tb.config.MaxRetries,
 	}
 }
 

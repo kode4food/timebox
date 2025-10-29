@@ -13,6 +13,7 @@ import (
 
 type (
 	Store struct {
+		tb              *Timebox
 		client          *redis.Client
 		prefix          string
 		producer        topic.Producer[*Event]
@@ -39,8 +40,8 @@ const (
 	snapshotSeqSuffix = ":snapshot:seq"
 )
 
-func newStore(tb *Timebox) (*Store, error) {
-	cfg := tb.config.Store
+// NewStore creates a new Store instance that publishes events to the Timebox
+func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
@@ -55,6 +56,7 @@ func newStore(tb *Timebox) (*Store, error) {
 	}
 
 	s := &Store{
+		tb:              tb,
 		client:          client,
 		prefix:          cfg.Prefix,
 		producer:        tb.hub.NewProducer(),

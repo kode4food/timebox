@@ -98,17 +98,16 @@ var appliers = OrderAppliers{
 
 type orderExample struct {
 	ctx      context.Context
+	tb       *timebox.Timebox
+	store    *timebox.Store
 	executor *OrderExecutor
 	orderID  timebox.AggregateID
 }
 
 func main() {
-	ex := &orderExample{
-		ctx:      context.Background(),
-		executor: setupTimebox(),
-		orderID:  timebox.NewAggregateID("order", "ORD-12345"),
-	}
-	defer ex.executor.GetStore().Close()
+	ex := setupExample()
+	defer func() { _ = ex.tb.Close() }()
+	defer func() { _ = ex.store.Close() }()
 
 	ex.createOrder()
 	ex.addShippingAddress()
@@ -119,19 +118,30 @@ func main() {
 	fmt.Println("\nOrder lifecycle complete!")
 }
 
-func setupTimebox() *OrderExecutor {
+func setupExample() *orderExample {
 	cfg := timebox.DefaultConfig()
-	cfg.Store.Prefix = "example"
-	cfg.CacheSize = 4096
-	cfg.MaxRetries = 10
-	cfg.EnableSnapshotWorker = true
+	storeCfg := cfg.Store
+	storeCfg.Prefix = "example"
 
 	tb, err := timebox.NewTimebox(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return timebox.NewExecutor(tb, appliers, NewOrderState)
+	store, err := tb.NewStore(storeCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	executor := timebox.NewExecutor(store, appliers, NewOrderState)
+
+	return &orderExample{
+		ctx:      context.Background(),
+		tb:       tb,
+		store:    store,
+		executor: executor,
+		orderID:  timebox.NewAggregateID("order", "ORD-12345"),
+	}
 }
 
 func (ex *orderExample) createOrder() {
