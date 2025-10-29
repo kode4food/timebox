@@ -10,34 +10,28 @@ import (
 type (
 	Aggregator[T any] struct {
 		value    T
-		appliers map[EventType]Applier[T]
+		appliers Appliers[T]
 		id       AggregateID
 		enqueued []*Event
 		next     int64
 	}
 
-	Applier[T any] func(T, *Event) T
+	Appliers[T any] map[EventType]Applier[T]
 
-	Flusher func([]*Event) error
+	Applier[T any] func(T, *Event) T
+	Flusher        func([]*Event) error
 )
 
 func newAggregator[T any](
-	id AggregateID, appliers map[EventType]Applier[T], initialValue T, initialSeq int64,
+	id AggregateID, appliers Appliers[T], initValue T, initSeq int64,
 ) *Aggregator[T] {
 	return &Aggregator[T]{
 		id:       id,
-		next:     initialSeq,
+		next:     initSeq,
 		enqueued: []*Event{},
 		appliers: appliers,
-		value:    initialValue,
+		value:    initValue,
 	}
-}
-
-// NewAggregator creates a new aggregator (for testing)
-func NewAggregator[T any](
-	id AggregateID, appliers map[EventType]Applier[T], initialValue T,
-) *Aggregator[T] {
-	return newAggregator(id, appliers, initialValue, 0)
 }
 
 func (a *Aggregator[_]) ID() AggregateID {

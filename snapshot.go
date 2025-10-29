@@ -9,7 +9,7 @@ import (
 
 type (
 	SnapshotWorker struct {
-		store  Store
+		store  *Store
 		ctx    context.Context
 		queue  chan snapshotRequest
 		cancel context.CancelFunc
@@ -25,7 +25,7 @@ type (
 )
 
 func NewSnapshotWorker(
-	store Store, config StoreConfig,
+	store *Store, config StoreConfig,
 ) *SnapshotWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 

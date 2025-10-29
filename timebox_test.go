@@ -49,16 +49,31 @@ func setupTestExecutor(t *testing.T) (*miniredis.Miniredis, *timebox.Executor[*C
 	server, err := miniredis.Run()
 	require.NoError(t, err)
 
-	cfg := timebox.DefaultStoreConfig()
-	cfg.Addr = server.Addr()
-	cfg.Prefix = "test"
+	cfg := timebox.DefaultConfig()
+	cfg.Store.Addr = server.Addr()
+	cfg.Store.Prefix = "test"
 
-	hub := timebox.NewEventHub()
-	store, err := timebox.NewStore(hub, cfg)
+	tb, err := timebox.NewTimebox(cfg)
 	require.NoError(t, err)
 
-	executor := timebox.NewExecutor(store, appliers, newCounterState, 100)
+	executor := timebox.NewExecutor(tb, appliers, newCounterState)
 	return server, executor
+}
+
+func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (*miniredis.Miniredis, *timebox.Timebox, *timebox.Executor[*CounterState]) {
+	server, err := miniredis.Run()
+	require.NoError(t, err)
+
+	cfg := timebox.DefaultConfig()
+	cfg.Store.Addr = server.Addr()
+	cfg.Store.Prefix = "test"
+	cfg.EnableSnapshotWorker = false // Disable snapshot worker
+
+	tb, err := timebox.NewTimebox(cfg)
+	require.NoError(t, err)
+
+	executor := timebox.NewExecutor(tb, appliers, newCounterState)
+	return server, tb, executor
 }
 
 func TestBasicIncrement(t *testing.T) {
@@ -77,6 +92,29 @@ func TestBasicIncrement(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 5, state.Value)
+}
+
+func TestTimeboxWithoutSnapshotWorker(t *testing.T) {
+	server, tb, executor := setupTestExecutorWithoutSnapshotWorker(t)
+	defer server.Close()
+	defer tb.Close()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("counter", "no-snapshot")
+
+	// Execute a command
+	state, err := executor.Exec(ctx, id, func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+		data, _ := json.Marshal(10)
+		ag.Raise(EventIncremented, data)
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 10, state.Value)
+
+	// Explicitly save snapshot
+	err = executor.SaveSnapshot(ctx, id)
+	require.NoError(t, err)
 }
 
 func TestMultipleOperations(t *testing.T) {
@@ -154,17 +192,15 @@ func TestEventHubNotification(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultStoreConfig()
-	cfg.Addr = server.Addr()
+	cfg := timebox.DefaultConfig()
+	cfg.Store.Addr = server.Addr()
 
-	hub := timebox.NewEventHub()
-	store, err := timebox.NewStore(hub, cfg)
+	tb, err := timebox.NewTimebox(cfg)
 	require.NoError(t, err)
-	defer store.Close()
+	defer tb.Close()
 
-	executor := timebox.NewExecutor(store, appliers, newCounterState, 100)
-
-	consumer := hub.NewConsumer()
+	executor := timebox.NewExecutor(tb, appliers, newCounterState)
+	consumer := tb.GetHub().NewConsumer()
 	defer consumer.Close()
 
 	ctx := context.Background()
@@ -214,13 +250,14 @@ func TestStoreOperations(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultStoreConfig()
-	cfg.Addr = server.Addr()
+	cfg := timebox.DefaultConfig()
+	cfg.Store.Addr = server.Addr()
 
-	hub := timebox.NewEventHub()
-	store, err := timebox.NewStore(hub, cfg)
+	tb, err := timebox.NewTimebox(cfg)
 	require.NoError(t, err)
-	defer store.Close()
+	defer tb.Close()
+
+	store := tb.GetStore()
 
 	ctx := context.Background()
 	id := timebox.NewAggregateID("test", "1")

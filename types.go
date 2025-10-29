@@ -28,10 +28,6 @@ type (
 	}
 )
 
-func (p *projection[T]) GetNextSequence() int64 {
-	return p.NextSequence
-}
-
 func ParseAggregateID(str, sep string) AggregateID {
 	s := strings.Split(str, sep)
 	return *(*AggregateID)(unsafe.Pointer(&s))

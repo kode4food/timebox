@@ -7,32 +7,31 @@ import (
 
 type (
 	Executor[T any] struct {
-		store     Store
-		appliers  map[EventType]Applier[T]
-		construct constructor[T]
-		cache     *lruCache[*projection[T]]
+		store      *Store
+		appliers   map[EventType]Applier[T]
+		construct  constructor[T]
+		cache      *lruCache[*projection[T]]
+		maxRetries int
 	}
 
 	Command[T any] func(T, *Aggregator[T]) error
 )
 
-const MaxRetries = 10
-
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 
 func NewExecutor[T any](
-	store Store, apps map[EventType]Applier[T], cons constructor[T],
-	cacheSize int,
+	tb *Timebox, apps map[EventType]Applier[T], cons constructor[T],
 ) *Executor[T] {
 	return &Executor[T]{
-		store:    store,
-		appliers: apps,
-		construct: cons,
-		cache: newLRUCache[*projection[T]](cacheSize),
+		store:      tb.store,
+		appliers:   apps,
+		construct:  cons,
+		cache:      newLRUCache[*projection[T]](tb.config.CacheSize),
+		maxRetries: tb.config.MaxRetries,
 	}
 }
 
-func (e *Executor[T]) GetStore() Store {
+func (e *Executor[T]) GetStore() *Store {
 	return e.store
 }
 
@@ -40,7 +39,7 @@ func (e *Executor[T]) Exec(
 	ctx context.Context, id AggregateID, cmd Command[T],
 ) (T, error) {
 	var zero T
-	for range MaxRetries {
+	for range e.maxRetries {
 		proj, err := e.loadSnapshot(ctx, id)
 		if err != nil {
 			return zero, err
@@ -120,17 +119,15 @@ func (e *Executor[T]) loadFromStore(
 		proj = e.applyEvents(proj.State, events, proj.NextSequence)
 	}
 
-	if snapshot {
-		if s, ok := e.store.(*store); ok && s.snapshotWorker != nil {
-			s.snapshotWorker.enqueue(id, proj, proj.NextSequence)
-		}
+	if snapshot && e.store.snapshotWorker != nil {
+		e.store.snapshotWorker.enqueue(id, proj, proj.NextSequence)
 	}
 
 	entry.value = proj
 	return proj, nil
 }
 
-func (e *Executor[T]) applyEvents(state T, evs []*Event, startSeq int64) *projection[T] {
+func (e *Executor[T]) applyEvents(state T, evs []*Event, _ int64) *projection[T] {
 	for _, ev := range evs {
 		if apply, ok := e.appliers[ev.Type]; ok {
 			state = apply(state, ev)

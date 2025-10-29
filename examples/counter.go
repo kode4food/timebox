@@ -10,16 +10,11 @@ import (
 )
 
 type CounterState struct {
-	Value        int   `json:"value"`
-	NextSequence int64 `json:"next_sequence"`
-}
-
-func (s *CounterState) GetNextSequence() int64 {
-	return s.NextSequence
+	Value int `json:"value"`
 }
 
 func NewCounterState() *CounterState {
-	return &CounterState{Value: 0, NextSequence: 0}
+	return &CounterState{Value: 0}
 }
 
 const (
@@ -34,47 +29,36 @@ var appliers = map[timebox.EventType]timebox.Applier[*CounterState]{
 		if err := json.Unmarshal(ev.Data, &delta); err != nil {
 			return state
 		}
-		return &CounterState{
-			Value:        state.Value + delta,
-			NextSequence: ev.Sequence + 1,
-		}
+		return &CounterState{Value: state.Value + delta}
 	},
 	EventDecremented: func(state *CounterState, ev *timebox.Event) *CounterState {
 		var delta int
 		if err := json.Unmarshal(ev.Data, &delta); err != nil {
 			return state
 		}
-		return &CounterState{
-			Value:        state.Value - delta,
-			NextSequence: ev.Sequence + 1,
-		}
+		return &CounterState{Value: state.Value - delta}
 	},
 	EventReset: func(state *CounterState, ev *timebox.Event) *CounterState {
-		return &CounterState{
-			Value:        0,
-			NextSequence: ev.Sequence + 1,
-		}
+		return &CounterState{Value: 0}
 	},
 }
 
 func main() {
-	hub := timebox.NewEventHub()
+	// Create a Timebox with configuration
+	cfg := timebox.DefaultConfig()
+	cfg.Store.Prefix = "example"
+	cfg.CacheSize = 4096
+	cfg.MaxRetries = 10
+	cfg.EnableSnapshotWorker = true // Snapshot worker will handle automatic snapshots
 
-	cfg := timebox.DefaultStoreConfig()
-	cfg.Prefix = "example"
-
-	store, err := timebox.NewStore(hub, cfg)
+	tb, err := timebox.NewTimebox(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer store.Close()
+	defer tb.Close()
 
-	executor := timebox.NewExecutor(
-		store,
-		appliers,
-		NewCounterState,
-		4096,
-	)
+	// Create an executor using the Timebox
+	executor := timebox.NewExecutor(tb, appliers, NewCounterState)
 
 	ctx := context.Background()
 	counterID := timebox.NewAggregateID("counter", "demo")

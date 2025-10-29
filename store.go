@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -13,31 +12,7 @@ import (
 )
 
 type (
-	Store interface {
-		io.Closer
-
-		AppendEvents(
-			ctx context.Context, id AggregateID, events []*Event,
-		) error
-
-		GetEvents(
-			ctx context.Context, id AggregateID, fromSeq int64,
-		) ([]*Event, error)
-
-		GetSnapshot(
-			ctx context.Context, id AggregateID, target any,
-		) (events []*Event, shouldSnapshot bool, err error)
-
-		PutSnapshot(
-			ctx context.Context, id AggregateID, value any, sequence int64,
-		) error
-
-		ListAggregates(
-			ctx context.Context, keyPattern AggregateID,
-		) ([]AggregateID, error)
-	}
-
-	store struct {
+	Store struct {
 		client          *redis.Client
 		prefix          string
 		producer        topic.Producer[*Event]
@@ -71,23 +46,21 @@ const (
 	snapshotSeqSuffix = ":snapshot:seq"
 )
 
-func NewStore(hub EventHub, cfg StoreConfig) (Store, error) {
+func newStore(ctx context.Context, hub EventHub, cfg StoreConfig, enableSnapshotWorker bool) (*Store, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
 		DB:       cfg.DB,
 	})
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(), RedisConnectTimeout,
-	)
+	pingCtx, cancel := context.WithTimeout(ctx, RedisConnectTimeout)
 	defer cancel()
 
-	if err := client.Ping(ctx).Err(); err != nil {
+	if err := client.Ping(pingCtx).Err(); err != nil {
 		return nil, err
 	}
 
-	s := &store{
+	s := &Store{
 		client:          client,
 		prefix:          cfg.Prefix,
 		producer:        hub.NewProducer(),
@@ -98,11 +71,13 @@ func NewStore(hub EventHub, cfg StoreConfig) (Store, error) {
 		config:          cfg,
 	}
 
-	s.snapshotWorker = NewSnapshotWorker(s, cfg)
+	if enableSnapshotWorker {
+		s.snapshotWorker = NewSnapshotWorker(s, cfg)
+	}
 	return s, nil
 }
 
-func (s *store) Close() error {
+func (s *Store) Close() error {
 	if s.snapshotWorker != nil {
 		s.snapshotWorker.Stop()
 	}
@@ -112,7 +87,7 @@ func (s *store) Close() error {
 	return s.client.Close()
 }
 
-func (s *store) AppendEvents(
+func (s *Store) AppendEvents(
 	ctx context.Context, id AggregateID, evs []*Event,
 ) error {
 	if len(evs) == 0 {
@@ -153,22 +128,7 @@ func (s *store) AppendEvents(
 	return nil
 }
 
-func (s *store) handleVersionConflict(
-	rawEvents []any, expectedSeq, actualSeq int64,
-) error {
-	newEvs, err := s.unmarshalEvents(rawEvents)
-	if err != nil {
-		return err
-	}
-
-	return &VersionConflictError{
-		ExpectedSequence: expectedSeq,
-		ActualSequence:   actualSeq,
-		NewEvents:        newEvs,
-	}
-}
-
-func (s *store) GetEvents(
+func (s *Store) GetEvents(
 	ctx context.Context, id AggregateID, fromSeq int64,
 ) ([]*Event, error) {
 	eventsKey := s.buildKey(id, eventsSuffix)
@@ -183,7 +143,7 @@ func (s *store) GetEvents(
 	return s.unmarshalEvents(result.([]any))
 }
 
-func (s *store) GetSnapshot(
+func (s *Store) GetSnapshot(
 	ctx context.Context, id AggregateID, target any,
 ) ([]*Event, bool, error) {
 	snapKey := s.buildKey(id, snapshotValSuffix)
@@ -225,7 +185,7 @@ func (s *store) GetSnapshot(
 	return events, eventsSize > snapSize, nil
 }
 
-func (s *store) PutSnapshot(
+func (s *Store) PutSnapshot(
 	ctx context.Context, id AggregateID, value any, sequence int64,
 ) error {
 	snapKey := s.buildKey(id, snapshotValSuffix)
@@ -243,7 +203,7 @@ func (s *store) PutSnapshot(
 	return err
 }
 
-func (s *store) ListAggregates(
+func (s *Store) ListAggregates(
 	ctx context.Context, id AggregateID,
 ) ([]AggregateID, error) {
 	str := id.Join(":")
@@ -265,16 +225,31 @@ func (s *store) ListAggregates(
 	return ids, nil
 }
 
-func (s *store) buildKey(id AggregateID, suffix string) string {
+func (s *Store) handleVersionConflict(
+	rawEvents []any, expectedSeq, actualSeq int64,
+) error {
+	newEvs, err := s.unmarshalEvents(rawEvents)
+	if err != nil {
+		return err
+	}
+
+	return &VersionConflictError{
+		ExpectedSequence: expectedSeq,
+		ActualSequence:   actualSeq,
+		NewEvents:        newEvs,
+	}
+}
+
+func (s *Store) buildKey(id AggregateID, suffix string) string {
 	str := id.Join(":")
 	return fmt.Sprintf("%s:%s%s", s.prefix, str, suffix)
 }
 
-func (s *store) parseAggregateID(str string) AggregateID {
+func (s *Store) parseAggregateID(str string) AggregateID {
 	return ParseAggregateID(str, ":")
 }
 
-func (s *store) unmarshalEvents(data []any) ([]*Event, error) {
+func (s *Store) unmarshalEvents(data []any) ([]*Event, error) {
 	events := make([]*Event, 0, len(data))
 	for _, item := range data {
 		ev := &Event{}
