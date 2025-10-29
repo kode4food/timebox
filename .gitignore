@@ -30,4 +30,4 @@ go.work.sum
 Thumbs.db
 
 # Example binary
-examples/counter
+examples/order

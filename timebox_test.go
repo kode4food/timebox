@@ -13,7 +13,7 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-// User-defined state (no NextSequence tracking required!)
+// Simple counter state for testing
 type CounterState struct {
 	Value int `json:"value"`
 }
@@ -28,20 +28,25 @@ const (
 	EventReset       timebox.EventType = "reset"
 )
 
-// Appliers only care about business logic - no sequence tracking!
-var appliers = map[timebox.EventType]timebox.Applier[*CounterState]{
+var appliers = timebox.Appliers[*CounterState]{
 	EventIncremented: func(state *CounterState, ev *timebox.Event) *CounterState {
 		var delta int
 		_ = json.Unmarshal(ev.Data, &delta)
-		return &CounterState{Value: state.Value + delta}
+		res := *state
+		res.Value = state.Value + delta
+		return &res
 	},
 	EventDecremented: func(state *CounterState, ev *timebox.Event) *CounterState {
 		var delta int
 		_ = json.Unmarshal(ev.Data, &delta)
-		return &CounterState{Value: state.Value - delta}
+		res := *state
+		res.Value = state.Value - delta
+		return &res
 	},
 	EventReset: func(state *CounterState, ev *timebox.Event) *CounterState {
-		return &CounterState{Value: 0}
+		res := *state
+		res.Value = 0
+		return &res
 	},
 }
 
@@ -67,7 +72,7 @@ func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (*miniredis.Miniredis,
 	cfg := timebox.DefaultConfig()
 	cfg.Store.Addr = server.Addr()
 	cfg.Store.Prefix = "test"
-	cfg.EnableSnapshotWorker = false // Disable snapshot worker
+	cfg.EnableSnapshotWorker = false
 
 	tb, err := timebox.NewTimebox(cfg)
 	require.NoError(t, err)
@@ -102,7 +107,6 @@ func TestTimeboxWithoutSnapshotWorker(t *testing.T) {
 	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "no-snapshot")
 
-	// Execute a command
 	state, err := executor.Exec(ctx, id, func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 		data, _ := json.Marshal(10)
 		ag.Raise(EventIncremented, data)
@@ -112,7 +116,6 @@ func TestTimeboxWithoutSnapshotWorker(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 10, state.Value)
 
-	// Explicitly save snapshot
 	err = executor.SaveSnapshot(ctx, id)
 	require.NoError(t, err)
 }
@@ -125,7 +128,6 @@ func TestMultipleOperations(t *testing.T) {
 	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "1")
 
-	// Increment
 	state, err := executor.Exec(ctx, id, func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 		data, _ := json.Marshal(10)
 		ag.Raise(EventIncremented, data)
@@ -134,7 +136,6 @@ func TestMultipleOperations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 10, state.Value)
 
-	// Increment again
 	state, err = executor.Exec(ctx, id, func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 		assert.Equal(t, 10, s.Value) // Previous state is loaded
 		data, _ := json.Marshal(5)
@@ -144,7 +145,6 @@ func TestMultipleOperations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 15, state.Value)
 
-	// Decrement
 	state, err = executor.Exec(ctx, id, func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 		data, _ := json.Marshal(3)
 		ag.Raise(EventDecremented, data)
@@ -153,7 +153,6 @@ func TestMultipleOperations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 12, state.Value)
 
-	// Reset
 	state, err = executor.Exec(ctx, id, func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 		ag.Raise(EventReset, json.RawMessage("{}"))
 		return nil
@@ -170,7 +169,6 @@ func TestConcurrentWrites(t *testing.T) {
 	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "concurrent")
 
-	// Sequential writes (should all succeed due to optimistic concurrency)
 	for i := 0; i < 10; i++ {
 		_, err := executor.Exec(ctx, id, func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			data, _ := json.Marshal(1)
@@ -262,20 +260,19 @@ func TestStoreOperations(t *testing.T) {
 	ctx := context.Background()
 	id := timebox.NewAggregateID("test", "1")
 
-	// Append events
 	ev := &timebox.Event{
 		ID:          "ev1",
 		Type:        EventIncremented,
 		AggregateID: id,
 		Timestamp:   time.Now(),
-		Data:        json.RawMessage("{}"),
+		Data:        json.RawMessage(`5`),
 	}
 
 	err = store.AppendEvents(ctx, id, 0, []*timebox.Event{ev})
 	require.NoError(t, err)
 
-	// Get events
 	events, err := store.GetEvents(ctx, id, 0)
 	require.NoError(t, err)
 	assert.Len(t, events, 1)
+	assert.Equal(t, EventIncremented, events[0].Type)
 }

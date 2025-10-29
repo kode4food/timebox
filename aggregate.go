@@ -2,7 +2,9 @@ package timebox
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/google/uuid"
 )
@@ -17,9 +19,11 @@ type (
 	}
 
 	Appliers[T any] map[EventType]Applier[T]
+	Applier[T any]  func(T, *Event) T
+	Flusher         func(int64, []*Event) error
 
-	Applier[T any] func(T, *Event) T
-	Flusher        func(int64, []*Event) error
+	AggregateID []ID
+	ID          string
 )
 
 func newAggregator[T any](
@@ -76,4 +80,18 @@ func (a *Aggregator[_]) Flush(f Flusher) (int, error) {
 	}
 	a.enqueued = []*Event{}
 	return count, nil
+}
+
+func NewAggregateID(parts ...ID) AggregateID {
+	return parts
+}
+
+func ParseAggregateID(str, sep string) AggregateID {
+	s := strings.Split(str, sep)
+	return *(*AggregateID)(unsafe.Pointer(&s))
+}
+
+func (id AggregateID) Join(sep string) string {
+	s := *(*[]string)(unsafe.Pointer(&id))
+	return strings.Join(s, sep)
 }

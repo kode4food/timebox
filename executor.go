@@ -15,6 +15,11 @@ type (
 	}
 
 	Command[T any] func(T, *Aggregator[T]) error
+
+	projection[T any] struct {
+		state   T
+		nextSeq int64
+	}
 )
 
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
