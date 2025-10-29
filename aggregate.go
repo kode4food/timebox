@@ -19,7 +19,7 @@ type (
 	Appliers[T any] map[EventType]Applier[T]
 
 	Applier[T any] func(T, *Event) T
-	Flusher        func([]*Event) error
+	Flusher        func(int64, []*Event) error
 )
 
 func newAggregator[T any](
@@ -52,7 +52,6 @@ func (a *Aggregator[T]) Raise(typ EventType, data json.RawMessage) {
 		Timestamp:   time.Now(),
 		AggregateID: a.id,
 		Type:        typ,
-		Sequence:    a.next,
 		Data:        data,
 	}
 	a.enqueued = append(a.enqueued, ev)
@@ -71,10 +70,10 @@ func (a *Aggregator[_]) Flush(f Flusher) (int, error) {
 	if count == 0 {
 		return 0, nil
 	}
-	if err := f(a.enqueued); err != nil {
+	expectedSeq := a.next - int64(count)
+	if err := f(expectedSeq, a.enqueued); err != nil {
 		return count, err
 	}
-	a.next = a.enqueued[count-1].Sequence + 1
 	a.enqueued = []*Event{}
 	return count, nil
 }

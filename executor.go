@@ -8,7 +8,7 @@ import (
 type (
 	Executor[T any] struct {
 		store      *Store
-		appliers   map[EventType]Applier[T]
+		appliers   Appliers[T]
 		construct  constructor[T]
 		cache      *lruCache[*projection[T]]
 		maxRetries int
@@ -20,7 +20,7 @@ type (
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 
 func NewExecutor[T any](
-	tb *Timebox, apps map[EventType]Applier[T], cons constructor[T],
+	tb *Timebox, apps Appliers[T], cons constructor[T],
 ) *Executor[T] {
 	return &Executor[T]{
 		store:      tb.store,
@@ -50,8 +50,8 @@ func (e *Executor[T]) Exec(
 			return zero, err
 		}
 
-		count, err := ag.Flush(func(evs []*Event) error {
-			return e.store.AppendEvents(ctx, id, evs)
+		count, err := ag.Flush(func(expectedSeq int64, evs []*Event) error {
+			return e.store.AppendEvents(ctx, id, expectedSeq, evs)
 		})
 		if err == nil {
 			if count == 0 {
@@ -136,7 +136,7 @@ func (e *Executor[T]) loadFromStore(
 	return proj, nil
 }
 
-func (e *Executor[T]) applyEvents(st T, evs []*Event, _ int64) *projection[T] {
+func (e *Executor[T]) applyEvents(st T, evs []*Event, startSeq int64) *projection[T] {
 	for _, ev := range evs {
 		if apply, ok := e.appliers[ev.Type]; ok {
 			st = apply(st, ev)
@@ -144,7 +144,7 @@ func (e *Executor[T]) applyEvents(st T, evs []*Event, _ int64) *projection[T] {
 	}
 	return &projection[T]{
 		state:   st,
-		nextSeq: evs[len(evs)-1].Sequence + 1,
+		nextSeq: startSeq + int64(len(evs)),
 	}
 }
 

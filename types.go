@@ -22,7 +22,6 @@ type (
 		Type        EventType       `json:"type"`
 		AggregateID AggregateID     `json:"aggregate_id"`
 		Data        json.RawMessage `json:"data"`
-		Sequence    int64           `json:"sequence"`
 	}
 
 	projection[T any] struct {

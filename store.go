@@ -82,7 +82,7 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) AppendEvents(
-	ctx context.Context, id AggregateID, evs []*Event,
+	ctx context.Context, id AggregateID, atSeq int64, evs []*Event,
 ) error {
 	if len(evs) == 0 {
 		return nil
@@ -90,7 +90,7 @@ func (s *Store) AppendEvents(
 
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
-	args := []any{evs[0].Sequence}
+	args := []any{atSeq}
 
 	for _, ev := range evs {
 		eventData, err := json.Marshal(ev)
@@ -110,7 +110,7 @@ func (s *Store) AppendEvents(
 	seq := res[1].(int64)
 
 	if success == 0 {
-		return s.handleVersionConflict(res[2:], evs[0].Sequence, seq)
+		return s.handleVersionConflict(res[2:], atSeq, seq)
 	}
 
 	if s.producer != nil {

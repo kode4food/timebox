@@ -268,11 +268,10 @@ func TestStoreOperations(t *testing.T) {
 		Type:        EventIncremented,
 		AggregateID: id,
 		Timestamp:   time.Now(),
-		Sequence:    0,
 		Data:        json.RawMessage("{}"),
 	}
 
-	err = store.AppendEvents(ctx, id, []*timebox.Event{ev})
+	err = store.AppendEvents(ctx, id, 0, []*timebox.Event{ev})
 	require.NoError(t, err)
 
 	// Get events
