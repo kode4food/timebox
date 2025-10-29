@@ -24,9 +24,7 @@ type (
 	}
 )
 
-func NewSnapshotWorker(
-	store *Store, config StoreConfig,
-) *SnapshotWorker {
+func NewSnapshotWorker(store *Store, config StoreConfig) *SnapshotWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sw := &SnapshotWorker{
@@ -43,6 +41,12 @@ func NewSnapshotWorker(
 	}
 
 	return sw
+}
+
+func (sw *SnapshotWorker) Stop() {
+	sw.cancel()
+	sw.wg.Wait()
+	close(sw.queue)
 }
 
 func (sw *SnapshotWorker) worker(id int) {
@@ -105,10 +109,4 @@ func (sw *SnapshotWorker) enqueue(
 		)
 		return false
 	}
-}
-
-func (sw *SnapshotWorker) Stop() {
-	sw.cancel()
-	sw.wg.Wait()
-	close(sw.queue)
 }

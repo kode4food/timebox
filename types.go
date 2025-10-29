@@ -5,12 +5,16 @@ import (
 	"strings"
 	"time"
 	"unsafe"
+
+	"github.com/kode4food/caravan/topic"
 )
 
 type (
 	ID          string
 	EventType   string
 	AggregateID []ID
+
+	EventHub topic.Topic[*Event]
 
 	Event struct {
 		Timestamp   time.Time       `json:"timestamp"`
@@ -21,20 +25,19 @@ type (
 		Sequence    int64           `json:"sequence"`
 	}
 
-	// projection is internal wrapper that tracks sequence alongside user state
 	projection[T any] struct {
-		State        T     `json:"state"`
-		NextSequence int64 `json:"next_sequence"`
+		state   T
+		nextSeq int64
 	}
 )
+
+func NewAggregateID(parts ...ID) AggregateID {
+	return parts
+}
 
 func ParseAggregateID(str, sep string) AggregateID {
 	s := strings.Split(str, sep)
 	return *(*AggregateID)(unsafe.Pointer(&s))
-}
-
-func NewAggregateID(parts ...ID) AggregateID {
-	return parts
 }
 
 func (id AggregateID) Join(sep string) string {

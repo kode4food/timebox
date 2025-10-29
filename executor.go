@@ -45,7 +45,7 @@ func (e *Executor[T]) Exec(
 			return zero, err
 		}
 
-		ag := newAggregator(id, e.appliers, proj.State, proj.NextSequence)
+		ag := newAggregator(id, e.appliers, proj.state, proj.nextSeq)
 		if err := cmd(ag.Value(), ag); err != nil {
 			return zero, err
 		}
@@ -55,14 +55,14 @@ func (e *Executor[T]) Exec(
 		})
 		if err == nil {
 			if count == 0 {
-				return proj.State, nil
+				return proj.state, nil
 			}
 			final := &projection[T]{
-				State:        ag.Value(),
-				NextSequence: ag.next,
+				state:   ag.Value(),
+				nextSeq: ag.next,
 			}
 			e.updateCache(id, final)
-			return final.State, nil
+			return final.state, nil
 		}
 
 		if !e.handleVersionConflict(err, id, proj) {
@@ -71,6 +71,15 @@ func (e *Executor[T]) Exec(
 	}
 
 	return zero, ErrMaxRetriesExceeded
+}
+
+// SaveSnapshot forces an immediate snapshot save for the given Aggregate
+func (e *Executor[T]) SaveSnapshot(ctx context.Context, id AggregateID) error {
+	proj, err := e.loadSnapshot(ctx, id)
+	if err != nil {
+		return err
+	}
+	return e.store.PutSnapshot(ctx, id, proj, proj.nextSeq)
 }
 
 func (e *Executor[T]) handleVersionConflict(
@@ -82,7 +91,7 @@ func (e *Executor[T]) handleVersionConflict(
 	}
 
 	if evs := versionErr.NewEvents; len(evs) > 0 {
-		updated := e.applyEvents(proj.State, evs, proj.NextSequence)
+		updated := e.applyEvents(proj.state, evs, proj.nextSeq)
 		e.updateCache(id, updated)
 	}
 	return true
@@ -93,12 +102,12 @@ func (e *Executor[T]) loadSnapshot(
 ) (*projection[T], error) {
 	key := id.Join(":")
 	entry := e.cache.Get(key, func() *projection[T] {
-		return &projection[T]{State: e.construct(), NextSequence: 0}
+		return &projection[T]{state: e.construct(), nextSeq: 0}
 	})
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
-	if entry.value.NextSequence != 0 {
+	if entry.value.nextSeq != 0 {
 		return entry.value, nil
 	}
 
@@ -108,7 +117,7 @@ func (e *Executor[T]) loadSnapshot(
 func (e *Executor[T]) loadFromStore(
 	ctx context.Context, id AggregateID, entry *cacheEntry[*projection[T]],
 ) (*projection[T], error) {
-	proj := &projection[T]{State: e.construct()}
+	proj := &projection[T]{state: e.construct()}
 
 	events, snapshot, err := e.store.GetSnapshot(ctx, id, proj)
 	if err != nil {
@@ -116,26 +125,26 @@ func (e *Executor[T]) loadFromStore(
 	}
 
 	if len(events) > 0 {
-		proj = e.applyEvents(proj.State, events, proj.NextSequence)
+		proj = e.applyEvents(proj.state, events, proj.nextSeq)
 	}
 
 	if snapshot && e.store.snapshotWorker != nil {
-		e.store.snapshotWorker.enqueue(id, proj, proj.NextSequence)
+		e.store.snapshotWorker.enqueue(id, proj, proj.nextSeq)
 	}
 
 	entry.value = proj
 	return proj, nil
 }
 
-func (e *Executor[T]) applyEvents(state T, evs []*Event, _ int64) *projection[T] {
+func (e *Executor[T]) applyEvents(st T, evs []*Event, _ int64) *projection[T] {
 	for _, ev := range evs {
 		if apply, ok := e.appliers[ev.Type]; ok {
-			state = apply(state, ev)
+			st = apply(st, ev)
 		}
 	}
 	return &projection[T]{
-		State:        state,
-		NextSequence: evs[len(evs)-1].Sequence + 1,
+		state:   st,
+		nextSeq: evs[len(evs)-1].Sequence + 1,
 	}
 }
 
@@ -146,17 +155,7 @@ func (e *Executor[T]) updateCache(id AggregateID, proj *projection[T]) {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
-	if proj.NextSequence > entry.value.NextSequence {
+	if proj.nextSeq > entry.value.nextSeq {
 		entry.value = proj
 	}
-}
-
-// SaveSnapshot forces an immediate snapshot save for the given aggregate.
-// This bypasses the automatic snapshot worker queue.
-func (e *Executor[T]) SaveSnapshot(ctx context.Context, id AggregateID) error {
-	proj, err := e.loadSnapshot(ctx, id)
-	if err != nil {
-		return err
-	}
-	return e.store.PutSnapshot(ctx, id, proj, proj.NextSequence)
 }

@@ -31,13 +31,6 @@ type (
 	}
 )
 
-func (e *VersionConflictError) Error() string {
-	return fmt.Sprintf(
-		"version conflict: expected sequence %d, but at %d (%d new events)",
-		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
-	)
-}
-
 const (
 	RedisConnectTimeout = 5 * time.Second
 
@@ -46,14 +39,15 @@ const (
 	snapshotSeqSuffix = ":snapshot:seq"
 )
 
-func newStore(ctx context.Context, hub EventHub, cfg StoreConfig, enableSnapshotWorker bool) (*Store, error) {
+func newStore(tb *Timebox) (*Store, error) {
+	cfg := tb.config.Store
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
 		DB:       cfg.DB,
 	})
 
-	pingCtx, cancel := context.WithTimeout(ctx, RedisConnectTimeout)
+	pingCtx, cancel := context.WithTimeout(tb.ctx, RedisConnectTimeout)
 	defer cancel()
 
 	if err := client.Ping(pingCtx).Err(); err != nil {
@@ -63,7 +57,7 @@ func newStore(ctx context.Context, hub EventHub, cfg StoreConfig, enableSnapshot
 	s := &Store{
 		client:          client,
 		prefix:          cfg.Prefix,
-		producer:        hub.NewProducer(),
+		producer:        tb.hub.NewProducer(),
 		appendEventsLua: redis.NewScript(luaAppendEvents),
 		getEventsLua:    redis.NewScript(luaGetEvents),
 		putSnapshotLua:  redis.NewScript(luaPutSnapshot),
@@ -71,7 +65,7 @@ func newStore(ctx context.Context, hub EventHub, cfg StoreConfig, enableSnapshot
 		config:          cfg,
 	}
 
-	if enableSnapshotWorker {
+	if tb.config.EnableSnapshotWorker {
 		s.snapshotWorker = NewSnapshotWorker(s, cfg)
 	}
 	return s, nil
@@ -223,6 +217,13 @@ func (s *Store) ListAggregates(
 	}
 
 	return ids, nil
+}
+
+func (e *VersionConflictError) Error() string {
+	return fmt.Sprintf(
+		"version conflict: expected sequence %d, but at %d (%d new events)",
+		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
+	)
 }
 
 func (s *Store) handleVersionConflict(

@@ -2,6 +2,8 @@ package timebox
 
 import (
 	"context"
+
+	"github.com/kode4food/caravan"
 )
 
 type Timebox struct {
@@ -12,25 +14,26 @@ type Timebox struct {
 	cancel context.CancelFunc
 }
 
-// NewTimebox creates a new Timebox instance with the given configuration.
-// It initializes the event hub and store with context management for graceful shutdown.
-func NewTimebox(config Config) (*Timebox, error) {
+// NewTimebox creates a new Timebox instance with the given configuration
+func NewTimebox(cfg Config) (*Timebox, error) {
 	ctx, cancel := context.WithCancel(context.Background())
+	hub := caravan.NewTopic[*Event]()
 
-	hub := NewEventHub()
-	store, err := newStore(ctx, hub, config.Store, config.EnableSnapshotWorker)
+	tb := &Timebox{
+		config: cfg,
+		hub:    hub,
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	store, err := newStore(tb)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 
-	return &Timebox{
-		config: config,
-		store:  store,
-		hub:    hub,
-		ctx:    ctx,
-		cancel: cancel,
-	}, nil
+	tb.store = store
+	return tb, nil
 }
 
 // GetStore returns the underlying Store instance.
@@ -48,8 +51,7 @@ func (tb *Timebox) Context() context.Context {
 	return tb.ctx
 }
 
-// Close gracefully shuts down the Timebox, stopping the snapshot worker
-// and closing all connections.
+// Close gracefully shuts down the Timebox
 func (tb *Timebox) Close() error {
 	tb.cancel()
 	return tb.store.Close()
