@@ -15,7 +15,7 @@ type (
 		appliers Appliers[T]
 		id       AggregateID
 		enqueued []*Event
-		next     int64
+		nextSeq  int64
 	}
 
 	Appliers[T any] map[EventType]Applier[T]
@@ -31,7 +31,7 @@ func newAggregator[T any](
 ) *Aggregator[T] {
 	return &Aggregator[T]{
 		id:       id,
-		next:     initSeq,
+		nextSeq:  initSeq,
 		enqueued: []*Event{},
 		appliers: appliers,
 		value:    initValue,
@@ -44,6 +44,10 @@ func (a *Aggregator[_]) ID() AggregateID {
 
 func (a *Aggregator[T]) Value() T {
 	return a.value
+}
+
+func (a *Aggregator[_]) NextSequence() int64 {
+	return a.nextSeq
 }
 
 func (a *Aggregator[_]) Enqueued() []*Event {
@@ -59,7 +63,7 @@ func (a *Aggregator[T]) Raise(typ EventType, data json.RawMessage) {
 		Data:        data,
 	}
 	a.enqueued = append(a.enqueued, ev)
-	a.next++
+	a.nextSeq++
 	a.Apply(ev)
 }
 
@@ -74,7 +78,7 @@ func (a *Aggregator[_]) Flush(f Flusher) (int, error) {
 	if count == 0 {
 		return 0, nil
 	}
-	expectedSeq := a.next - int64(count)
+	expectedSeq := a.nextSeq - int64(count)
 	if err := f(expectedSeq, a.enqueued); err != nil {
 		return count, err
 	}

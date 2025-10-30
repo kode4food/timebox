@@ -64,7 +64,7 @@ func (e *Executor[T]) Exec(
 			}
 			final := &projection[T]{
 				state:   ag.Value(),
-				nextSeq: ag.next,
+				nextSeq: ag.nextSeq,
 			}
 			e.updateCache(id, final)
 			return final.state, nil

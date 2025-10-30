@@ -167,7 +167,7 @@ func (s *Store) GetSnapshot(
 
 	snapData := resultSlice[0].(string)
 	snapSize := len(snapData)
-	snapSeq := int64(resultSlice[1].(int64))
+	snapSeq := resultSlice[1].(int64)
 
 	if snapData != "" {
 		if err := json.Unmarshal([]byte(snapData), target); err != nil {
