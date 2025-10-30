@@ -5,7 +5,6 @@ go 1.25.3
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/go-redis/redis/v8 v8.11.5
-	github.com/google/uuid v1.6.0
 	github.com/kode4food/caravan v0.0.0-20251025080141-10eee0f8ea05
 	github.com/stretchr/testify v1.11.1
 )
