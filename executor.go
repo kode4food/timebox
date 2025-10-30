@@ -84,7 +84,7 @@ func (e *Executor[T]) SaveSnapshot(ctx context.Context, id AggregateID) error {
 	if err != nil {
 		return err
 	}
-	return e.store.PutSnapshot(ctx, id, proj, proj.nextSeq)
+	return e.store.PutSnapshot(ctx, id, proj.state, proj.nextSeq)
 }
 
 func (e *Executor[T]) handleVersionConflict(
@@ -122,19 +122,24 @@ func (e *Executor[T]) loadSnapshot(
 func (e *Executor[T]) loadFromStore(
 	ctx context.Context, id AggregateID, entry *cacheEntry[*projection[T]],
 ) (*projection[T], error) {
-	proj := &projection[T]{state: e.construct()}
+	state := e.construct()
 
-	events, snapshot, err := e.store.GetSnapshot(ctx, id, proj)
+	snap, err := e.store.GetSnapshot(ctx, id, &state)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(events) > 0 {
-		proj = e.applyEvents(proj.state, events, proj.nextSeq)
+	proj := &projection[T]{
+		state:   state,
+		nextSeq: snap.NextSequence,
 	}
 
-	if snapshot && e.store.snapshotWorker != nil {
-		e.store.snapshotWorker.enqueue(id, proj, proj.nextSeq)
+	if len(snap.AdditionalEvents) > 0 {
+		proj = e.applyEvents(state, snap.AdditionalEvents, snap.NextSequence-int64(len(snap.AdditionalEvents)))
+	}
+
+	if snap.ShouldSnapshot && e.store.snapshotWorker != nil {
+		e.store.snapshotWorker.enqueue(id, proj.state, proj.nextSeq)
 	}
 
 	entry.value = proj

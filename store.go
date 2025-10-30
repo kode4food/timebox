@@ -30,6 +30,12 @@ type (
 		ExpectedSequence int64
 		ActualSequence   int64
 	}
+
+	SnapshotResult struct {
+		AdditionalEvents []*Event
+		NextSequence     int64
+		ShouldSnapshot   bool
+	}
 )
 
 const (
@@ -141,7 +147,7 @@ func (s *Store) GetEvents(
 
 func (s *Store) GetSnapshot(
 	ctx context.Context, id AggregateID, target any,
-) ([]*Event, bool, error) {
+) (*SnapshotResult, error) {
 	snapKey := s.buildKey(id, snapshotValSuffix)
 	snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 	eventsKey := s.buildKey(id, eventsSuffix)
@@ -149,28 +155,29 @@ func (s *Store) GetSnapshot(
 
 	result, err := s.getSnapshotLua.Run(ctx, s.client, keys).Result()
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	resultSlice := result.([]any)
 	if len(resultSlice) < 2 {
-		return nil, false, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"unexpected result format from Lua script",
 		)
 	}
 
 	snapData := resultSlice[0].(string)
 	snapSize := len(snapData)
+	snapSeq := int64(resultSlice[1].(int64))
 
 	if snapData != "" {
 		if err := json.Unmarshal([]byte(snapData), target); err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
 
 	events, err := s.unmarshalEvents(resultSlice[2:])
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	eventsSize := 0
@@ -178,7 +185,11 @@ func (s *Store) GetSnapshot(
 		eventsSize += len(resultSlice[i+2].(string))
 	}
 
-	return events, eventsSize > snapSize, nil
+	return &SnapshotResult{
+		AdditionalEvents: events,
+		NextSequence:     snapSeq + int64(len(events)),
+		ShouldSnapshot:   eventsSize > snapSize,
+	}, nil
 }
 
 func (s *Store) PutSnapshot(
