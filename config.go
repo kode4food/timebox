@@ -11,14 +11,13 @@ type (
 	}
 
 	StoreConfig struct {
-		Addr           string
-		Password       string
-		Prefix         string
-		DB             int
-		EventThreshold int
-		WorkerCount    int
-		MaxQueueSize   int
-		SaveTimeout    time.Duration
+		Addr         string
+		Password     string
+		Prefix       string
+		DB           int
+		WorkerCount  int
+		MaxQueueSize int
+		SaveTimeout  time.Duration
 	}
 )
 
@@ -26,12 +25,11 @@ const (
 	DefaultRedisEndpoint       = "localhost:6379"
 	DefaultRedisPrefix         = "timebox"
 	DefaultRedisDB             = 0
-	DefaultEventThreshold      = 10
 	DefaultSnapshotWorkers     = 4
-	DefaultSnapshotQueueSize   = 1000
+	DefaultSnapshotQueueSize   = 1024
 	DefaultSnapshotSaveTimeout = 30 * time.Second
-	DefaultMaxRetries          = 10
-	DefaultExecutorCacheSize   = 100
+	DefaultMaxRetries          = 16
+	DefaultExecutorCacheSize   = 128
 )
 
 func DefaultConfig() Config {
@@ -45,13 +43,12 @@ func DefaultConfig() Config {
 
 func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
-		Addr:           DefaultRedisEndpoint,
-		Password:       "",
-		DB:             DefaultRedisDB,
-		Prefix:         DefaultRedisPrefix,
-		EventThreshold: DefaultEventThreshold,
-		WorkerCount:    DefaultSnapshotWorkers,
-		MaxQueueSize:   DefaultSnapshotQueueSize,
-		SaveTimeout:    DefaultSnapshotSaveTimeout,
+		Addr:         DefaultRedisEndpoint,
+		Password:     "",
+		DB:           DefaultRedisDB,
+		Prefix:       DefaultRedisPrefix,
+		WorkerCount:  DefaultSnapshotWorkers,
+		MaxQueueSize: DefaultSnapshotQueueSize,
+		SaveTimeout:  DefaultSnapshotSaveTimeout,
 	}
 }

@@ -147,7 +147,7 @@ func (s *Store) GetEvents(
 		return nil, err
 	}
 
-	return s.unmarshalEvents(result.([]any))
+	return s.unmarshalEvents(fromSeq, result.([]any))
 }
 
 func (s *Store) GetSnapshot(
@@ -178,7 +178,7 @@ func (s *Store) GetSnapshot(
 		}
 	}
 
-	events, err := s.unmarshalEvents(resultSlice[2:])
+	events, err := s.unmarshalEvents(snapSeq, resultSlice[2:])
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func (e *VersionConflictError) Error() string {
 func (s *Store) handleVersionConflict(
 	rawEvents []any, expectedSeq, actualSeq int64,
 ) error {
-	newEvs, err := s.unmarshalEvents(rawEvents)
+	newEvs, err := s.unmarshalEvents(expectedSeq, rawEvents)
 	if err != nil {
 		return err
 	}
@@ -266,13 +266,14 @@ func (s *Store) parseAggregateID(str string) AggregateID {
 	return ParseAggregateID(str, ":")
 }
 
-func (s *Store) unmarshalEvents(data []any) ([]*Event, error) {
+func (s *Store) unmarshalEvents(startSeq int64, data []any) ([]*Event, error) {
 	events := make([]*Event, 0, len(data))
-	for _, item := range data {
+	for i, item := range data {
 		ev := &Event{}
 		if err := json.Unmarshal([]byte(item.(string)), ev); err != nil {
 			return nil, err
 		}
+		ev.Sequence = startSeq + int64(i)
 		events = append(events, ev)
 	}
 	return events, nil

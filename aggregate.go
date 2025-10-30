@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 	"unsafe"
-
-	"github.com/google/uuid"
 )
 
 type (
@@ -56,8 +54,8 @@ func (a *Aggregator[_]) Enqueued() []*Event {
 
 func (a *Aggregator[T]) Raise(typ EventType, data json.RawMessage) {
 	ev := &Event{
-		ID:          ID(uuid.New().String()),
 		Timestamp:   time.Now(),
+		Sequence:    a.nextSeq,
 		AggregateID: a.id,
 		Type:        typ,
 		Data:        data,
