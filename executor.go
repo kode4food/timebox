@@ -22,7 +22,9 @@ type (
 	}
 )
 
-var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
+var (
+	ErrMaxRetriesExceeded = errors.New("max retries exceeded")
+)
 
 func NewExecutor[T any](
 	store *Store, apps Appliers[T], cons constructor[T],
@@ -135,7 +137,7 @@ func (e *Executor[T]) loadFromStore(
 	}
 
 	if len(snap.AdditionalEvents) > 0 {
-		proj = e.applyEvents(state, snap.AdditionalEvents, snap.NextSequence-int64(len(snap.AdditionalEvents)))
+		proj = e.applyEvents(state, snap.AdditionalEvents, snap.NextSequence)
 	}
 
 	if snap.ShouldSnapshot && e.store.snapshotWorker != nil {

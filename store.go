@@ -3,6 +3,7 @@ package timebox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -44,6 +45,10 @@ const (
 	eventsSuffix      = ":events"
 	snapshotValSuffix = ":snapshot:val"
 	snapshotSeqSuffix = ":snapshot:seq"
+)
+
+var (
+	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
 )
 
 // NewStore creates a new Store instance that publishes events to the Timebox
@@ -160,9 +165,7 @@ func (s *Store) GetSnapshot(
 
 	resultSlice := result.([]any)
 	if len(resultSlice) < 2 {
-		return nil, fmt.Errorf(
-			"unexpected result format from Lua script",
-		)
+		return nil, ErrUnexpectedLuaResult
 	}
 
 	snapData := resultSlice[0].(string)
@@ -187,7 +190,7 @@ func (s *Store) GetSnapshot(
 
 	return &SnapshotResult{
 		AdditionalEvents: events,
-		NextSequence:     snapSeq + int64(len(events)),
+		NextSequence:     snapSeq,
 		ShouldSnapshot:   eventsSize > snapSize,
 	}, nil
 }
