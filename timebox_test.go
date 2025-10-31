@@ -432,7 +432,7 @@ func TestSequenceInEventHub(t *testing.T) {
 	// Raise multiple events and verify sequences in event hub
 	done := make(chan []*timebox.Event)
 	go func() {
-		received := []*timebox.Event{}
+		var received []*timebox.Event
 		for i := 0; i < 3; i++ {
 			select {
 			case ev := <-consumer.Receive():

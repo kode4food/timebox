@@ -13,7 +13,6 @@ import (
 type (
 	// Type aliases for convenience
 	OrderAggregator = timebox.Aggregator[*OrderState]
-	OrderApplier    = timebox.Applier[*OrderState]
 	OrderAppliers   = timebox.Appliers[*OrderState]
 	OrderExecutor   = timebox.Executor[*OrderState]
 
@@ -327,19 +326,19 @@ func orderBillingChanged(state *OrderState, ev *timebox.Event) *OrderState {
 	return &res
 }
 
-func orderConfirmed(state *OrderState, ev *timebox.Event) *OrderState {
+func orderConfirmed(state *OrderState, _ *timebox.Event) *OrderState {
 	res := *state
 	res.Status = StatusConfirmed
 	return &res
 }
 
-func orderShipped(state *OrderState, ev *timebox.Event) *OrderState {
+func orderShipped(state *OrderState, _ *timebox.Event) *OrderState {
 	res := *state
 	res.Status = StatusShipped
 	return &res
 }
 
-func orderDelivered(state *OrderState, ev *timebox.Event) *OrderState {
+func orderDelivered(state *OrderState, _ *timebox.Event) *OrderState {
 	res := *state
 	res.Status = StatusDelivered
 	return &res
