@@ -76,8 +76,7 @@ func (sw *SnapshotWorker) saveSnapshot(workerID int, req snapshotRequest) {
 			slog.Any("aggregate_id", req.id),
 			slog.Int64("sequence", req.sequence),
 			slog.Duration("duration", duration),
-			slog.Any("error", err),
-		)
+			slog.Any("error", err))
 		return
 	}
 
@@ -85,8 +84,7 @@ func (sw *SnapshotWorker) saveSnapshot(workerID int, req snapshotRequest) {
 		slog.Int("worker_id", workerID),
 		slog.Any("aggregate_id", req.id),
 		slog.Int64("sequence", req.sequence),
-		slog.Duration("duration", duration),
-	)
+		slog.Duration("duration", duration))
 }
 
 func (sw *SnapshotWorker) enqueue(
@@ -105,8 +103,7 @@ func (sw *SnapshotWorker) enqueue(
 		slog.Warn("Snapshot queue full, dropping request",
 			slog.Any("aggregate_id", id),
 			slog.Int64("sequence", sequence),
-			slog.Int("queue_size", len(sw.queue)),
-		)
+			slog.Int("queue_size", len(sw.queue)))
 		return false
 	}
 }
