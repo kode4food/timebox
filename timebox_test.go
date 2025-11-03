@@ -65,7 +65,7 @@ func setupTestExecutor(t *testing.T) (*miniredis.Miniredis, *timebox.Timebox, *t
 	store, err := tb.NewStore(storeCfg)
 	require.NoError(t, err)
 
-	executor := timebox.NewExecutor(store, appliers, newCounterState)
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	return server, tb, store, executor
 }
 
@@ -85,7 +85,7 @@ func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (*miniredis.Miniredis,
 	store, err := tb.NewStore(storeCfg)
 	require.NoError(t, err)
 
-	executor := timebox.NewExecutor(store, appliers, newCounterState)
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	return server, tb, store, executor
 }
 
@@ -214,7 +214,7 @@ func TestEventHubNotification(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
-	executor := timebox.NewExecutor(store, appliers, newCounterState)
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	consumer := tb.GetHub().NewConsumer()
 	defer consumer.Close()
 
@@ -422,7 +422,7 @@ func TestSequenceInEventHub(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
-	executor := timebox.NewExecutor(store, appliers, newCounterState)
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	consumer := tb.GetHub().NewConsumer()
 	defer consumer.Close()
 

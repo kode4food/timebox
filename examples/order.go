@@ -62,6 +62,14 @@ type (
 	AddressChangedData struct {
 		Address Address `json:"address"`
 	}
+
+	orderExample struct {
+		ctx      context.Context
+		tb       *timebox.Timebox
+		store    *timebox.Store
+		executor *OrderExecutor
+		orderID  timebox.AggregateID
+	}
 )
 
 const (
@@ -82,26 +90,6 @@ const (
 	StatusShipped   = "shipped"
 	StatusDelivered = "delivered"
 )
-
-// Appliers implement business logic for order events
-var appliers = OrderAppliers{
-	OrderCreated:         orderCreated,
-	OrderItemAdded:       orderItemAdded,
-	OrderItemRemoved:     orderItemRemoved,
-	OrderShippingChanged: orderShippingChanged,
-	OrderBillingChanged:  orderBillingChanged,
-	OrderConfirmed:       orderConfirmed,
-	OrderShipped:         orderShipped,
-	OrderDelivered:       orderDelivered,
-}
-
-type orderExample struct {
-	ctx      context.Context
-	tb       *timebox.Timebox
-	store    *timebox.Store
-	executor *OrderExecutor
-	orderID  timebox.AggregateID
-}
 
 func main() {
 	ex := setupExample()
@@ -132,13 +120,11 @@ func setupExample() *orderExample {
 		log.Fatal(err)
 	}
 
-	executor := timebox.NewExecutor(store, appliers, NewOrderState)
-
 	return &orderExample{
 		ctx:      context.Background(),
 		tb:       tb,
 		store:    store,
-		executor: executor,
+		executor: createExecutor(store),
 		orderID:  timebox.NewAggregateID("order", "ORD-12345"),
 	}
 }
@@ -271,7 +257,20 @@ func NewOrderState() *OrderState {
 	}
 }
 
-// Applier functions
+// Executor and Applier functions
+
+func createExecutor(store *timebox.Store) *OrderExecutor {
+	return timebox.NewExecutor(store, NewOrderState, OrderAppliers{
+		OrderCreated:         orderCreated,
+		OrderItemAdded:       orderItemAdded,
+		OrderItemRemoved:     orderItemRemoved,
+		OrderShippingChanged: orderShippingChanged,
+		OrderBillingChanged:  orderBillingChanged,
+		OrderConfirmed:       orderConfirmed,
+		OrderShipped:         orderShipped,
+		OrderDelivered:       orderDelivered,
+	})
+}
 
 func orderCreated(state *OrderState, ev *timebox.Event) *OrderState {
 	var data OrderCreatedData

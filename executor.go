@@ -27,7 +27,7 @@ var (
 )
 
 func NewExecutor[T any](
-	store *Store, apps Appliers[T], cons constructor[T],
+	store *Store, cons constructor[T], apps Appliers[T],
 ) *Executor[T] {
 	return &Executor[T]{
 		store:      store,
