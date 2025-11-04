@@ -12,11 +12,13 @@ import (
 
 type (
 	// Type aliases for convenience
+
 	OrderAggregator = timebox.Aggregator[*OrderState]
 	OrderAppliers   = timebox.Appliers[*OrderState]
 	OrderExecutor   = timebox.Executor[*OrderState]
 
 	// Domain types
+
 	Address struct {
 		Street  string `json:"street"`
 		City    string `json:"city"`
@@ -43,6 +45,7 @@ type (
 	}
 
 	// Event data types
+
 	OrderCreatedData struct {
 		CustomerName  string `json:"customer_name"`
 		CustomerEmail string `json:"customer_email"`
@@ -160,7 +163,6 @@ func (ex *orderExample) createOrder() {
 			return nil
 		},
 	)
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -189,7 +191,6 @@ func (ex *orderExample) addShippingAddress() {
 			return nil
 		},
 	)
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -209,7 +210,6 @@ func (ex *orderExample) confirmOrder() {
 			return nil
 		},
 	)
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -225,7 +225,6 @@ func (ex *orderExample) shipOrder() {
 			return nil
 		},
 	)
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -241,7 +240,6 @@ func (ex *orderExample) deliverOrder() {
 			return nil
 		},
 	)
-
 	if err != nil {
 		log.Fatal(err)
 	}
