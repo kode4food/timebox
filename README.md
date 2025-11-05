@@ -1,4 +1,4 @@
-# Timebox
+# Timebox <img src="./docs/logo.png" align="right" height="100"/>
 
 A simple event sourcing library for Go and Redis with built-in distributed coordination.
 
