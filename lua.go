@@ -22,9 +22,7 @@ const (
 			return {0, currentLen}
 		end
 
-		for i = 2, #ARGV do
-			redis.call('RPUSH', KEYS[1], ARGV[i])
-		end
+		redis.call('RPUSH', KEYS[1], unpack(ARGV, 2))
 
 		return {1, redis.call('LLEN', KEYS[1])}
 		`
@@ -70,13 +68,8 @@ const (
 		local snapData = redis.call('GET', KEYS[1])
 		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
 
-		local result = {snapData or "", snapSeq}
-
 		local events = redis.call('LRANGE', KEYS[3], snapSeq, -1)
-		for i = 1, #events do
-			result[i + 2] = events[i]
-		end
 
-		return result
+		return {snapData or "", snapSeq, unpack(events)}
 		`
 )
