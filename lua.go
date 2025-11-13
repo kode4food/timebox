@@ -6,6 +6,7 @@ const (
 		-- KEYS[1] = event list key
 		-- ARGV[1] = expected sequence (current list length)
 		-- ARGV[2..N] = event data (JSON)
+		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
 		local expected = tonumber(ARGV[1])
@@ -71,11 +72,11 @@ const (
 		-- KEYS[1] = snapshot key
 		-- KEYS[2] = snapshot sequence key
 		-- KEYS[3] = event list key
-		-- Returns: {snapshot_data, snapshot_seq, events...}
+		-- Returns: {snapshot_data, snapshot_seq, newEvents}
 
 		local snapData = redis.call('GET', KEYS[1])
 		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
-		local events = redis.call('LRANGE', KEYS[3], snapSeq, -1)
-		return {snapData or "", snapSeq, events}
+		local newEvents = redis.call('LRANGE', KEYS[3], snapSeq, -1)
+		return {snapData or "", snapSeq, newEvents}
 		`
 )
