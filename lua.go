@@ -13,17 +13,23 @@ const (
 		if expected ~= currentLen then
 			if expected < currentLen then
 				local newEvents = redis.call('LRANGE', KEYS[1], expected, -1)
-				local result = {0, currentLen}
-				for i = 1, #newEvents do
-					result[i + 2] = newEvents[i]
-				end
-				return result
+				return {0, currentLen, newEvents}
 			end
-			return {0, currentLen}
+			return {0, currentLen, {}}
 		end
 
-		for i = 2, #ARGV do
-			redis.call('RPUSH', KEYS[1], ARGV[i])
+		local chunkSize = 128
+		local numEvents = #ARGV - 1
+		local startIdx = 2
+
+		while startIdx <= #ARGV do
+			local endIdx = math.min(startIdx + chunkSize - 1, #ARGV)
+			local chunk = {}
+			for i = startIdx, endIdx do
+				table.insert(chunk, ARGV[i])
+			end
+			redis.call('RPUSH', KEYS[1], unpack(chunk))
+			startIdx = endIdx + 1
 		end
 
 		return {1, redis.call('LLEN', KEYS[1])}
@@ -69,14 +75,7 @@ const (
 
 		local snapData = redis.call('GET', KEYS[1])
 		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
-
-		local result = {snapData or "", snapSeq}
-
 		local events = redis.call('LRANGE', KEYS[3], snapSeq, -1)
-		for i = 1, #events do
-			result[i + 2] = events[i]
-		end
-
-		return result
+		return {snapData or "", snapSeq, events}
 		`
 )

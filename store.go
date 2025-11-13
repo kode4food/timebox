@@ -123,7 +123,8 @@ func (s *Store) AppendEvents(
 	seq := res[1].(int64)
 
 	if success == 0 {
-		return s.handleVersionConflict(res[2:], atSeq, seq)
+		newEvents := res[2].([]any)
+		return s.handleVersionConflict(newEvents, atSeq, seq)
 	}
 
 	if s.producer != nil {
@@ -164,13 +165,14 @@ func (s *Store) GetSnapshot(
 	}
 
 	resultSlice := result.([]any)
-	if len(resultSlice) < 2 {
+	if len(resultSlice) < 3 {
 		return nil, ErrUnexpectedLuaResult
 	}
 
 	snapData := resultSlice[0].(string)
 	snapSize := len(snapData)
 	snapSeq := resultSlice[1].(int64)
+	newEvents := resultSlice[2].([]any)
 
 	if snapData != "" {
 		if err := json.Unmarshal([]byte(snapData), target); err != nil {
@@ -178,14 +180,14 @@ func (s *Store) GetSnapshot(
 		}
 	}
 
-	events, err := s.unmarshalEvents(snapSeq, resultSlice[2:])
+	events, err := s.unmarshalEvents(snapSeq, newEvents)
 	if err != nil {
 		return nil, err
 	}
 
 	eventsSize := 0
 	for i := range events {
-		eventsSize += len(resultSlice[i+2].(string))
+		eventsSize += len(newEvents[i].(string))
 	}
 
 	return &SnapshotResult{
