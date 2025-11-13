@@ -325,7 +325,7 @@ func TestSequenceHandling(t *testing.T) {
 	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "seq-test")
 
-	// Test 1: Raise multiple events in single Exec - sequences should start at 0
+	// Test 1: Raise multiple events in one Exec - sequences should start at 0
 	var capturedEvents []*timebox.Event
 	_, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
