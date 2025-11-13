@@ -19,7 +19,7 @@ type (
 
 	Event struct {
 		Timestamp   time.Time       `json:"timestamp"`
-		Sequence    int64           `json:"-"`
+		Sequence    int64           `json:"sequence"`
 		Type        EventType       `json:"type"`
 		AggregateID AggregateID     `json:"aggregate_id"`
 		Data        json.RawMessage `json:"data"`

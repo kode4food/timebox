@@ -105,8 +105,16 @@ func (s *Store) AppendEvents(
 	keys := []string{eventsKey}
 	args := []any{atSeq}
 
+	var re struct {
+		Timestamp time.Time       `json:"timestamp"`
+		Type      EventType       `json:"type"`
+		Data      json.RawMessage `json:"data"`
+	}
 	for _, ev := range evs {
-		eventData, err := json.Marshal(ev)
+		re.Timestamp = ev.Timestamp
+		re.Type = ev.Type
+		re.Data = ev.Data
+		eventData, err := json.Marshal(&re)
 		if err != nil {
 			return err
 		}
@@ -124,7 +132,7 @@ func (s *Store) AppendEvents(
 
 	if success == 0 {
 		newEvents := res[2].([]any)
-		return s.handleVersionConflict(newEvents, atSeq, seq)
+		return s.handleVersionConflict(id, newEvents, atSeq, seq)
 	}
 
 	if s.producer != nil {
@@ -148,7 +156,7 @@ func (s *Store) GetEvents(
 		return nil, err
 	}
 
-	return s.unmarshalEvents(fromSeq, result.([]any))
+	return s.unmarshalEvents(id, fromSeq, result.([]any))
 }
 
 func (s *Store) GetSnapshot(
@@ -180,7 +188,7 @@ func (s *Store) GetSnapshot(
 		}
 	}
 
-	events, err := s.unmarshalEvents(snapSeq, newEvents)
+	events, err := s.unmarshalEvents(id, snapSeq, newEvents)
 	if err != nil {
 		return nil, err
 	}
@@ -245,9 +253,9 @@ func (e *VersionConflictError) Error() string {
 }
 
 func (s *Store) handleVersionConflict(
-	rawEvents []any, expectedSeq, actualSeq int64,
+	id AggregateID, rawEvents []any, expectedSeq, actualSeq int64,
 ) error {
-	newEvs, err := s.unmarshalEvents(expectedSeq, rawEvents)
+	newEvs, err := s.unmarshalEvents(id, expectedSeq, rawEvents)
 	if err != nil {
 		return err
 	}
@@ -268,7 +276,9 @@ func (s *Store) parseAggregateID(str string) AggregateID {
 	return ParseAggregateID(str, ":")
 }
 
-func (s *Store) unmarshalEvents(startSeq int64, data []any) ([]*Event, error) {
+func (s *Store) unmarshalEvents(
+	id AggregateID, startSeq int64, data []any,
+) ([]*Event, error) {
 	events := make([]*Event, 0, len(data))
 	for i, item := range data {
 		ev := &Event{}
@@ -276,6 +286,7 @@ func (s *Store) unmarshalEvents(startSeq int64, data []any) ([]*Event, error) {
 			return nil, err
 		}
 		ev.Sequence = startSeq + int64(i)
+		ev.AggregateID = id
 		events = append(events, ev)
 	}
 	return events, nil
