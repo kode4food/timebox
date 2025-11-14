@@ -559,6 +559,27 @@ func TestLargeEventBatch(t *testing.T) {
 	}
 }
 
+func TestAppliesEvent(t *testing.T) {
+	server, tb, store, executor := setupTestExecutor(t)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	// Test with event types that have appliers
+	incrementedEvent := &timebox.Event{Type: EventIncremented}
+	assert.True(t, executor.AppliesEvent(incrementedEvent))
+
+	decrementedEvent := &timebox.Event{Type: EventDecremented}
+	assert.True(t, executor.AppliesEvent(decrementedEvent))
+
+	resetEvent := &timebox.Event{Type: EventReset}
+	assert.True(t, executor.AppliesEvent(resetEvent))
+
+	// Test with event type that does not have an applier
+	unknownEvent := &timebox.Event{Type: "unknown_event"}
+	assert.False(t, executor.AppliesEvent(unknownEvent))
+}
+
 func newCounterState() *CounterState {
 	return &CounterState{Value: 0}
 }

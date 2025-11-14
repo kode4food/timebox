@@ -42,6 +42,11 @@ func (e *Executor[T]) GetStore() *Store {
 	return e.store
 }
 
+func (e *Executor[T]) AppliesEvent(ev *Event) bool {
+	_, ok := e.appliers[ev.Type]
+	return ok
+}
+
 func (e *Executor[T]) Exec(
 	ctx context.Context, id AggregateID, cmd Command[T],
 ) (T, error) {
