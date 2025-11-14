@@ -16,9 +16,7 @@ type (
 		nextSeq  int64
 	}
 
-	Appliers[T any] map[EventType]Applier[T]
-	Applier[T any]  func(T, *Event) T
-	Flusher         func(int64, []*Event) error
+	Flusher func(int64, []*Event) error
 
 	AggregateID []ID
 	ID          string
