@@ -114,11 +114,11 @@ func (s *Store) AppendEvents(
 		re.Timestamp = ev.Timestamp
 		re.Type = ev.Type
 		re.Data = ev.Data
-		eventData, err := json.Marshal(&re)
+		reData, err := json.Marshal(&re)
 		if err != nil {
 			return err
 		}
-		args = append(args, string(eventData))
+		args = append(args, string(reData))
 	}
 
 	result, err := s.appendEventsLua.Run(ctx, s.client, keys, args...).Result()

@@ -224,8 +224,8 @@ func TestMakeApplier(t *testing.T) {
 		}
 
 		// Test increment
-		incrementData, _ := json.Marshal(IncrementData{Delta: 5})
-		event1 := &timebox.Event{Type: "increment", Data: incrementData}
+		incData, _ := json.Marshal(IncrementData{Delta: 5})
+		event1 := &timebox.Event{Type: "increment", Data: incData}
 		state := &TestState{Value: 10}
 		state = appliers["increment"](state, event1)
 
