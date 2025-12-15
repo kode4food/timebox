@@ -103,6 +103,6 @@ func (id AggregateID) Join(sep string) string {
 	return strings.Join(s, sep)
 }
 
-func Raise[T, E any](ag *Aggregator[T], eventType EventType, event E) error {
-	return ag.raise(eventType, event)
+func Raise[T, V any](ag *Aggregator[T], typ EventType, value V) error {
+	return ag.raise(typ, value)
 }
