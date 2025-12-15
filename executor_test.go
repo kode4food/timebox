@@ -21,7 +21,7 @@ func TestBasicIncrement(t *testing.T) {
 
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return ag.Raise(EventIncremented, 5)
+			return timebox.Raise(ag, EventIncremented, 5)
 		},
 	)
 
@@ -40,7 +40,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return ag.Raise(EventIncremented, 10)
+			return timebox.Raise(ag, EventIncremented, 10)
 		},
 	)
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestMultipleOperations(t *testing.T) {
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, 10, s.Value) // Previous state is loaded
-			return ag.Raise(EventIncremented, 5)
+			return timebox.Raise(ag, EventIncremented, 5)
 		},
 	)
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return ag.Raise(EventDecremented, 3)
+			return timebox.Raise(ag, EventDecremented, 3)
 		},
 	)
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return ag.Raise(EventReset, struct{}{})
+			return timebox.Raise(ag, EventReset, struct{}{})
 		},
 	)
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestConcurrentWrites(t *testing.T) {
 	for range 10 {
 		_, err := executor.Exec(ctx, id,
 			func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-				return ag.Raise(EventIncremented, 1)
+				return timebox.Raise(ag, EventIncremented, 1)
 			},
 		)
 		require.NoError(t, err)
@@ -112,13 +112,13 @@ func TestSequenceHandling(t *testing.T) {
 	var capturedEvents []*timebox.Event
 	_, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			if err := ag.Raise(EventIncremented, 1); err != nil {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
-			if err := ag.Raise(EventIncremented, 1); err != nil {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
-			if err := ag.Raise(EventIncremented, 1); err != nil {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
 			capturedEvents = ag.Enqueued()
@@ -145,10 +145,10 @@ func TestSequenceHandling(t *testing.T) {
 	_, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, int64(3), ag.NextSequence())
-			if err := ag.Raise(EventIncremented, 1); err != nil {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
-			if err := ag.Raise(EventIncremented, 1); err != nil {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
 			capturedEvents = ag.Enqueued()
@@ -190,10 +190,10 @@ func TestSequenceWithSnapshot(t *testing.T) {
 	// Raise some events
 	_, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			if err := ag.Raise(EventIncremented, 5); err != nil {
+			if err := timebox.Raise(ag, EventIncremented, 5); err != nil {
 				return err
 			}
-			return ag.Raise(EventIncremented, 5)
+			return timebox.Raise(ag, EventIncremented, 5)
 		},
 	)
 	require.NoError(t, err)
@@ -205,10 +205,10 @@ func TestSequenceWithSnapshot(t *testing.T) {
 	// Raise more events after snapshot
 	_, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			if err := ag.Raise(EventIncremented, 3); err != nil {
+			if err := timebox.Raise(ag, EventIncremented, 3); err != nil {
 				return err
 			}
-			return ag.Raise(EventIncremented, 3)
+			return timebox.Raise(ag, EventIncremented, 3)
 		},
 	)
 	require.NoError(t, err)
@@ -239,7 +239,7 @@ func TestLargeEventBatch(t *testing.T) {
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			for range numEvents {
-				if err := ag.Raise(EventIncremented, 1); err != nil {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 					return err
 				}
 			}
@@ -273,7 +273,7 @@ func TestLargeEventBatch(t *testing.T) {
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			for range 50 {
-				if err := ag.Raise(EventIncremented, 1); err != nil {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 					return err
 				}
 			}

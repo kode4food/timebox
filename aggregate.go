@@ -50,7 +50,7 @@ func (a *Aggregator[_]) Enqueued() []*Event {
 	return a.enqueued
 }
 
-func (a *Aggregator[T]) Raise(typ EventType, value any) error {
+func (a *Aggregator[T]) raise(typ EventType, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -101,4 +101,8 @@ func ParseAggregateID(str, sep string) AggregateID {
 func (id AggregateID) Join(sep string) string {
 	s := *(*[]string)(unsafe.Pointer(&id))
 	return strings.Join(s, sep)
+}
+
+func Raise[T, E any](ag *Aggregator[T], eventType EventType, event E) error {
+	return ag.raise(eventType, event)
 }

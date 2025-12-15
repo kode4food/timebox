@@ -137,7 +137,7 @@ func (ex *orderExample) createOrder() {
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
 			// Create order
-			if err := ag.Raise(OrderCreated, OrderCreatedData{
+			if err := timebox.Raise(ag, OrderCreated, OrderCreatedData{
 				CustomerName:  "John Doe",
 				CustomerEmail: "john@example.com",
 			}); err != nil {
@@ -145,7 +145,7 @@ func (ex *orderExample) createOrder() {
 			}
 
 			// Add items to order
-			if err := ag.Raise(OrderItemAdded, ItemAddedData{
+			if err := timebox.Raise(ag, OrderItemAdded, ItemAddedData{
 				ProductID: "LAPTOP-PRO",
 				Name:      "Professional Laptop",
 				Quantity:  1,
@@ -154,7 +154,7 @@ func (ex *orderExample) createOrder() {
 				return err
 			}
 
-			if err := ag.Raise(OrderItemAdded, ItemAddedData{
+			if err := timebox.Raise(ag, OrderItemAdded, ItemAddedData{
 				ProductID: "MOUSE-WIRELESS",
 				Name:      "Wireless Mouse",
 				Quantity:  2,
@@ -181,7 +181,7 @@ func (ex *orderExample) addShippingAddress() {
 	fmt.Println("\nAdding shipping address...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			return ag.Raise(OrderShippingChanged, AddressChangedData{
+			return timebox.Raise(ag, OrderShippingChanged, AddressChangedData{
 				Address: Address{
 					Street:  "123 Main St",
 					City:    "San Francisco",
@@ -207,7 +207,7 @@ func (ex *orderExample) confirmOrder() {
 	fmt.Println("\nConfirming order...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			return ag.Raise(OrderConfirmed, struct{}{})
+			return timebox.Raise(ag, OrderConfirmed, struct{}{})
 		},
 	)
 	if err != nil {
@@ -221,7 +221,7 @@ func (ex *orderExample) shipOrder() {
 	fmt.Println("\nShipping order...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			return ag.Raise(OrderShipped, struct{}{})
+			return timebox.Raise(ag, OrderShipped, struct{}{})
 		},
 	)
 	if err != nil {
@@ -235,7 +235,7 @@ func (ex *orderExample) deliverOrder() {
 	fmt.Println("\nDelivering order...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			return ag.Raise(OrderDelivered, struct{}{})
+			return timebox.Raise(ag, OrderDelivered, struct{}{})
 		},
 	)
 	if err != nil {
