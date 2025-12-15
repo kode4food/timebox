@@ -13,6 +13,8 @@ import (
 )
 
 type (
+	// Store persists events and snapshots in Redis and publishes appended
+	// events to the Timebox EventHub
 	Store struct {
 		tb              *Timebox
 		client          *redis.Client
@@ -26,12 +28,16 @@ type (
 		config          StoreConfig
 	}
 
+	// VersionConflictError is returned when AppendEvents encounters a sequence
+	// mismatch. NewEvents contains the conflicting events.
 	VersionConflictError struct {
 		NewEvents        []*Event
 		ExpectedSequence int64
 		ActualSequence   int64
 	}
 
+	// SnapshotResult holds the loaded snapshot, the sequence at which it was
+	// taken, and any events that need to be applied after it
 	SnapshotResult struct {
 		AdditionalEvents []*Event
 		NextSequence     int64
@@ -40,6 +46,7 @@ type (
 )
 
 const (
+	// RedisConnectTimeout is the ping timeout when creating a Store
 	RedisConnectTimeout = 5 * time.Second
 
 	eventsSuffix      = ":events"
@@ -48,10 +55,13 @@ const (
 )
 
 var (
+	// ErrUnexpectedLuaResult indicates a Lua script returned data in an
+	// unexpected shape
 	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
 )
 
-// NewStore creates a new Store instance that publishes events to the Timebox
+// NewStore creates a new Store instance backed by Redis that publishes events
+// to the Timebox event hub
 func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
@@ -84,6 +94,8 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	return s, nil
 }
 
+// Close stops background workers, closes the event producer, and releases the
+// Redis client
 func (s *Store) Close() error {
 	if s.snapshotWorker != nil {
 		s.snapshotWorker.Stop()
@@ -94,6 +106,8 @@ func (s *Store) Close() error {
 	return s.client.Close()
 }
 
+// AppendEvents atomically appends events for an aggregate if the expected
+// sequence matches the current log length, publishing them to the EventHub
 func (s *Store) AppendEvents(
 	ctx context.Context, id AggregateID, atSeq int64, evs []*Event,
 ) error {
@@ -144,6 +158,7 @@ func (s *Store) AppendEvents(
 	return nil
 }
 
+// GetEvents returns all events for an aggregate starting at fromSeq
 func (s *Store) GetEvents(
 	ctx context.Context, id AggregateID, fromSeq int64,
 ) ([]*Event, error) {
@@ -159,6 +174,8 @@ func (s *Store) GetEvents(
 	return s.unmarshalEvents(id, fromSeq, result.([]any))
 }
 
+// GetSnapshot loads the latest snapshot into target and returns any events
+// stored after the snapshot sequence
 func (s *Store) GetSnapshot(
 	ctx context.Context, id AggregateID, target any,
 ) (*SnapshotResult, error) {
@@ -205,6 +222,8 @@ func (s *Store) GetSnapshot(
 	}, nil
 }
 
+// PutSnapshot saves a snapshot value and sequence if the provided sequence is
+// newer than any stored snapshot
 func (s *Store) PutSnapshot(
 	ctx context.Context, id AggregateID, value any, sequence int64,
 ) error {
@@ -223,6 +242,7 @@ func (s *Store) PutSnapshot(
 	return err
 }
 
+// ListAggregates lists aggregate IDs that share the prefix of the provided id
 func (s *Store) ListAggregates(
 	ctx context.Context, id AggregateID,
 ) ([]AggregateID, error) {

@@ -22,6 +22,7 @@ type (
 	}
 )
 
+// DefaultCacheSize is used when an LRU cache size is not provided or invalid
 const DefaultCacheSize = 4096
 
 func newLRUCache[T any](maxSize int) *lruCache[T] {

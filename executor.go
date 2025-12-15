@@ -6,6 +6,8 @@ import (
 )
 
 type (
+	// Executor orchestrates loading aggregate state, executing commands, and
+	// persisting resulting events with optimistic retries
 	Executor[T any] struct {
 		store      *Store
 		appliers   Appliers[T]
@@ -14,6 +16,8 @@ type (
 		maxRetries int
 	}
 
+	// Command is user code that inspects state and raises events on an
+	// Aggregator. Returning an error aborts the operation
 	Command[T any] func(T, *Aggregator[T]) error
 
 	projection[T any] struct {
@@ -23,9 +27,13 @@ type (
 )
 
 var (
+	// ErrMaxRetriesExceeded indicates optimistic concurrency retries were
+	// exhausted while attempting to persist events
 	ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 )
 
+// NewExecutor constructs an Executor bound to a Store with the given
+// appliers and state constructor
 func NewExecutor[T any](
 	store *Store, cons constructor[T], apps Appliers[T],
 ) *Executor[T] {
@@ -38,15 +46,19 @@ func NewExecutor[T any](
 	}
 }
 
+// GetStore exposes the Store used by the Executor
 func (e *Executor[T]) GetStore() *Store {
 	return e.store
 }
 
+// AppliesEvent reports whether the executor has an applier for the event type
 func (e *Executor[T]) AppliesEvent(ev *Event) bool {
 	_, ok := e.appliers[ev.Type]
 	return ok
 }
 
+// Exec loads the aggregate state, executes the command, and persists raised
+// events. It retries on version conflicts up to MaxRetries
 func (e *Executor[T]) Exec(
 	ctx context.Context, id AggregateID, cmd Command[T],
 ) (T, error) {

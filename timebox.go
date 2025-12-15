@@ -11,6 +11,8 @@ import (
 )
 
 type (
+	// Timebox owns shared resources (configuration, context, and event hub)
+	// and is responsible for creating Stores that publish events
 	Timebox struct {
 		config Config
 		hub    EventHub
@@ -18,6 +20,8 @@ type (
 		cancel context.CancelFunc
 	}
 
+	// Event represents a single immutable event in the log, including its
+	// sequence, timestamp, and serialized payload
 	Event struct {
 		Timestamp   time.Time       `json:"timestamp"`
 		Sequence    int64           `json:"sequence"`
@@ -29,11 +33,15 @@ type (
 		value any
 	}
 
-	EventHub  topic.Topic[*Event]
+	// EventHub is a typed pub-sub topic used to fan out appended events
+	EventHub topic.Topic[*Event]
+
+	// EventType is the string identifier associated with an Event
 	EventType string
 )
 
-// NewTimebox creates a new Timebox instance with the given configuration
+// NewTimebox creates a new Timebox instance with the given configuration and a
+// fresh event hub. A Timebox owns the background context used by child Stores
 func NewTimebox(cfg Config) (*Timebox, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	hub := caravan.NewTopic[*Event]()

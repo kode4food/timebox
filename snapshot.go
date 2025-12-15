@@ -8,6 +8,7 @@ import (
 )
 
 type (
+	// SnapshotWorker processes snapshot save requests asynchronously
 	SnapshotWorker struct {
 		store  *Store
 		ctx    context.Context
@@ -24,6 +25,8 @@ type (
 	}
 )
 
+// NewSnapshotWorker creates and starts workers that persist snapshots using
+// the provided StoreConfig
 func NewSnapshotWorker(store *Store, config StoreConfig) *SnapshotWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -43,6 +46,7 @@ func NewSnapshotWorker(store *Store, config StoreConfig) *SnapshotWorker {
 	return sw
 }
 
+// Stop cancels workers and waits for all pending snapshot requests to finish
 func (sw *SnapshotWorker) Stop() {
 	sw.cancel()
 	sw.wg.Wait()
