@@ -2,7 +2,6 @@ package timebox_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,9 +21,7 @@ func TestBasicIncrement(t *testing.T) {
 
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(5)
-			ag.Raise(EventIncremented, data)
-			return nil
+			return ag.Raise(EventIncremented, 5)
 		},
 	)
 
@@ -43,9 +40,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(10)
-			ag.Raise(EventIncremented, data)
-			return nil
+			return ag.Raise(EventIncremented, 10)
 		},
 	)
 	require.NoError(t, err)
@@ -54,9 +49,7 @@ func TestMultipleOperations(t *testing.T) {
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, 10, s.Value) // Previous state is loaded
-			data, _ := json.Marshal(5)
-			ag.Raise(EventIncremented, data)
-			return nil
+			return ag.Raise(EventIncremented, 5)
 		},
 	)
 	require.NoError(t, err)
@@ -64,9 +57,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(3)
-			ag.Raise(EventDecremented, data)
-			return nil
+			return ag.Raise(EventDecremented, 3)
 		},
 	)
 	require.NoError(t, err)
@@ -74,8 +65,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.Raise(EventReset, json.RawMessage("{}"))
-			return nil
+			return ag.Raise(EventReset, struct{}{})
 		},
 	)
 	require.NoError(t, err)
@@ -94,9 +84,7 @@ func TestConcurrentWrites(t *testing.T) {
 	for range 10 {
 		_, err := executor.Exec(ctx, id,
 			func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-				data, _ := json.Marshal(1)
-				ag.Raise(EventIncremented, data)
-				return nil
+				return ag.Raise(EventIncremented, 1)
 			},
 		)
 		require.NoError(t, err)
@@ -124,10 +112,15 @@ func TestSequenceHandling(t *testing.T) {
 	var capturedEvents []*timebox.Event
 	_, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(1)
-			ag.Raise(EventIncremented, data)
-			ag.Raise(EventIncremented, data)
-			ag.Raise(EventIncremented, data)
+			if err := ag.Raise(EventIncremented, 1); err != nil {
+				return err
+			}
+			if err := ag.Raise(EventIncremented, 1); err != nil {
+				return err
+			}
+			if err := ag.Raise(EventIncremented, 1); err != nil {
+				return err
+			}
 			capturedEvents = ag.Enqueued()
 			return nil
 		},
@@ -152,9 +145,12 @@ func TestSequenceHandling(t *testing.T) {
 	_, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, int64(3), ag.NextSequence())
-			data, _ := json.Marshal(1)
-			ag.Raise(EventIncremented, data)
-			ag.Raise(EventIncremented, data)
+			if err := ag.Raise(EventIncremented, 1); err != nil {
+				return err
+			}
+			if err := ag.Raise(EventIncremented, 1); err != nil {
+				return err
+			}
 			capturedEvents = ag.Enqueued()
 			return nil
 		},
@@ -194,10 +190,10 @@ func TestSequenceWithSnapshot(t *testing.T) {
 	// Raise some events
 	_, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(5)
-			ag.Raise(EventIncremented, data)
-			ag.Raise(EventIncremented, data)
-			return nil
+			if err := ag.Raise(EventIncremented, 5); err != nil {
+				return err
+			}
+			return ag.Raise(EventIncremented, 5)
 		},
 	)
 	require.NoError(t, err)
@@ -209,10 +205,10 @@ func TestSequenceWithSnapshot(t *testing.T) {
 	// Raise more events after snapshot
 	_, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(3)
-			ag.Raise(EventIncremented, data)
-			ag.Raise(EventIncremented, data)
-			return nil
+			if err := ag.Raise(EventIncremented, 3); err != nil {
+				return err
+			}
+			return ag.Raise(EventIncremented, 3)
 		},
 	)
 	require.NoError(t, err)
@@ -242,9 +238,10 @@ func TestLargeEventBatch(t *testing.T) {
 
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(1)
 			for range numEvents {
-				ag.Raise(EventIncremented, data)
+				if err := ag.Raise(EventIncremented, 1); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
@@ -275,9 +272,10 @@ func TestLargeEventBatch(t *testing.T) {
 	// Add more events after snapshot
 	state, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(1)
 			for range 50 {
-				ag.Raise(EventIncremented, data)
+				if err := ag.Raise(EventIncremented, 1); err != nil {
+					return err
+				}
 			}
 			return nil
 		},

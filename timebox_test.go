@@ -108,9 +108,7 @@ func TestTimeboxWithoutSnapshotWorker(t *testing.T) {
 
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(10)
-			ag.Raise(EventIncremented, data)
-			return nil
+			return ag.Raise(EventIncremented, 10)
 		},
 	)
 
@@ -148,9 +146,7 @@ func TestEventHubNotification(t *testing.T) {
 	go func() {
 		_, _ = executor.Exec(ctx, id,
 			func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-				data, _ := json.Marshal(1)
-				ag.Raise(EventIncremented, data)
-				return nil
+				return ag.Raise(EventIncremented, 1)
 			},
 		)
 	}()
@@ -205,11 +201,13 @@ func TestSequenceInEventHub(t *testing.T) {
 
 	_, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			data, _ := json.Marshal(1)
-			ag.Raise(EventIncremented, data)
-			ag.Raise(EventIncremented, data)
-			ag.Raise(EventIncremented, data)
-			return nil
+			if err := ag.Raise(EventIncremented, 1); err != nil {
+				return err
+			}
+			if err := ag.Raise(EventIncremented, 1); err != nil {
+				return err
+			}
+			return ag.Raise(EventIncremented, 1)
 		},
 	)
 	require.NoError(t, err)

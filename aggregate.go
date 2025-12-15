@@ -50,17 +50,24 @@ func (a *Aggregator[_]) Enqueued() []*Event {
 	return a.enqueued
 }
 
-func (a *Aggregator[T]) Raise(typ EventType, data json.RawMessage) {
+func (a *Aggregator[T]) Raise(typ EventType, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
 	ev := &Event{
 		Timestamp:   time.Now(),
 		Sequence:    a.nextSeq,
 		AggregateID: a.id,
 		Type:        typ,
 		Data:        data,
+		value:       value,
 	}
 	a.enqueued = append(a.enqueued, ev)
 	a.nextSeq++
 	a.Apply(ev)
+	return nil
 }
 
 func (a *Aggregator[T]) Apply(ev *Event) {

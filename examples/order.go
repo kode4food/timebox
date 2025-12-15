@@ -137,28 +137,31 @@ func (ex *orderExample) createOrder() {
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
 			// Create order
-			data, _ := json.Marshal(OrderCreatedData{
+			if err := ag.Raise(OrderCreated, OrderCreatedData{
 				CustomerName:  "John Doe",
 				CustomerEmail: "john@example.com",
-			})
-			ag.Raise(OrderCreated, data)
+			}); err != nil {
+				return err
+			}
 
 			// Add items to order
-			item1, _ := json.Marshal(ItemAddedData{
+			if err := ag.Raise(OrderItemAdded, ItemAddedData{
 				ProductID: "LAPTOP-PRO",
 				Name:      "Professional Laptop",
 				Quantity:  1,
 				Price:     1299.99,
-			})
-			ag.Raise(OrderItemAdded, item1)
+			}); err != nil {
+				return err
+			}
 
-			item2, _ := json.Marshal(ItemAddedData{
+			if err := ag.Raise(OrderItemAdded, ItemAddedData{
 				ProductID: "MOUSE-WIRELESS",
 				Name:      "Wireless Mouse",
 				Quantity:  2,
 				Price:     29.99,
-			})
-			ag.Raise(OrderItemAdded, item2)
+			}); err != nil {
+				return err
+			}
 
 			return nil
 		},
@@ -178,7 +181,7 @@ func (ex *orderExample) addShippingAddress() {
 	fmt.Println("\nAdding shipping address...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			addr, _ := json.Marshal(AddressChangedData{
+			return ag.Raise(OrderShippingChanged, AddressChangedData{
 				Address: Address{
 					Street:  "123 Main St",
 					City:    "San Francisco",
@@ -187,8 +190,6 @@ func (ex *orderExample) addShippingAddress() {
 					Country: "USA",
 				},
 			})
-			ag.Raise(OrderShippingChanged, addr)
-			return nil
 		},
 	)
 	if err != nil {
@@ -206,8 +207,7 @@ func (ex *orderExample) confirmOrder() {
 	fmt.Println("\nConfirming order...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			ag.Raise(OrderConfirmed, json.RawMessage("{}"))
-			return nil
+			return ag.Raise(OrderConfirmed, struct{}{})
 		},
 	)
 	if err != nil {
@@ -221,8 +221,7 @@ func (ex *orderExample) shipOrder() {
 	fmt.Println("\nShipping order...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			ag.Raise(OrderShipped, json.RawMessage("{}"))
-			return nil
+			return ag.Raise(OrderShipped, struct{}{})
 		},
 	)
 	if err != nil {
@@ -236,8 +235,7 @@ func (ex *orderExample) deliverOrder() {
 	fmt.Println("\nDelivering order...")
 	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
 		func(s *OrderState, ag *OrderAggregator) error {
-			ag.Raise(OrderDelivered, json.RawMessage("{}"))
-			return nil
+			return ag.Raise(OrderDelivered, struct{}{})
 		},
 	)
 	if err != nil {
