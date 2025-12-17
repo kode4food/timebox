@@ -9,7 +9,7 @@ type (
 		Store      StoreConfig
 		MaxRetries int
 		CacheSize  int
-		Snapshots  bool
+		Workers    bool
 	}
 
 	// StoreConfig configures the Redis/Valkey store backing the event log and
@@ -57,7 +57,7 @@ func DefaultConfig() Config {
 		Store:      DefaultStoreConfig(),
 		MaxRetries: DefaultMaxRetries,
 		CacheSize:  DefaultExecutorCacheSize,
-		Snapshots:  true,
+		Workers:    true,
 	}
 }
 

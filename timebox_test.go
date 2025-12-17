@@ -79,7 +79,7 @@ func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
 	storeCfg := cfg.Store
 	storeCfg.Addr = server.Addr()
 	storeCfg.Prefix = "test"
-	cfg.Snapshots = false
+	cfg.Workers = false
 
 	tb, err := timebox.NewTimebox(cfg)
 	require.NoError(t, err)

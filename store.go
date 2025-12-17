@@ -88,7 +88,7 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		config:          cfg,
 	}
 
-	if tb.config.Snapshots && cfg.WorkerCount > 0 {
+	if tb.config.Workers && cfg.WorkerCount > 0 {
 		s.snapshotWorker = NewSnapshotWorker(s, cfg)
 	}
 	return s, nil
