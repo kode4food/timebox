@@ -6,10 +6,10 @@ type (
 	// Config controls Timebox behavior, including store settings and tuning
 	// knobs for retries, caching, and snapshot workers
 	Config struct {
-		Store                StoreConfig
-		MaxRetries           int
-		CacheSize            int
-		EnableSnapshotWorker bool
+		Store      StoreConfig
+		MaxRetries int
+		CacheSize  int
+		Snapshots  bool
 	}
 
 	// StoreConfig configures the Redis/Valkey store backing the event log and
@@ -54,10 +54,10 @@ const (
 // DefaultConfig returns a Config populated with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Store:                DefaultStoreConfig(),
-		MaxRetries:           DefaultMaxRetries,
-		CacheSize:            DefaultExecutorCacheSize,
-		EnableSnapshotWorker: true,
+		Store:      DefaultStoreConfig(),
+		MaxRetries: DefaultMaxRetries,
+		CacheSize:  DefaultExecutorCacheSize,
+		Snapshots:  true,
 	}
 }
 
