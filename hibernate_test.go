@@ -29,6 +29,10 @@ type (
 		putCount int
 		last     *timebox.HibernateRecord
 	}
+
+	putErrorHibernator struct {
+		err error
+	}
 )
 
 func TestHibernate(t *testing.T) {
@@ -82,6 +86,62 @@ func TestHibernate(t *testing.T) {
 	assert.Empty(t, aggregates)
 }
 
+func TestNoHibernator(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	err = store.Hibernate(
+		context.Background(), timebox.NewAggregateID("test", "no-hibernator"),
+	)
+	assert.ErrorIs(t, err, timebox.ErrNoHibernator)
+}
+
+func TestHibernatePutError(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = "hibernate-put-error"
+	storeCfg.Hibernator = putErrorHibernator{err: errors.New("put error")}
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("order", "1")
+
+	ev := &timebox.Event{
+		Timestamp: time.Now(),
+		Type:      "event.test",
+		Data:      json.RawMessage(`{"value":1}`),
+	}
+	assert.NoError(t, store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}))
+
+	err = store.Hibernate(ctx, id)
+	assert.Error(t, err)
+}
+
 func TestHibernatorEvents(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
@@ -130,6 +190,50 @@ func TestHibernatorEvents(t *testing.T) {
 	assert.Equal(t, int64(0), events[0].Sequence)
 	assert.Equal(t, int64(1), events[1].Sequence)
 	assert.Equal(t, id, events[0].AggregateID)
+}
+
+func TestHibernatorEventsOffset(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = "hibernator-events-offset"
+
+	ev := struct {
+		Timestamp time.Time         `json:"timestamp"`
+		Type      timebox.EventType `json:"type"`
+		Data      json.RawMessage   `json:"data"`
+	}{
+		Timestamp: time.Now(),
+		Type:      EventIncremented,
+		Data:      json.RawMessage(`1`),
+	}
+	raw, err := json.Marshal(ev)
+	assert.NoError(t, err)
+
+	storeCfg.Hibernator = stubHibernator{
+		record: &timebox.HibernateRecord{
+			Events:    []json.RawMessage{json.RawMessage(raw)},
+			Snapshots: map[string]timebox.SnapshotRecord{},
+		},
+	}
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	events, err := store.GetEvents(
+		context.Background(), timebox.NewAggregateID("counter", "1"), 5,
+	)
+	assert.NoError(t, err)
+	assert.Len(t, events, 0)
 }
 
 func TestHibernatorSnapshot(t *testing.T) {
@@ -217,6 +321,56 @@ func TestHibernatorSnapshotMissing(t *testing.T) {
 	assert.NotNil(t, snap)
 	assert.Len(t, snap.AdditionalEvents, 0)
 	assert.Equal(t, int64(0), snap.NextSequence)
+}
+
+func TestHibernatorSnapshotBadSeq(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = "hibernator-bad-seq"
+
+	ev := struct {
+		Timestamp time.Time         `json:"timestamp"`
+		Type      timebox.EventType `json:"type"`
+		Data      json.RawMessage   `json:"data"`
+	}{
+		Timestamp: time.Now(),
+		Type:      EventIncremented,
+		Data:      json.RawMessage(`1`),
+	}
+	raw, err := json.Marshal(ev)
+	assert.NoError(t, err)
+
+	storeCfg.Hibernator = stubHibernator{
+		record: &timebox.HibernateRecord{
+			Events: []json.RawMessage{json.RawMessage(raw)},
+			Snapshots: map[string]timebox.SnapshotRecord{
+				"snapshot": {
+					Data:     json.RawMessage(`{}`),
+					Sequence: 2,
+				},
+			},
+		},
+	}
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	var state CounterState
+	snap, err := store.GetSnapshot(
+		context.Background(), timebox.NewAggregateID("counter", "1"), &state,
+	)
+	assert.ErrorIs(t, err, timebox.ErrUnexpectedLuaResult)
+	assert.Nil(t, snap)
 }
 
 func TestHibernatorEventsMissing(t *testing.T) {
@@ -434,6 +588,24 @@ func (r *recordingHibernator) Put(
 }
 
 func (r *recordingHibernator) Delete(
+	_ context.Context, _ timebox.AggregateID,
+) error {
+	return nil
+}
+
+func (p putErrorHibernator) Get(
+	_ context.Context, _ timebox.AggregateID,
+) (*timebox.HibernateRecord, error) {
+	return nil, timebox.ErrHibernateNotFound
+}
+
+func (p putErrorHibernator) Put(
+	_ context.Context, _ timebox.AggregateID, _ *timebox.HibernateRecord,
+) error {
+	return p.err
+}
+
+func (p putErrorHibernator) Delete(
 	_ context.Context, _ timebox.AggregateID,
 ) error {
 	return nil
