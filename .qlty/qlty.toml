@@ -84,3 +84,6 @@ threshold = 20
 [[source]]
 name = "default"
 default = true
+
+[[plugin]]
+name = "radarlint-go"
