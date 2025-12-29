@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kode4food/timebox"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMakeApplier(t *testing.T) {
@@ -36,7 +37,8 @@ func TestMakeApplier(t *testing.T) {
 		)
 
 		data := TestData{Name: "test", Value: 42}
-		jsonData, _ := json.Marshal(data)
+		jsonData, err := json.Marshal(data)
+		assert.NoError(t, err)
 		event := &timebox.Event{
 			Type: "test.event",
 			Data: jsonData,
@@ -45,24 +47,10 @@ func TestMakeApplier(t *testing.T) {
 		initialState := TestState{Count: 10, Last: "initial"}
 		result := applier(initialState, event)
 
-		if receivedState.Count != 10 || receivedState.Last != "initial" {
-			t.Errorf("expected state {Count: 10, Last: initial}, got: %+v",
-				receivedState)
-		}
-
-		if receivedData.Name != "test" || receivedData.Value != 42 {
-			t.Errorf("expected data {Name: test, Value: 42}, got: %+v",
-				receivedData)
-		}
-
-		if receivedEvent != event {
-			t.Error("received event does not match original event")
-		}
-
-		if result.Count != 52 || result.Last != "test" {
-			t.Errorf("expected result {Count: 52, Last: test}, got: %+v",
-				result)
-		}
+		assert.Equal(t, TestState{Count: 10, Last: "initial"}, receivedState)
+		assert.Equal(t, TestData{Name: "test", Value: 42}, receivedData)
+		assert.Same(t, event, receivedEvent)
+		assert.Equal(t, TestState{Count: 52, Last: "test"}, result)
 	})
 
 	t.Run("returns original state on invalid JSON", func(t *testing.T) {
@@ -74,9 +62,10 @@ func TestMakeApplier(t *testing.T) {
 			Value int
 		}
 
+		var called bool
 		applier := timebox.MakeApplier(
 			func(state TestState, ev *timebox.Event, data TestData) TestState {
-				t.Fatal("applier should not be called with invalid JSON")
+				called = true
 				return state
 			},
 		)
@@ -89,11 +78,8 @@ func TestMakeApplier(t *testing.T) {
 		initialState := TestState{Value: 100}
 		result := applier(initialState, event)
 
-		// Should return original state unchanged
-		if result.Value != 100 {
-			t.Errorf("expected state to be unchanged (100), got: %d",
-				result.Value)
-		}
+		assert.False(t, called)
+		assert.Equal(t, 100, result.Value)
 	})
 
 	t.Run("handles empty struct types", func(t *testing.T) {
@@ -119,13 +105,8 @@ func TestMakeApplier(t *testing.T) {
 		initialState := TestState{Called: false}
 		result := applier(initialState, event)
 
-		if !called {
-			t.Fatal("applier was not called")
-		}
-
-		if !result.Called {
-			t.Error("expected result.Called to be true")
-		}
+		assert.True(t, called)
+		assert.True(t, result.Called)
 	})
 
 	t.Run("handles pointer state types", func(t *testing.T) {
@@ -148,7 +129,8 @@ func TestMakeApplier(t *testing.T) {
 		)
 
 		data := TestData{Delta: 5}
-		jsonData, _ := json.Marshal(data)
+		jsonData, err := json.Marshal(data)
+		assert.NoError(t, err)
 		event := &timebox.Event{
 			Type: "test.event",
 			Data: jsonData,
@@ -157,17 +139,8 @@ func TestMakeApplier(t *testing.T) {
 		initialState := &TestState{Value: 10}
 		result := applier(initialState, event)
 
-		if result.Value != 15 {
-			t.Errorf("expected result value 15, got: %d", result.Value)
-		}
-
-		// Ensure original state wasn't mutated
-		if initialState.Value != 10 {
-			t.Errorf(
-				"original state should not be mutated, expected 10, got: %d",
-				initialState.Value,
-			)
-		}
+		assert.Equal(t, 15, result.Value)
+		assert.Equal(t, 10, initialState.Value)
 	})
 
 	t.Run("handles primitive data types", func(t *testing.T) {
@@ -181,7 +154,8 @@ func TestMakeApplier(t *testing.T) {
 			},
 		)
 
-		jsonData, _ := json.Marshal(10)
+		jsonData, err := json.Marshal(10)
+		assert.NoError(t, err)
 		event := &timebox.Event{
 			Type: "test.event",
 			Data: jsonData,
@@ -190,9 +164,7 @@ func TestMakeApplier(t *testing.T) {
 		initialState := TestState{Total: 5}
 		result := applier(initialState, event)
 
-		if result.Total != 15 {
-			t.Errorf("expected result total 15, got: %d", result.Total)
-		}
+		assert.Equal(t, 15, result.Total)
 	})
 
 	t.Run("works in Appliers map", func(t *testing.T) {
@@ -223,23 +195,18 @@ func TestMakeApplier(t *testing.T) {
 			),
 		}
 
-		// Test increment
-		incData, _ := json.Marshal(IncrementData{Delta: 5})
+		incData, err := json.Marshal(IncrementData{Delta: 5})
+		assert.NoError(t, err)
 		event1 := &timebox.Event{Type: "increment", Data: incData}
 		state := &TestState{Value: 10}
 		state = appliers["increment"](state, event1)
 
-		if state.Value != 15 {
-			t.Errorf("expected value 15 after increment, got: %d", state.Value)
-		}
+		assert.Equal(t, 15, state.Value)
 
-		// Test reset
 		event2 := &timebox.Event{Type: "reset", Data: []byte("{}")}
 		state = appliers["reset"](state, event2)
 
-		if state.Value != 0 {
-			t.Errorf("expected value 0 after reset, got: %d", state.Value)
-		}
+		assert.Equal(t, 0, state.Value)
 	})
 
 	t.Run("preserves event metadata", func(t *testing.T) {
@@ -262,7 +229,8 @@ func TestMakeApplier(t *testing.T) {
 		)
 
 		data := TestData{Name: "test"}
-		jsonData, _ := json.Marshal(data)
+		jsonData, err := json.Marshal(data)
+		assert.NoError(t, err)
 		event := &timebox.Event{
 			Type:     "test.event",
 			Sequence: 42,
@@ -271,14 +239,8 @@ func TestMakeApplier(t *testing.T) {
 
 		result := applier(TestState{}, event)
 
-		if result.EventType != "test.event" {
-			t.Errorf("expected event type 'test.event', got: %s",
-				result.EventType)
-		}
-
-		if result.EventSequence != 42 {
-			t.Errorf("expected sequence 42, got: %d", result.EventSequence)
-		}
+		assert.Equal(t, timebox.EventType("test.event"), result.EventType)
+		assert.Equal(t, int64(42), result.EventSequence)
 	})
 
 	t.Run("handles complex nested data structures", func(t *testing.T) {
@@ -311,7 +273,8 @@ func TestMakeApplier(t *testing.T) {
 				City:   "Boston",
 			},
 		}
-		jsonData, _ := json.Marshal(data)
+		jsonData, err := json.Marshal(data)
+		assert.NoError(t, err)
 		event := &timebox.Event{
 			Type: "user.updated",
 			Data: jsonData,
@@ -319,8 +282,38 @@ func TestMakeApplier(t *testing.T) {
 
 		result := applier(TestState{}, event)
 
-		if result.UserCity != "Boston" {
-			t.Errorf("expected city 'Boston', got: %s", result.UserCity)
-		}
+		assert.Equal(t, "Boston", result.UserCity)
 	})
+}
+
+func TestApplierCache(t *testing.T) {
+	type IncrementData struct {
+		Delta int `json:"delta"`
+	}
+
+	type TestState struct {
+		Value int
+	}
+
+	applier := timebox.MakeApplier(
+		func(state TestState, _ *timebox.Event, data IncrementData) TestState {
+			return TestState{Value: state.Value + data.Delta}
+		},
+	)
+
+	jsonData, err := json.Marshal(IncrementData{Delta: 3})
+	assert.NoError(t, err)
+
+	event := &timebox.Event{
+		Type: "test.event",
+		Data: jsonData,
+	}
+
+	state := TestState{Value: 1}
+	state = applier(state, event)
+	assert.Equal(t, 4, state.Value)
+
+	event.Data = []byte("not json")
+	state = applier(state, event)
+	assert.Equal(t, 7, state.Value)
 }

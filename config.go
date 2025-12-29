@@ -22,6 +22,7 @@ type (
 		WorkerCount  int
 		MaxQueueSize int
 		SaveTimeout  time.Duration
+		Hibernator   Hibernator
 	}
 )
 

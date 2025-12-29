@@ -79,4 +79,17 @@ const (
 		local newEvents = redis.call('LRANGE', KEYS[3], snapSeq, -1)
 		return {snapData or "", snapSeq, newEvents}
 		`
+
+	luaGetHibernate = `
+		-- Load snapshot and full event list for hibernation
+		-- KEYS[1] = snapshot key
+		-- KEYS[2] = snapshot sequence key
+		-- KEYS[3] = event list key
+		-- Returns: {snapshot_data, snapshot_seq, allEvents}
+
+		local snapData = redis.call('GET', KEYS[1])
+		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
+		local allEvents = redis.call('LRANGE', KEYS[3], 0, -1)
+		return {snapData or "", snapSeq, allEvents}
+		`
 )

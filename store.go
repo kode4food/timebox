@@ -16,16 +16,18 @@ type (
 	// Store persists events and snapshots in Redis and publishes appended
 	// events to the Timebox EventHub
 	Store struct {
-		tb              *Timebox
-		client          *redis.Client
-		prefix          string
-		producer        topic.Producer[*Event]
-		appendEventsLua *redis.Script
-		getEventsLua    *redis.Script
-		putSnapshotLua  *redis.Script
-		getSnapshotLua  *redis.Script
-		snapshotWorker  *SnapshotWorker
-		config          StoreConfig
+		tb             *Timebox
+		client         *redis.Client
+		prefix         string
+		producer       topic.Producer[*Event]
+		appendEvents   *redis.Script
+		getEvents      *redis.Script
+		putSnapshot    *redis.Script
+		getSnapshot    *redis.Script
+		getHibernate   *redis.Script
+		snapshotWorker *SnapshotWorker
+		hibernator     Hibernator
+		config         StoreConfig
 	}
 
 	// VersionConflictError is returned when AppendEvents encounters a sequence
@@ -49,9 +51,11 @@ const (
 	// RedisConnectTimeout is the ping timeout when creating a Store
 	RedisConnectTimeout = 5 * time.Second
 
-	eventsSuffix      = ":events"
-	snapshotValSuffix = ":snapshot:val"
-	snapshotSeqSuffix = ":snapshot:seq"
+	eventsSuffix = ":events"
+
+	defaultSnapshot   = "snapshot"
+	snapshotValSuffix = ":" + defaultSnapshot + ":val"
+	snapshotSeqSuffix = ":" + defaultSnapshot + ":seq"
 )
 
 var (
@@ -77,15 +81,17 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	}
 
 	s := &Store{
-		tb:              tb,
-		client:          client,
-		prefix:          cfg.Prefix,
-		producer:        tb.hub.NewProducer(),
-		appendEventsLua: redis.NewScript(luaAppendEvents),
-		getEventsLua:    redis.NewScript(luaGetEvents),
-		putSnapshotLua:  redis.NewScript(luaPutSnapshot),
-		getSnapshotLua:  redis.NewScript(luaGetSnapshot),
-		config:          cfg,
+		tb:           tb,
+		client:       client,
+		prefix:       cfg.Prefix,
+		producer:     tb.hub.NewProducer(),
+		appendEvents: redis.NewScript(luaAppendEvents),
+		getEvents:    redis.NewScript(luaGetEvents),
+		putSnapshot:  redis.NewScript(luaPutSnapshot),
+		getSnapshot:  redis.NewScript(luaGetSnapshot),
+		getHibernate: redis.NewScript(luaGetHibernate),
+		hibernator:   cfg.Hibernator,
+		config:       cfg,
 	}
 
 	if tb.config.Workers && cfg.WorkerCount > 0 {
@@ -135,7 +141,7 @@ func (s *Store) AppendEvents(
 		args = append(args, string(reData))
 	}
 
-	result, err := s.appendEventsLua.Run(ctx, s.client, keys, args...).Result()
+	result, err := s.appendEvents.Run(ctx, s.client, keys, args...).Result()
 	if err != nil {
 		return err
 	}
@@ -166,12 +172,23 @@ func (s *Store) GetEvents(
 	keys := []string{eventsKey}
 	args := []any{fromSeq}
 
-	result, err := s.getEventsLua.Run(ctx, s.client, keys, args...).Result()
+	result, err := s.getEvents.Run(ctx, s.client, keys, args...).Result()
 	if err != nil {
 		return nil, err
 	}
 
-	return s.unmarshalEvents(id, fromSeq, result.([]any))
+	rawMessages, err := toRawMessages(result.([]any))
+	if err != nil {
+		return nil, err
+	}
+	if len(rawMessages) > 0 {
+		return s.decodeEvents(id, fromSeq, rawMessages)
+	}
+
+	if s.hibernator == nil {
+		return []*Event{}, nil
+	}
+	return s.loadHibernatedEvents(ctx, id, fromSeq)
 }
 
 // GetSnapshot loads the latest snapshot into target and returns any events
@@ -184,7 +201,7 @@ func (s *Store) GetSnapshot(
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{snapKey, snapSeqKey, eventsKey}
 
-	result, err := s.getSnapshotLua.Run(ctx, s.client, keys).Result()
+	result, err := s.getSnapshot.Run(ctx, s.client, keys).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -199,20 +216,28 @@ func (s *Store) GetSnapshot(
 	snapSeq := resultSlice[1].(int64)
 	newEvents := resultSlice[2].([]any)
 
+	if snapData == "" && len(newEvents) == 0 && s.hibernator != nil {
+		return s.loadHibernatedSnapshot(ctx, id, defaultSnapshot, target)
+	}
+
 	if snapData != "" {
 		if err := json.Unmarshal([]byte(snapData), target); err != nil {
 			return nil, err
 		}
 	}
 
-	events, err := s.unmarshalEvents(id, snapSeq, newEvents)
+	newMessages, err := toRawMessages(newEvents)
+	if err != nil {
+		return nil, err
+	}
+	events, err := s.decodeEvents(id, snapSeq, newMessages)
 	if err != nil {
 		return nil, err
 	}
 
 	eventsSize := 0
 	for i := range events {
-		eventsSize += len(newEvents[i].(string))
+		eventsSize += len(newMessages[i])
 	}
 
 	return &SnapshotResult{
@@ -234,7 +259,7 @@ func (s *Store) PutSnapshot(
 		return err
 	}
 
-	_, err = s.putSnapshotLua.Run(
+	_, err = s.putSnapshot.Run(
 		ctx, s.client,
 		[]string{snapKey, snapSeqKey},
 		string(data), sequence,
@@ -272,10 +297,19 @@ func (e *VersionConflictError) Error() string {
 	)
 }
 
+func (s *Store) buildKey(id AggregateID, suffix string) string {
+	str := id.Join(":")
+	return fmt.Sprintf("%s:%s%s", s.prefix, str, suffix)
+}
+
 func (s *Store) handleVersionConflict(
 	id AggregateID, rawEvents []any, expectedSeq, actualSeq int64,
 ) error {
-	newEvs, err := s.unmarshalEvents(id, expectedSeq, rawEvents)
+	rawMessages, err := toRawMessages(rawEvents)
+	if err != nil {
+		return err
+	}
+	newEvs, err := s.decodeEvents(id, expectedSeq, rawMessages)
 	if err != nil {
 		return err
 	}
@@ -287,22 +321,13 @@ func (s *Store) handleVersionConflict(
 	}
 }
 
-func (s *Store) buildKey(id AggregateID, suffix string) string {
-	str := id.Join(":")
-	return fmt.Sprintf("%s:%s%s", s.prefix, str, suffix)
-}
-
-func (s *Store) parseAggregateID(str string) AggregateID {
-	return ParseAggregateID(str, ":")
-}
-
-func (s *Store) unmarshalEvents(
-	id AggregateID, startSeq int64, data []any,
+func (s *Store) decodeEvents(
+	id AggregateID, startSeq int64, data []json.RawMessage,
 ) ([]*Event, error) {
 	events := make([]*Event, 0, len(data))
 	for i, item := range data {
 		ev := &Event{}
-		if err := json.Unmarshal([]byte(item.(string)), ev); err != nil {
+		if err := json.Unmarshal(item, ev); err != nil {
 			return nil, err
 		}
 		ev.Sequence = startSeq + int64(i)
@@ -310,4 +335,20 @@ func (s *Store) unmarshalEvents(
 		events = append(events, ev)
 	}
 	return events, nil
+}
+
+func (s *Store) parseAggregateID(str string) AggregateID {
+	return ParseAggregateID(str, ":")
+}
+
+func toRawMessages(data []any) ([]json.RawMessage, error) {
+	messages := make([]json.RawMessage, 0, len(data))
+	for _, item := range data {
+		str, ok := item.(string)
+		if !ok {
+			return nil, ErrUnexpectedLuaResult
+		}
+		messages = append(messages, json.RawMessage(str))
+	}
+	return messages, nil
 }

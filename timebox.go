@@ -56,12 +56,12 @@ func NewTimebox(cfg Config) (*Timebox, error) {
 	return tb, nil
 }
 
-// GetHub returns the EventHub instance.
+// GetHub returns the EventHub instance
 func (tb *Timebox) GetHub() EventHub {
 	return tb.hub
 }
 
-// Context returns the Timebox's context for cancellation.
+// Context returns the Timebox's context for cancellation
 func (tb *Timebox) Context() context.Context {
 	return tb.ctx
 }

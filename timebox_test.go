@@ -8,7 +8,6 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/kode4food/timebox"
 )
@@ -51,7 +50,7 @@ func setupTestExecutor(t *testing.T) (
 	*timebox.Executor[*CounterState],
 ) {
 	server, err := miniredis.Run()
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	cfg := timebox.DefaultConfig()
 	storeCfg := cfg.Store
@@ -59,10 +58,10 @@ func setupTestExecutor(t *testing.T) (
 	storeCfg.Prefix = "test"
 
 	tb, err := timebox.NewTimebox(cfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	store, err := tb.NewStore(storeCfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	return server, tb, store, executor
@@ -73,7 +72,7 @@ func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
 	*timebox.Executor[*CounterState],
 ) {
 	server, err := miniredis.Run()
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	cfg := timebox.DefaultConfig()
 	storeCfg := cfg.Store
@@ -82,10 +81,10 @@ func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
 	cfg.Workers = false
 
 	tb, err := timebox.NewTimebox(cfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	store, err := tb.NewStore(storeCfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	return server, tb, store, executor
@@ -97,7 +96,7 @@ func newCounterState() *CounterState {
 
 // Integration tests
 
-func TestTimeboxWithoutSnapshotWorker(t *testing.T) {
+func TestWithoutSnapshotWorker(t *testing.T) {
 	server, tb, store, executor := setupTestExecutorWithoutSnapshotWorker(t)
 	defer server.Close()
 	defer func() { _ = tb.Close() }()
@@ -112,16 +111,25 @@ func TestTimeboxWithoutSnapshotWorker(t *testing.T) {
 		},
 	)
 
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, 10, state.Value)
 
 	err = executor.SaveSnapshot(ctx, id)
-	require.NoError(t, err)
+	assert.NoError(t, err)
+}
+
+func TestContext(t *testing.T) {
+	tb, err := timebox.NewTimebox(timebox.DefaultConfig())
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	ctx := tb.Context()
+	assert.NotNil(t, ctx)
 }
 
 func TestEventHubNotification(t *testing.T) {
 	server, err := miniredis.Run()
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	defer server.Close()
 
 	cfg := timebox.DefaultConfig()
@@ -129,11 +137,11 @@ func TestEventHubNotification(t *testing.T) {
 	storeCfg.Addr = server.Addr()
 
 	tb, err := timebox.NewTimebox(cfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
 	store, err := tb.NewStore(storeCfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
@@ -159,9 +167,9 @@ func TestEventHubNotification(t *testing.T) {
 	}
 }
 
-func TestSequenceInEventHub(t *testing.T) {
+func TestEventHubSequence(t *testing.T) {
 	server, err := miniredis.Run()
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	defer server.Close()
 
 	cfg := timebox.DefaultConfig()
@@ -169,11 +177,11 @@ func TestSequenceInEventHub(t *testing.T) {
 	storeCfg.Addr = server.Addr()
 
 	tb, err := timebox.NewTimebox(cfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
 	store, err := tb.NewStore(storeCfg)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
@@ -210,10 +218,10 @@ func TestSequenceInEventHub(t *testing.T) {
 			return timebox.Raise(ag, EventIncremented, 1)
 		},
 	)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	receivedEvents := <-done
-	require.Len(t, receivedEvents, 3)
+	assert.Len(t, receivedEvents, 3)
 	assert.Equal(t, int64(0), receivedEvents[0].Sequence)
 	assert.Equal(t, int64(1), receivedEvents[1].Sequence)
 	assert.Equal(t, int64(2), receivedEvents[2].Sequence)

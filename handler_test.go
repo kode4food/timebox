@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/kode4food/timebox"
 )
 
@@ -29,29 +31,21 @@ func TestMakeHandler(t *testing.T) {
 		)
 
 		data := TestData{Name: "test", Value: 42}
-		jsonData, _ := json.Marshal(data)
+		jsonData, err := json.Marshal(data)
+		assert.NoError(t, err)
 		event := &timebox.Event{
 			Type: "test.event",
 			Data: jsonData,
 		}
 
-		err := handler(event)
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		err = handler(event)
+		if !assert.NoError(t, err) {
+			return
 		}
 
-		if !called {
-			t.Fatal("handler was not called")
-		}
-
-		if receivedData.Name != "test" || receivedData.Value != 42 {
-			t.Errorf("expected data {Name: test, Value: 42}, got: %+v",
-				receivedData)
-		}
-
-		if receivedEvent != event {
-			t.Error("received event does not match original event")
-		}
+		assert.True(t, called)
+		assert.Equal(t, TestData{Name: "test", Value: 42}, receivedData)
+		assert.Same(t, event, receivedEvent)
 	})
 
 	t.Run("returns error on invalid JSON", func(t *testing.T) {
@@ -59,9 +53,10 @@ func TestMakeHandler(t *testing.T) {
 			Name string `json:"name"`
 		}
 
+		var called bool
 		handler := timebox.MakeHandler(
 			func(ev *timebox.Event, data TestData) error {
-				t.Fatal("handler should not be called with invalid JSON")
+				called = true
 				return nil
 			},
 		)
@@ -72,9 +67,8 @@ func TestMakeHandler(t *testing.T) {
 		}
 
 		err := handler(event)
-		if err == nil {
-			t.Fatal("expected error for invalid JSON, got nil")
-		}
+		assert.Error(t, err)
+		assert.False(t, called)
 	})
 
 	t.Run("propagates handler errors", func(t *testing.T) {
@@ -90,16 +84,15 @@ func TestMakeHandler(t *testing.T) {
 		)
 
 		data := TestData{Name: "test"}
-		jsonData, _ := json.Marshal(data)
+		jsonData, err := json.Marshal(data)
+		assert.NoError(t, err)
 		event := &timebox.Event{
 			Type: "test.event",
 			Data: jsonData,
 		}
 
-		err := handler(event)
-		if err != expectedErr {
-			t.Errorf("expected error %v, got: %v", expectedErr, err)
-		}
+		err = handler(event)
+		assert.Same(t, expectedErr, err)
 	})
 
 	t.Run("handles empty struct types", func(t *testing.T) {
@@ -119,13 +112,11 @@ func TestMakeHandler(t *testing.T) {
 		}
 
 		err := handler(event)
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
 
-		if !called {
-			t.Fatal("handler was not called")
-		}
+		assert.True(t, called)
 	})
 }
 
@@ -146,32 +137,22 @@ func TestMakeDispatcher(t *testing.T) {
 
 		dispatcher := timebox.MakeDispatcher(handlers)
 
-		// Call handler 1
 		err := dispatcher(&timebox.Event{Type: "event.type1"})
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
-		if !handler1Called {
-			t.Error("handler1 was not called")
-		}
-		if handler2Called {
-			t.Error("handler2 should not have been called")
-		}
+		assert.True(t, handler1Called)
+		assert.False(t, handler2Called)
 
-		// Reset and call handler 2
 		handler1Called = false
 		handler2Called = false
 
 		err = dispatcher(&timebox.Event{Type: "event.type2"})
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
-		if handler1Called {
-			t.Error("handler1 should not have been called")
-		}
-		if !handler2Called {
-			t.Error("handler2 was not called")
-		}
+		assert.False(t, handler1Called)
+		assert.True(t, handler2Called)
 	})
 
 	t.Run("ignores unmapped event types", func(t *testing.T) {
@@ -186,14 +167,11 @@ func TestMakeDispatcher(t *testing.T) {
 
 		dispatcher := timebox.MakeDispatcher(handlers)
 
-		// This should not error, just be ignored
 		err := dispatcher(&timebox.Event{Type: "event.unknown"})
-		if err != nil {
-			t.Fatalf("expected no error for unmapped event, got: %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
-		if handlerCalled {
-			t.Error("handler should not have been called for unmapped event")
-		}
+		assert.False(t, handlerCalled)
 	})
 
 	t.Run("propagates handler errors", func(t *testing.T) {
@@ -208,9 +186,7 @@ func TestMakeDispatcher(t *testing.T) {
 		dispatcher := timebox.MakeDispatcher(handlers)
 
 		err := dispatcher(&timebox.Event{Type: "event.error"})
-		if err != expectedErr {
-			t.Errorf("expected error %v, got: %v", expectedErr, err)
-		}
+		assert.Same(t, expectedErr, err)
 	})
 
 	t.Run("handles empty handler map", func(t *testing.T) {
@@ -218,11 +194,8 @@ func TestMakeDispatcher(t *testing.T) {
 			map[timebox.EventType]timebox.Handler{},
 		)
 
-		// Should not panic or error
 		err := dispatcher(&timebox.Event{Type: "any.event"})
-		if err != nil {
-			t.Fatalf("expected no error for empty dispatcher, got: %v", err)
-		}
+		assert.NoError(t, err)
 	})
 
 	t.Run("passes correct event to handler", func(t *testing.T) {
@@ -244,13 +217,10 @@ func TestMakeDispatcher(t *testing.T) {
 		}
 
 		err := dispatcher(originalEvent)
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
-
-		if receivedEvent != originalEvent {
-			t.Error("received event does not match original event")
-		}
+		assert.Same(t, originalEvent, receivedEvent)
 	})
 }
 
@@ -290,45 +260,58 @@ func TestMakeHandlerWithDispatcher(t *testing.T) {
 
 		dispatcher := timebox.MakeDispatcher(handlers)
 
-		// Dispatch user created event
-		userData, _ := json.Marshal(
+		userData, err := json.Marshal(
 			UserCreated{UserID: "user123", Email: "test@example.com"},
 		)
-		err := dispatcher(&timebox.Event{Type: "user.created", Data: userData})
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		assert.NoError(t, err)
+		err = dispatcher(&timebox.Event{Type: "user.created", Data: userData})
+		if !assert.NoError(t, err) {
+			return
 		}
 
-		if !userCreatedCalled {
-			t.Error("user.created handler was not called")
-		}
-		if receivedUserID != "user123" {
-			t.Errorf("expected userID user123, got: %s", receivedUserID)
-		}
+		assert.True(t, userCreatedCalled)
+		assert.Equal(t, "user123", receivedUserID)
 
-		// Dispatch order placed event
-		orderData, _ := json.Marshal(
+		orderData, err := json.Marshal(
 			OrderPlaced{OrderID: "order456", Amount: 100},
 		)
+		assert.NoError(t, err)
 		err = dispatcher(&timebox.Event{Type: "order.placed", Data: orderData})
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
 
-		if !orderPlacedCalled {
-			t.Error("order.placed handler was not called")
-		}
-		if receivedAmount != 100 {
-			t.Errorf("expected amount 100, got: %d", receivedAmount)
-		}
+		assert.True(t, orderPlacedCalled)
+		assert.Equal(t, 100, receivedAmount)
 
-		// Dispatch unknown event (should be silently ignored)
 		err = dispatcher(&timebox.Event{
 			Type: "unknown.event",
 			Data: []byte("{}"),
 		})
-		if err != nil {
-			t.Fatalf("expected no error for unknown event, got: %v", err)
-		}
+		assert.NoError(t, err)
 	})
+}
+
+func TestHandlerCache(t *testing.T) {
+	type TestData struct {
+		Name string `json:"name"`
+	}
+
+	handler := timebox.MakeHandler(
+		func(ev *timebox.Event, data TestData) error {
+			assert.Equal(t, "cached", data.Name)
+			return nil
+		},
+	)
+
+	event := &timebox.Event{
+		Type: "event.cached",
+		Data: []byte(`{"name":"cached"}`),
+	}
+
+	err := handler(event)
+	assert.NoError(t, err)
+
+	err = handler(event)
+	assert.NoError(t, err)
 }
