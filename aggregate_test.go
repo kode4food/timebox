@@ -18,3 +18,14 @@ func TestAggregateID(t *testing.T) {
 	parsed := timebox.ParseAggregateID("counter:123", ":")
 	assert.Equal(t, id, parsed)
 }
+
+func TestAggregateIDEqual(t *testing.T) {
+	id := timebox.NewAggregateID("order", "1")
+	same := timebox.NewAggregateID("order", "1")
+	diffValue := timebox.NewAggregateID("order", "2")
+	diffLen := timebox.NewAggregateID("order", "1", "extra")
+
+	assert.True(t, id.Equal(same))
+	assert.False(t, id.Equal(diffValue))
+	assert.False(t, id.Equal(diffLen))
+}

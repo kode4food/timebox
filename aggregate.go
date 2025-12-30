@@ -119,6 +119,19 @@ func (id AggregateID) Join(sep string) string {
 	return strings.Join(s, sep)
 }
 
+// Equal compares two AggregateIDs for equality
+func (id AggregateID) Equal(other AggregateID) bool {
+	if len(id) != len(other) {
+		return false
+	}
+	for i, p := range id {
+		if other[i] != p {
+			return false
+		}
+	}
+	return true
+}
+
 // Raise marshals the value and enqueues a new event on the Aggregator
 func Raise[T, V any](ag *Aggregator[T], typ EventType, value V) error {
 	return ag.raise(typ, value)
