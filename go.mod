@@ -4,14 +4,14 @@ go 1.24.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/go-redis/redis/v8 v8.11.5
 	github.com/kode4food/caravan v0.0.0-20251025080141-10eee0f8ea05
+	github.com/redis/go-redis/v9 v9.7.0
 	github.com/stretchr/testify v1.11.1
 )
 
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
-	github.com/cespare/xxhash/v2 v2.1.2 // indirect
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/google/uuid v1.6.0 // indirect
