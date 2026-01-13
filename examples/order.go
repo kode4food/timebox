@@ -77,6 +77,7 @@ type (
 
 const (
 	// Event types
+
 	OrderCreated         timebox.EventType = "order.created"
 	OrderItemAdded       timebox.EventType = "order.item_added"
 	OrderItemRemoved     timebox.EventType = "order.item_removed"
@@ -87,6 +88,7 @@ const (
 	OrderDelivered       timebox.EventType = "order.delivered"
 
 	// Order statuses
+
 	StatusDraft     = "draft"
 	StatusCreated   = "created"
 	StatusConfirmed = "confirmed"

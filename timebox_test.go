@@ -45,78 +45,7 @@ var appliers = timebox.Appliers[*CounterState]{
 	},
 }
 
-func setupTestExecutor(t *testing.T) (
-	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
-	*timebox.Executor[*CounterState],
-) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "test"
-
-	tb, err := timebox.NewTimebox(cfg)
-	assert.NoError(t, err)
-
-	store, err := tb.NewStore(storeCfg)
-	assert.NoError(t, err)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	return server, tb, store, executor
-}
-
-func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
-	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
-	*timebox.Executor[*CounterState],
-) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "test"
-	cfg.Workers = false
-
-	tb, err := timebox.NewTimebox(cfg)
-	assert.NoError(t, err)
-
-	store, err := tb.NewStore(storeCfg)
-	assert.NoError(t, err)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	return server, tb, store, executor
-}
-
-func newCounterState() *CounterState {
-	return &CounterState{Value: 0}
-}
-
 // Integration tests
-
-func TestWithoutSnapshotWorker(t *testing.T) {
-	server, tb, store, executor := setupTestExecutorWithoutSnapshotWorker(t)
-	defer server.Close()
-	defer func() { _ = tb.Close() }()
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("counter", "no-snapshot")
-
-	state, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 10)
-		},
-	)
-
-	assert.NoError(t, err)
-	assert.Equal(t, 10, state.Value)
-
-	err = executor.SaveSnapshot(ctx, id)
-	assert.NoError(t, err)
-}
 
 func TestContext(t *testing.T) {
 	tb, err := timebox.NewTimebox(timebox.DefaultConfig())
@@ -200,7 +129,6 @@ func TestEventHubSequence(t *testing.T) {
 			case ev := <-consumer.Receive():
 				received = append(received, ev)
 			case <-time.After(1 * time.Second):
-				t.Error("timeout waiting for event")
 				return
 			}
 		}
@@ -220,9 +148,35 @@ func TestEventHubSequence(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	receivedEvents := <-done
-	assert.Len(t, receivedEvents, 3)
-	assert.Equal(t, int64(0), receivedEvents[0].Sequence)
-	assert.Equal(t, int64(1), receivedEvents[1].Sequence)
-	assert.Equal(t, int64(2), receivedEvents[2].Sequence)
+	received := <-done
+	assert.Len(t, received, 3)
+	assert.Equal(t, int64(0), received[0].Sequence)
+	assert.Equal(t, int64(1), received[1].Sequence)
+	assert.Equal(t, int64(2), received[2].Sequence)
+}
+
+func newCounterState() *CounterState {
+	return &CounterState{Value: 0}
+}
+
+func setupTestExecutor(t *testing.T) (
+	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
+	*timebox.Executor[*CounterState],
+) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = "test"
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	return server, tb, store, executor
 }

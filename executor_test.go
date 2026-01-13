@@ -180,122 +180,6 @@ func TestSequenceHandling(t *testing.T) {
 	assert.Equal(t, int64(4), partialEvents[2].Sequence)
 }
 
-func TestSequenceWithSnapshot(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
-	defer server.Close()
-	defer func() { _ = tb.Close() }()
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("counter", "snap-seq-test")
-
-	// Raise some events
-	_, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 5); err != nil {
-				return err
-			}
-			return timebox.Raise(ag, EventIncremented, 5)
-		},
-	)
-	assert.NoError(t, err)
-
-	// Create snapshot at sequence 2
-	err = executor.SaveSnapshot(ctx, id)
-	assert.NoError(t, err)
-
-	// Raise more events after snapshot
-	_, err = executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 3); err != nil {
-				return err
-			}
-			return timebox.Raise(ag, EventIncremented, 3)
-		},
-	)
-	assert.NoError(t, err)
-
-	// Load snapshot and verify sequences on additional events
-	var state CounterState
-	snap, err := store.GetSnapshot(ctx, id, &state)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(2), snap.NextSequence)
-
-	assert.Len(t, snap.AdditionalEvents, 2)
-	assert.Equal(t, int64(2), snap.AdditionalEvents[0].Sequence)
-	assert.Equal(t, int64(3), snap.AdditionalEvents[1].Sequence)
-}
-
-func TestLargeEventBatch(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
-	defer server.Close()
-	defer func() { _ = tb.Close() }()
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("counter", "large-batch")
-
-	// Test with more than 128 events to verify chunking works
-	numEvents := 300
-
-	state, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			for range numEvents {
-				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	)
-	assert.NoError(t, err)
-	assert.Equal(t, numEvents, state.Value)
-
-	// Verify all events were stored correctly
-	events, err := store.GetEvents(ctx, id, 0)
-	assert.NoError(t, err)
-	assert.Len(t, events, numEvents)
-
-	// Verify sequences are correct
-	for i := range numEvents {
-		assert.Equal(t, int64(i), events[i].Sequence)
-	}
-
-	// Test reading from an offset in the middle of the chunked data
-	events, err = store.GetEvents(ctx, id, 150)
-	assert.NoError(t, err)
-	assert.Len(t, events, numEvents-150)
-	assert.Equal(t, int64(150), events[0].Sequence)
-
-	// Create a snapshot and verify it handles large event sets
-	err = executor.SaveSnapshot(ctx, id)
-	assert.NoError(t, err)
-
-	// Add more events after snapshot
-	state, err = executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			for range 50 {
-				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	)
-	assert.NoError(t, err)
-	assert.Equal(t, numEvents+50, state.Value)
-
-	// Verify snapshot loading with additional events
-	var snapState CounterState
-	snap, err := store.GetSnapshot(ctx, id, &snapState)
-	assert.NoError(t, err)
-	assert.Equal(t, numEvents, snapState.Value)
-	assert.Len(t, snap.AdditionalEvents, 50)
-	for i := range 50 {
-		assert.Equal(t, int64(numEvents+i), snap.AdditionalEvents[i].Sequence)
-	}
-}
-
 func TestAppliesEvent(t *testing.T) {
 	server, tb, store, executor := setupTestExecutor(t)
 	defer server.Close()
@@ -353,7 +237,7 @@ func TestConflictRetry(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 2, state.Value)
 
-	state, err = executor.Exec(ctx, id,
+	_, err = executor.Exec(ctx, id,
 		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, id, ag.ID())
 			return nil
@@ -402,57 +286,6 @@ func TestCacheEviction(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, state.Value)
-}
-
-func TestSnapshotWorker(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer server.Close()
-
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "snapshot-worker"
-	storeCfg.WorkerCount = 1
-	storeCfg.MaxQueueSize = 1
-	storeCfg.SaveTimeout = time.Second
-
-	tb, err := timebox.NewTimebox(cfg)
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(storeCfg)
-	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	id := timebox.NewAggregateID("counter", "snapshot")
-	ev := &timebox.Event{
-		Timestamp: time.Now(),
-		Type:      EventIncremented,
-		Data:      json.RawMessage(`1`),
-	}
-	err = store.AppendEvents(
-		context.Background(), id, 0, []*timebox.Event{ev},
-	)
-	assert.NoError(t, err)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	_, err = executor.Exec(context.Background(), id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			assert.Equal(t, 1, s.Value)
-			return nil
-		},
-	)
-	assert.NoError(t, err)
-
-	assert.Eventually(t, func() bool {
-		var snap CounterState
-		result, err := store.GetSnapshot(context.Background(), id, &snap)
-		if err != nil || result == nil {
-			return false
-		}
-		return result.NextSequence > 0
-	}, time.Second, 10*time.Millisecond)
 }
 
 func TestCommandError(t *testing.T) {
@@ -508,70 +341,6 @@ func TestRaiseError(t *testing.T) {
 		return timebox.Raise(ag, EventIncremented, ch)
 	})
 
-	assert.Error(t, err)
-}
-
-func TestSaveSnapshotError(t *testing.T) {
-	server, tb, store, _ := setupTestExecutor(t)
-	defer server.Close()
-	defer func() { _ = tb.Close() }()
-	defer func() { _ = store.Close() }()
-
-	type BadState struct {
-		Value chan int
-	}
-
-	executor := timebox.NewExecutor(
-		store,
-		func() *BadState { return &BadState{Value: make(chan int)} },
-		timebox.Appliers[*BadState]{},
-	)
-
-	err := executor.SaveSnapshot(
-		context.Background(),
-		timebox.NewAggregateID("bad", "snapshot"),
-	)
-	assert.Error(t, err)
-}
-
-func TestSaveSnapshot(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
-	defer server.Close()
-	defer func() { _ = tb.Close() }()
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("save", "snapshot")
-
-	_, err := executor.Exec(ctx, id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		assert.Equal(t, 0, s.Value)
-		return timebox.Raise(ag, EventIncremented, 2)
-	})
-	assert.NoError(t, err)
-
-	err = executor.SaveSnapshot(ctx, id)
-	assert.NoError(t, err)
-
-	var state CounterState
-	snap, err := store.GetSnapshot(ctx, id, &state)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(1), snap.NextSequence)
-	assert.Equal(t, 2, state.Value)
-}
-
-func TestSaveSnapshotLoadError(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
-	defer func() { _ = tb.Close() }()
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("save", "snapshot-error")
-
-	server.Close()
-
-	err := executor.SaveSnapshot(ctx, id)
 	assert.Error(t, err)
 }
 

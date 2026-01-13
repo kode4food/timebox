@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/kode4food/timebox"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kode4food/timebox"
 )
 
 func TestMakeApplier(t *testing.T) {
