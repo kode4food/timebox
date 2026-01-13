@@ -10,6 +10,7 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Optimistic concurrency** with automatic retries on conflicts
 - **Snapshots and caching** with background workers and LRU projection cache
 - **Distributed coordination** through a shared Redis/Valkey backend
+- **Archiving**: atomically move aggregate snapshots + events into a Redis stream
 - **Type-safe generics**: no interfaces to implement in your domain types
 - **EventHub**: push events to in-process consumers while persisting to Redis
 
@@ -21,6 +22,21 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Appliers**: Pure functions that fold an event into aggregate state. `MakeApplier` lets you work with strongly typed payloads.
 - **Handlers/Dispatchers**: Helpers for consuming events from the EventHub without manual JSON decoding.
 - **Snapshots**: Created automatically as events grow; also available on demand with `SaveSnapshot`.
+
+## Archiving
+
+Archiving atomically moves an aggregate's snapshot and full event log into a
+Redis stream and clears the original keys. It is a one-way operation (no
+restore API). Enable it per store with `ArchiveEnabled`, then call
+`Store.Archive(ctx, id)`. To consume archived records, call
+`Store.ConsumeArchive(ctx, handler)`, which reads and acknowledges a single
+record per call. For a timed wait, call `Store.PollArchive(ctx, timeout, handler)`.
+
+Stream, group, and consumer names are derived from the store prefix:
+
+- stream: `<prefix>:archive`
+- group: `<prefix>:archive:group`
+- consumer: `<prefix>:archive:consumer`
 
 ## Examples
 

@@ -154,16 +154,12 @@ func (ex *orderExample) createOrder() {
 				return err
 			}
 
-			if err := timebox.Raise(ag, OrderItemAdded, ItemAddedData{
+			return timebox.Raise(ag, OrderItemAdded, ItemAddedData{
 				ProductID: "MOUSE-WIRELESS",
 				Name:      "Wireless Mouse",
 				Quantity:  2,
 				Price:     29.99,
-			}); err != nil {
-				return err
-			}
-
-			return nil
+			})
 		},
 	)
 	if err != nil {

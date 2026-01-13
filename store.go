@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/kode4food/caravan/topic"
+	"github.com/redis/go-redis/v9"
 )
 
 type (
@@ -24,9 +24,8 @@ type (
 		getEvents      *redis.Script
 		putSnapshot    *redis.Script
 		getSnapshot    *redis.Script
-		getHibernate   *redis.Script
+		archive        *redis.Script
 		snapshotWorker *SnapshotWorker
-		hibernator     Hibernator
 		config         StoreConfig
 	}
 
@@ -89,8 +88,7 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		getEvents:    redis.NewScript(luaGetEvents),
 		putSnapshot:  redis.NewScript(luaPutSnapshot),
 		getSnapshot:  redis.NewScript(luaGetSnapshot),
-		getHibernate: redis.NewScript(luaGetHibernate),
-		hibernator:   cfg.Hibernator,
+		archive:      redis.NewScript(luaArchive),
 		config:       cfg,
 	}
 
@@ -185,10 +183,7 @@ func (s *Store) GetEvents(
 		return s.decodeEvents(id, fromSeq, rawMessages)
 	}
 
-	if s.hibernator == nil {
-		return []*Event{}, nil
-	}
-	return s.loadHibernatedEvents(ctx, id, fromSeq)
+	return []*Event{}, nil
 }
 
 // GetSnapshot loads the latest snapshot into target and returns any events
@@ -215,10 +210,6 @@ func (s *Store) GetSnapshot(
 	snapSize := len(snapData)
 	snapSeq := resultSlice[1].(int64)
 	newEvents := resultSlice[2].([]any)
-
-	if snapData == "" && len(newEvents) == 0 && s.hibernator != nil {
-		return s.loadHibernatedSnapshot(ctx, id, defaultSnapshot, target)
-	}
 
 	if snapData != "" {
 		if err := json.Unmarshal([]byte(snapData), target); err != nil {
@@ -300,6 +291,18 @@ func (e *VersionConflictError) Error() string {
 func (s *Store) buildKey(id AggregateID, suffix string) string {
 	str := id.Join(":")
 	return fmt.Sprintf("%s:%s%s", s.prefix, str, suffix)
+}
+
+func (s *Store) archiveStreamKey() string {
+	return fmt.Sprintf("%s:archive", s.prefix)
+}
+
+func (s *Store) archiveGroup() string {
+	return fmt.Sprintf("%s:archive:group", s.prefix)
+}
+
+func (s *Store) archiveConsumer() string {
+	return fmt.Sprintf("%s:archive:consumer", s.prefix)
 }
 
 func (s *Store) handleVersionConflict(

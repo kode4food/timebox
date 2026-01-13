@@ -80,16 +80,32 @@ const (
 		return {snapData or "", snapSeq, newEvents}
 		`
 
-	luaGetHibernate = `
-		-- Load snapshot and full event list for hibernation
+	luaArchive = `
+		-- Atomically move snapshot + events to a stream
 		-- KEYS[1] = snapshot key
 		-- KEYS[2] = snapshot sequence key
 		-- KEYS[3] = event list key
-		-- Returns: {snapshot_data, snapshot_seq, allEvents}
+		-- KEYS[4] = stream key
+		-- ARGV[1] = aggregate id string
+		-- Returns: {1, streamId} on success, {0} if nothing to move
 
-		local snapData = redis.call('GET', KEYS[1])
+		local snapData = redis.call('GET', KEYS[1]) or ""
 		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
 		local allEvents = redis.call('LRANGE', KEYS[3], 0, -1)
-		return {snapData or "", snapSeq, allEvents}
+
+		if snapData == "" and #allEvents == 0 then
+			return {0}
+		end
+
+		local payload = cjson.encode({
+			id = ARGV[1],
+			snap = snapData,
+			seq = snapSeq,
+			events = allEvents,
+		})
+
+		local streamId = redis.call('XADD', KEYS[4], '*', 'payload', payload)
+		redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+		return {1, streamId}
 		`
 )

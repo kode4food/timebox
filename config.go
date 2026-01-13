@@ -22,7 +22,7 @@ type (
 		WorkerCount  int
 		MaxQueueSize int
 		SaveTimeout  time.Duration
-		Hibernator   Hibernator
+		Archiving    bool
 	}
 )
 
@@ -66,7 +66,6 @@ func DefaultConfig() Config {
 func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
 		Addr:         DefaultRedisEndpoint,
-		Password:     "",
 		DB:           DefaultRedisDB,
 		Prefix:       DefaultRedisPrefix,
 		WorkerCount:  DefaultSnapshotWorkers,
