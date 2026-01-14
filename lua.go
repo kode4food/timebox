@@ -80,7 +80,7 @@ const (
 		return {snapData or "", snapSeq, newEvents}
 		`
 
-	luaArchive = `
+	luaPublishArchive = `
 		-- Atomically move snapshot + events to a stream
 		-- KEYS[1] = snapshot key
 		-- KEYS[2] = snapshot sequence key
@@ -107,5 +107,17 @@ const (
 		local streamId = redis.call('XADD', KEYS[4], '*', 'payload', payload)
 		redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
 		return {1, streamId}
+		`
+
+	luaConsumeArchive = `
+		-- Atomically acknowledge and delete a stream entry
+		-- KEYS[1] = stream key
+		-- ARGV[1] = consumer group
+		-- ARGV[2] = stream entry ID
+		-- Returns: {ackCount, delCount}
+
+		local acked = redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
+		local deleted = redis.call('XDEL', KEYS[1], ARGV[2])
+		return {acked, deleted}
 		`
 )

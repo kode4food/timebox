@@ -54,7 +54,7 @@ func (s *Store) Archive(ctx context.Context, id AggregateID) error {
 	keys := []string{snapKey, snapSeqKey, eventsKey, streamKey}
 	args := []any{id.Join(":")}
 
-	result, err := s.archive.Run(ctx, s.client, keys, args...).Result()
+	result, err := s.publishArchive.Run(ctx, s.client, keys, args...).Result()
 	if err != nil {
 		return err
 	}
@@ -129,10 +129,10 @@ func (s *Store) PollArchive(
 		return err
 	}
 
-	if err := s.client.XAck(ctx, streamKey, group, msg.ID).Err(); err != nil {
-		return err
-	}
-	return s.client.XDel(ctx, streamKey, msg.ID).Err()
+	_, err = s.consumeArchive.Run(
+		ctx, s.client, []string{streamKey}, group, msg.ID,
+	).Result()
+	return err
 }
 
 func (s *Store) parseArchiveRecord(msg redis.XMessage) (*ArchiveRecord, error) {

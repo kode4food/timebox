@@ -24,7 +24,8 @@ type (
 		getEvents      *redis.Script
 		putSnapshot    *redis.Script
 		getSnapshot    *redis.Script
-		archive        *redis.Script
+		publishArchive *redis.Script
+		consumeArchive *redis.Script
 		snapshotWorker *SnapshotWorker
 		config         StoreConfig
 	}
@@ -80,16 +81,17 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	}
 
 	s := &Store{
-		tb:           tb,
-		client:       client,
-		prefix:       cfg.Prefix,
-		producer:     tb.hub.NewProducer(),
-		appendEvents: redis.NewScript(luaAppendEvents),
-		getEvents:    redis.NewScript(luaGetEvents),
-		putSnapshot:  redis.NewScript(luaPutSnapshot),
-		getSnapshot:  redis.NewScript(luaGetSnapshot),
-		archive:      redis.NewScript(luaArchive),
-		config:       cfg,
+		tb:             tb,
+		client:         client,
+		prefix:         cfg.Prefix,
+		producer:       tb.hub.NewProducer(),
+		appendEvents:   redis.NewScript(luaAppendEvents),
+		getEvents:      redis.NewScript(luaGetEvents),
+		putSnapshot:    redis.NewScript(luaPutSnapshot),
+		getSnapshot:    redis.NewScript(luaGetSnapshot),
+		publishArchive: redis.NewScript(luaPublishArchive),
+		consumeArchive: redis.NewScript(luaConsumeArchive),
+		config:         cfg,
 	}
 
 	if tb.config.Workers && cfg.WorkerCount > 0 {
