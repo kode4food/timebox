@@ -1,8 +1,11 @@
 package timebox_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -374,4 +377,83 @@ func TestZeroCacheSize(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, state.Value)
+}
+
+func TestOnSuccessCallbacks(t *testing.T) {
+	server, tb, store, executor := setupTestExecutor(t)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+	prev := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(prev)
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("counter", "on-success")
+
+	var called []int
+	_, err := executor.Exec(ctx, id,
+		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			ag.OnSuccess(func() { called = append(called, 1) })
+			ag.OnSuccess(func() {
+				called = append(called, 2)
+				panic("boom")
+			})
+			ag.OnSuccess(func() { called = append(called, 3) })
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1, 2, 3}, called)
+	assert.Contains(t, buf.String(), "OnSuccess callback panicked")
+}
+
+func TestOnSuccessNoOp(t *testing.T) {
+	server, tb, store, executor := setupTestExecutor(t)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("counter", "on-success-noop")
+
+	called := false
+	state, err := executor.Exec(ctx, id,
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			assert.Equal(t, 0, s.Value)
+			ag.OnSuccess(func() { called = true })
+			return nil
+		},
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 0, state.Value)
+	assert.True(t, called)
+}
+
+func TestOnSuccessNotCalledOnError(t *testing.T) {
+	server, tb, store, executor := setupTestExecutor(t)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("counter", "on-success-error")
+
+	called := false
+	_, err := executor.Exec(ctx, id,
+		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			ag.OnSuccess(func() { called = true })
+			return errors.New("nope")
+		},
+	)
+
+	assert.Error(t, err)
+	assert.False(t, called)
 }

@@ -3,6 +3,7 @@ package timebox
 import (
 	"context"
 	"errors"
+	"log/slog"
 )
 
 type (
@@ -79,6 +80,7 @@ func (e *Executor[T]) Exec(
 		})
 		if err == nil {
 			if count == 0 {
+				e.runOnSuccess(ag)
 				return proj.state, nil
 			}
 			final := &projection[T]{
@@ -86,6 +88,7 @@ func (e *Executor[T]) Exec(
 				nextSeq: ag.nextSeq,
 			}
 			e.updateCache(id, final)
+			e.runOnSuccess(ag)
 			return final.state, nil
 		}
 
@@ -95,6 +98,21 @@ func (e *Executor[T]) Exec(
 	}
 
 	return zero, ErrMaxRetriesExceeded
+}
+
+func (e *Executor[T]) runOnSuccess(ag *Aggregator[T]) {
+	for _, fn := range ag.deferred {
+		func(cb func()) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("OnSuccess callback panicked",
+						slog.Any("aggregate_id", ag.id),
+						slog.Any("panic", r))
+				}
+			}()
+			cb()
+		}(fn)
+	}
 }
 
 // SaveSnapshot forces an immediate snapshot save for the given Aggregate

@@ -16,6 +16,7 @@ type (
 		id       AggregateID
 		enqueued []*Event
 		nextSeq  int64
+		deferred []func()
 	}
 
 	// Flusher persists enqueued events and returns an error if the write fails
@@ -59,6 +60,11 @@ func (a *Aggregator[_]) NextSequence() int64 {
 // Enqueued returns the events raised during the current command
 func (a *Aggregator[_]) Enqueued() []*Event {
 	return a.enqueued
+}
+
+// OnSuccess registers an action to run if the executor completes without error
+func (a *Aggregator[_]) OnSuccess(fn func()) {
+	a.deferred = append(a.deferred, fn)
 }
 
 func (a *Aggregator[T]) raise(typ EventType, value any) error {
