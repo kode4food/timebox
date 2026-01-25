@@ -80,15 +80,26 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		return nil, err
 	}
 
+	appendEventsScript := luaAppendEvents
+	getEventsScript := luaGetEvents
+	putSnapshotScript := luaPutSnapshot
+	getSnapshotScript := luaGetSnapshot
+	if cfg.TrimEvents {
+		appendEventsScript = luaAppendEventsTrim
+		getEventsScript = luaGetEventsTrim
+		putSnapshotScript = luaPutSnapshotTrim
+		getSnapshotScript = luaGetSnapshotTrim
+	}
+
 	s := &Store{
 		tb:             tb,
 		client:         client,
 		prefix:         cfg.Prefix,
 		producer:       tb.hub.NewProducer(),
-		appendEvents:   redis.NewScript(luaAppendEvents),
-		getEvents:      redis.NewScript(luaGetEvents),
-		putSnapshot:    redis.NewScript(luaPutSnapshot),
-		getSnapshot:    redis.NewScript(luaGetSnapshot),
+		appendEvents:   redis.NewScript(appendEventsScript),
+		getEvents:      redis.NewScript(getEventsScript),
+		putSnapshot:    redis.NewScript(putSnapshotScript),
+		getSnapshot:    redis.NewScript(getSnapshotScript),
 		publishArchive: redis.NewScript(luaPublishArchive),
 		consumeArchive: redis.NewScript(luaConsumeArchive),
 		config:         cfg,
@@ -113,7 +124,7 @@ func (s *Store) Close() error {
 }
 
 // AppendEvents atomically appends events for an aggregate if the expected
-// sequence matches the current log length, publishing them to the EventHub
+// sequence matches the current log sequence, publishing them to the EventHub
 func (s *Store) AppendEvents(
 	ctx context.Context, id AggregateID, atSeq int64, evs []*Event,
 ) error {
@@ -123,6 +134,10 @@ func (s *Store) AppendEvents(
 
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
+	if s.config.TrimEvents {
+		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
+		keys = []string{eventsKey, snapSeqKey}
+	}
 	args := []any{atSeq}
 
 	var re struct {
@@ -170,11 +185,41 @@ func (s *Store) GetEvents(
 ) ([]*Event, error) {
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
+	if s.config.TrimEvents {
+		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
+		keys = []string{eventsKey, snapSeqKey}
+	}
 	args := []any{fromSeq}
 
 	result, err := s.getEvents.Run(ctx, s.client, keys, args...).Result()
 	if err != nil {
 		return nil, err
+	}
+
+	if s.config.TrimEvents {
+		res := result.([]any)
+		if len(res) < 2 {
+			return nil, ErrUnexpectedLuaResult
+		}
+
+		offset, ok := res[0].(int64)
+		if !ok {
+			return nil, ErrUnexpectedLuaResult
+		}
+
+		rawMessages, err := toRawMessages(res[1].([]any))
+		if err != nil {
+			return nil, err
+		}
+		if len(rawMessages) > 0 {
+			startSeq := fromSeq
+			if startSeq < offset {
+				startSeq = offset
+			}
+			return s.decodeEvents(id, startSeq, rawMessages)
+		}
+
+		return []*Event{}, nil
 	}
 
 	rawMessages, err := toRawMessages(result.([]any))
@@ -252,11 +297,13 @@ func (s *Store) PutSnapshot(
 		return err
 	}
 
-	_, err = s.putSnapshot.Run(
-		ctx, s.client,
-		[]string{snapKey, snapSeqKey},
-		string(data), sequence,
-	).Result()
+	keys := []string{snapKey, snapSeqKey}
+	if s.config.TrimEvents {
+		eventsKey := s.buildKey(id, eventsSuffix)
+		keys = []string{snapKey, snapSeqKey, eventsKey}
+	}
+
+	_, err = s.putSnapshot.Run(ctx, s.client, keys, string(data), sequence).Result()
 	return err
 }
 
@@ -265,18 +312,29 @@ func (s *Store) ListAggregates(
 	ctx context.Context, id AggregateID,
 ) ([]AggregateID, error) {
 	str := id.Join(":")
-	searchKey := fmt.Sprintf("%s:%s%s", s.prefix, str, eventsSuffix)
-
-	keys, err := s.client.Keys(ctx, searchKey).Result()
-	if err != nil {
-		return nil, err
+	searchKeys := []string{
+		fmt.Sprintf("%s:%s%s", s.prefix, str, eventsSuffix),
+		fmt.Sprintf("%s:%s%s", s.prefix, str, snapshotSeqSuffix),
 	}
 
-	var ids []AggregateID
-	for _, key := range keys {
-		trimmed := strings.TrimPrefix(key, s.prefix+":")
-		aggregateIDStr := strings.TrimSuffix(trimmed, eventsSuffix)
-		aid := s.parseAggregateID(aggregateIDStr)
+	seen := map[string]AggregateID{}
+	for _, searchKey := range searchKeys {
+		keys, err := s.client.Keys(ctx, searchKey).Result()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, key := range keys {
+			trimmed := strings.TrimPrefix(key, s.prefix+":")
+			aggregateIDStr := strings.TrimSuffix(trimmed, eventsSuffix)
+			aggregateIDStr = strings.TrimSuffix(aggregateIDStr, snapshotSeqSuffix)
+			aid := s.parseAggregateID(aggregateIDStr)
+			seen[aggregateIDStr] = aid
+		}
+	}
+
+	ids := make([]AggregateID, 0, len(seen))
+	for _, aid := range seen {
 		ids = append(ids, aid)
 	}
 

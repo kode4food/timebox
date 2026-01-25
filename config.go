@@ -22,6 +22,7 @@ type (
 		WorkerCount  int
 		MaxQueueSize int
 		SaveTimeout  time.Duration
+		TrimEvents   bool
 		Archiving    bool
 	}
 )
@@ -44,6 +45,9 @@ const (
 
 	// DefaultSnapshotSaveTimeout is the timeout for snapshot persistence
 	DefaultSnapshotSaveTimeout = 30 * time.Second
+
+	// DefaultTrimEvents determines whether snapshots trim stored events
+	DefaultTrimEvents = false
 
 	// DefaultMaxRetries is the default optimistic concurrency retry count
 	DefaultMaxRetries = 16
@@ -71,5 +75,6 @@ func DefaultStoreConfig() StoreConfig {
 		WorkerCount:  DefaultSnapshotWorkers,
 		MaxQueueSize: DefaultSnapshotQueueSize,
 		SaveTimeout:  DefaultSnapshotSaveTimeout,
+		TrimEvents:   DefaultTrimEvents,
 	}
 }

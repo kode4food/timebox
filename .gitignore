@@ -25,6 +25,10 @@ go.work.sum
 *.swo
 *~
 
+# AI files
+.claude
+.serena
+
 # OS files
 .DS_Store
 Thumbs.db

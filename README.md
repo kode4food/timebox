@@ -23,6 +23,20 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Handlers/Dispatchers**: Helpers for consuming events from the EventHub without manual JSON decoding.
 - **Snapshots**: Created automatically as events grow; also available on demand with `SaveSnapshot`.
 
+## Store Configuration
+
+Store behavior is configured via `StoreConfig` when creating a store.
+
+- `Addr`: Redis/Valkey host:port.
+- `Password`: Redis/Valkey password (optional).
+- `DB`: Redis/Valkey database index.
+- `Prefix`: key prefix for all store data.
+- `WorkerCount`: number of background snapshot workers. Set to 0 to disable.
+- `MaxQueueSize`: snapshot queue capacity.
+- `SaveTimeout`: snapshot persistence timeout.
+- `TrimEvents`: when true, snapshots trim events up to the latest snapshot sequence. Default is false.
+- `Archiving`: enable `Store.Archive`/`Store.ConsumeArchive` support. Default is false.
+
 ## Archiving
 
 Archiving atomically moves an aggregate's snapshot and full event log into a

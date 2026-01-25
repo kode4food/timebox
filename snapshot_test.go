@@ -124,6 +124,60 @@ func TestSequenceWithSnapshot(t *testing.T) {
 	assert.Equal(t, int64(3), snap.AdditionalEvents[1].Sequence)
 }
 
+func TestSnapshotTrimsEvents(t *testing.T) {
+	server, tb, store, executor := setupTestExecutorWithStoreConfig(t, func(cfg *timebox.StoreConfig) {
+		cfg.TrimEvents = true
+	})
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("counter", "trim-events")
+
+	_, err := executor.Exec(ctx, id,
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			for range 3 {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	)
+	assert.NoError(t, err)
+
+	err = executor.SaveSnapshot(ctx, id)
+	assert.NoError(t, err)
+
+	events, err := store.GetEvents(ctx, id, 0)
+	assert.NoError(t, err)
+	assert.Len(t, events, 0)
+
+	aggregates, err := store.ListAggregates(ctx, id)
+	assert.NoError(t, err)
+	assert.Len(t, aggregates, 1)
+	assert.Equal(t, id, aggregates[0])
+
+	_, err = executor.Exec(ctx, id,
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			for range 2 {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	)
+	assert.NoError(t, err)
+
+	events, err = store.GetEvents(ctx, id, 0)
+	assert.NoError(t, err)
+	assert.Len(t, events, 2)
+	assert.Equal(t, int64(3), events[0].Sequence)
+	assert.Equal(t, int64(4), events[1].Sequence)
+}
+
 func TestLargeEventBatchWithSnapshot(t *testing.T) {
 	server, tb, store, executor := setupTestExecutor(t)
 	defer server.Close()

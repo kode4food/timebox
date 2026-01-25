@@ -46,6 +46,7 @@ func TestArchiveToStream(t *testing.T) {
 	cfg := timebox.DefaultConfig()
 	storeCfg := cfg.Store
 	storeCfg.Addr = server.Addr()
+	storeCfg.TrimEvents = true
 	storeCfg.Archiving = true
 
 	tb, err := timebox.NewTimebox(cfg)
@@ -68,7 +69,7 @@ func TestArchiveToStream(t *testing.T) {
 		Data:      json.RawMessage(`{"value":1}`),
 	}
 	assert.NoError(t,
-		store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}),
+		store.AppendEvents(ctx, id, 2, []*timebox.Event{ev}),
 	)
 
 	err = store.Archive(ctx, id)

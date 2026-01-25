@@ -163,6 +163,15 @@ func setupTestExecutor(t *testing.T) (
 	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
 	*timebox.Executor[*CounterState],
 ) {
+	return setupTestExecutorWithStoreConfig(t, nil)
+}
+
+func setupTestExecutorWithStoreConfig(
+	t *testing.T, mutate func(*timebox.StoreConfig),
+) (
+	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
+	*timebox.Executor[*CounterState],
+) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 
@@ -170,6 +179,9 @@ func setupTestExecutor(t *testing.T) (
 	storeCfg := cfg.Store
 	storeCfg.Addr = server.Addr()
 	storeCfg.Prefix = "test"
+	if mutate != nil {
+		mutate(&storeCfg)
+	}
 
 	tb, err := timebox.NewTimebox(cfg)
 	assert.NoError(t, err)
