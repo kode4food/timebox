@@ -46,7 +46,7 @@ func TestSnapshotWorkerSaveTimesOut(t *testing.T) {
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	_, err = executor.Exec(ctx, id,
-		func(_ *CounterState, _ *timebox.Aggregator[*CounterState]) error {
+		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
 			return nil
 		},
 	)

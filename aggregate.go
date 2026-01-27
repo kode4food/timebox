@@ -16,11 +16,14 @@ type (
 		id       AggregateID
 		enqueued []*Event
 		nextSeq  int64
-		deferred []func()
+		success  []SuccessAction[T]
 	}
 
 	// Flusher persists enqueued events and returns an error if the write fails
 	Flusher func(int64, []*Event) error
+
+	// SuccessAction receives the Aggregator's final value upon Exec success
+	SuccessAction[T any] func(T)
 
 	// AggregateID identifies an aggregate as a set of parts ("order", "123")
 	AggregateID []ID
@@ -63,8 +66,8 @@ func (a *Aggregator[_]) Enqueued() []*Event {
 }
 
 // OnSuccess registers an action to run if the executor completes without error
-func (a *Aggregator[_]) OnSuccess(fn func()) {
-	a.deferred = append(a.deferred, fn)
+func (a *Aggregator[T]) OnSuccess(fn SuccessAction[T]) {
+	a.success = append(a.success, fn)
 }
 
 func (a *Aggregator[T]) raise(typ EventType, value any) error {

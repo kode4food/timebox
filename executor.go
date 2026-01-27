@@ -101,16 +101,17 @@ func (e *Executor[T]) Exec(
 }
 
 func (e *Executor[T]) runOnSuccess(ag *Aggregator[T]) {
-	for _, fn := range ag.deferred {
-		func(cb func()) {
+	val := ag.Value()
+	for _, fn := range ag.success {
+		func(cb SuccessAction[T]) {
 			defer func() {
 				if r := recover(); r != nil {
-					slog.Error("OnSuccess callback panicked",
+					slog.Error("OnSuccess action panicked",
 						slog.Any("aggregate_id", ag.id),
 						slog.Any("panic", r))
 				}
 			}()
-			cb()
+			cb(val)
 		}(fn)
 	}
 }

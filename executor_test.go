@@ -301,7 +301,7 @@ func TestCommandError(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "err")
 
 	_, err := executor.Exec(ctx, id,
-		func(_ *CounterState, _ *timebox.Aggregator[*CounterState]) error {
+		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
 			return timebox.ErrUnexpectedLuaResult
 		},
 	)
@@ -370,7 +370,7 @@ func TestZeroCacheSize(t *testing.T) {
 	state, err := executor.Exec(
 		context.Background(),
 		timebox.NewAggregateID("counter", "1"),
-		func(_ *CounterState, _ *timebox.Aggregator[*CounterState]) error {
+		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
 			return nil
 		},
 	)
@@ -399,19 +399,23 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	var called []int
 	_, err := executor.Exec(ctx, id,
 		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.OnSuccess(func() { called = append(called, 1) })
-			ag.OnSuccess(func() {
+			ag.OnSuccess(func(*CounterState) {
+				called = append(called, 1)
+			})
+			ag.OnSuccess(func(*CounterState) {
 				called = append(called, 2)
 				panic("boom")
 			})
-			ag.OnSuccess(func() { called = append(called, 3) })
+			ag.OnSuccess(func(*CounterState) {
+				called = append(called, 3)
+			})
 			return timebox.Raise(ag, EventIncremented, 1)
 		},
 	)
 
 	assert.NoError(t, err)
 	assert.Equal(t, []int{1, 2, 3}, called)
-	assert.Contains(t, buf.String(), "OnSuccess callback panicked")
+	assert.Contains(t, buf.String(), "OnSuccess action panicked")
 }
 
 func TestOnSuccessNoOp(t *testing.T) {
@@ -427,7 +431,7 @@ func TestOnSuccessNoOp(t *testing.T) {
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, 0, s.Value)
-			ag.OnSuccess(func() { called = true })
+			ag.OnSuccess(func(*CounterState) { called = true })
 			return nil
 		},
 	)
@@ -449,7 +453,7 @@ func TestOnSuccessNotCalledOnError(t *testing.T) {
 	called := false
 	_, err := executor.Exec(ctx, id,
 		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.OnSuccess(func() { called = true })
+			ag.OnSuccess(func(*CounterState) { called = true })
 			return errors.New("nope")
 		},
 	)
