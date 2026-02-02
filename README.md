@@ -39,12 +39,11 @@ Store behavior is configured via `StoreConfig` when creating a store.
 
 ## Archiving
 
-Archiving atomically moves an aggregate's snapshot and full event log into a
-Redis stream and clears the original keys. It is a one-way operation (no
-restore API). Enable it per store with `ArchiveEnabled`, then call
-`Store.Archive(ctx, id)`. To consume archived records, call
-`Store.ConsumeArchive(ctx, handler)`, which reads and acknowledges a single
-record per call. For a timed wait, call `Store.PollArchive(ctx, timeout, handler)`.
+Archiving atomically moves an aggregate's snapshot and full event log into a Redis stream and clears the original keys. It is a one-way operation (no restore API).
+
+Enable it per store with `Archiving`, then call `Store.Archive(ctx, id)`.
+
+To consume archived records, call `Store.ConsumeArchive(ctx, handler)`, which blocks until work is available and processes a single record per call. For a timed wait, call `Store.PollArchive(ctx, timeout, handler)`. Processing is at-least-once, so handlers must be idempotent. Successful handling acknowledges and deletes the stream entry.
 
 Stream, group, and consumer names are derived from the store prefix:
 

@@ -27,7 +27,7 @@ type (
 		Events           []string `json:"events"`
 	}
 
-	// ArchiveHandler handles a single archive record.
+	// ArchiveHandler handles a single archive record
 	ArchiveHandler func(context.Context, *ArchiveRecord) error
 )
 
@@ -38,6 +38,9 @@ var (
 	// ErrArchiveRecordMalformed indicates an archive record was malformed
 	ErrArchiveRecordMalformed = errors.New("archive record malformed")
 )
+
+// DefaultMinIdle is the idle duration before pending archive work is reclaimed
+const DefaultMinIdle = 30 * time.Second
 
 // Archive moves aggregate artifacts to a Redis stream and clears the
 // aggregate's snapshot/events on success
@@ -94,9 +97,9 @@ func (s *Store) PollArchive(
 		return err
 	}
 
-	block := timeout
-	if block == 0 {
-		block = 1 * time.Millisecond
+	rec, err := s.recoverArchive(ctx, streamKey, group, consumer, handler)
+	if err != nil || rec {
+		return err
 	}
 
 	args := &redis.XReadGroupArgs{
@@ -104,7 +107,7 @@ func (s *Store) PollArchive(
 		Consumer: consumer,
 		Streams:  []string{streamKey, ">"},
 		Count:    1,
-		Block:    block,
+		Block:    timeout,
 	}
 
 	streams, err := s.client.XReadGroup(ctx, args).Result()
@@ -119,7 +122,35 @@ func (s *Store) PollArchive(
 		return nil
 	}
 
-	msg := streams[0].Messages[0]
+	return s.handleArchive(
+		ctx, streamKey, group, streams[0].Messages[0], handler,
+	)
+}
+
+func (s *Store) recoverArchive(
+	ctx context.Context, stream, group, consumer string, handler ArchiveHandler,
+) (bool, error) {
+	args := &redis.XAutoClaimArgs{
+		Stream:   stream,
+		Group:    group,
+		Consumer: consumer,
+		MinIdle:  DefaultMinIdle,
+		Start:    "0-0",
+		Count:    1,
+	}
+
+	msgs, _, err := s.client.XAutoClaim(ctx, args).Result()
+	if err != nil || len(msgs) == 0 {
+		return false, err
+	}
+
+	return true, s.handleArchive(ctx, stream, group, msgs[0], handler)
+}
+
+func (s *Store) handleArchive(
+	ctx context.Context, stream, group string, msg redis.XMessage,
+	handler ArchiveHandler,
+) error {
 	record, err := s.parseArchiveRecord(msg)
 	if err != nil {
 		return err
@@ -130,7 +161,7 @@ func (s *Store) PollArchive(
 	}
 
 	_, err = s.consumeArchive.Run(
-		ctx, s.client, []string{streamKey}, group, msg.ID,
+		ctx, s.client, []string{stream}, group, msg.ID,
 	).Result()
 	return err
 }
@@ -173,7 +204,7 @@ func (s *Store) parseArchiveRecord(msg redis.XMessage) (*ArchiveRecord, error) {
 func (s *Store) ensureArchiveGroup(
 	ctx context.Context, streamKey, group string,
 ) error {
-	err := s.client.XGroupCreateMkStream(ctx, streamKey, group, "0").Err()
+	err := s.client.XGroupCreateMkStream(ctx, streamKey, group, "0-0").Err()
 	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
 		return err
 	}

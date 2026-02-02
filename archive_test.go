@@ -384,3 +384,75 @@ func TestConsumeArchiveDisabled(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
 }
+
+func TestPollArchivePendingRecovery(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Archiving = true
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("order", "pending")
+
+	ev := &timebox.Event{
+		Timestamp: time.Now(),
+		Type:      "event.test",
+		Data:      json.RawMessage(`{"value":1}`),
+	}
+	assert.NoError(t,
+		store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}),
+	)
+	assert.NoError(t, store.Archive(ctx, id))
+
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = client.Close() }()
+
+	streamKey := storeCfg.Prefix + ":archive"
+	group := storeCfg.Prefix + ":archive:group"
+	assert.NoError(t,
+		client.XGroupCreateMkStream(ctx, streamKey, group, "0-0").Err(),
+	)
+
+	now := time.Now().UTC()
+	server.SetTime(now)
+
+	reads, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    group,
+		Consumer: "other-consumer",
+		Streams:  []string{streamKey, ">"},
+		Count:    1,
+		Block:    10 * time.Millisecond,
+	}).Result()
+	assert.NoError(t, err)
+	assert.Len(t, reads, 1)
+	assert.Len(t, reads[0].Messages, 1)
+
+	server.SetTime(now.Add(timebox.DefaultMinIdle + time.Second))
+
+	var handled *timebox.ArchiveRecord
+	err = store.PollArchive(ctx, 50*time.Millisecond, func(
+		_ context.Context, record *timebox.ArchiveRecord,
+	) error {
+		handled = record
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, handled)
+	assert.Equal(t, id, handled.AggregateID)
+
+	entries, err := client.XRange(ctx, streamKey, "-", "+").Result()
+	assert.NoError(t, err)
+	assert.Len(t, entries, 0)
+}
