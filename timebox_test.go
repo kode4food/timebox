@@ -197,7 +197,7 @@ func TestEventHubAggregatePrefix(t *testing.T) {
 	for range 2 {
 		select {
 		case ev := <-consumer.Receive():
-			assert.Equal(t, "flow", ev.AggregateID[0])
+			assert.Equal(t, timebox.ID("flow"), ev.AggregateID[0])
 		case <-time.After(1 * time.Second):
 			t.Fatal("timeout waiting for flow event")
 		}
@@ -208,6 +208,277 @@ func TestEventHubAggregatePrefix(t *testing.T) {
 		t.Fatalf("unexpected event for %v", ev.AggregateID)
 	case <-time.After(100 * time.Millisecond):
 	}
+}
+
+func TestEventHubTypeFilterWithPrefix(t *testing.T) {
+	const (
+		eventWait = 1 * time.Second
+		idleWait  = 100 * time.Millisecond
+	)
+
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	consumer := tb.GetHub().NewAggregateConsumer(
+		timebox.NewAggregateID("flow"),
+		EventIncremented,
+	)
+	defer consumer.Close()
+
+	ctx := context.Background()
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("flow", "a"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+				return err
+			}
+			return timebox.Raise(ag, EventDecremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("engine", "x"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	select {
+	case ev := <-consumer.Receive():
+		assert.Equal(t, EventIncremented, ev.Type)
+		assert.Equal(t, timebox.ID("flow"), ev.AggregateID[0])
+	case <-time.After(eventWait):
+		t.Fatal("timeout waiting for flow increment event")
+	}
+
+	select {
+	case ev := <-consumer.Receive():
+		t.Fatalf("unexpected event for %v", ev.AggregateID)
+	case <-time.After(idleWait):
+	}
+}
+
+func TestEventHubTypeOnly(t *testing.T) {
+	const (
+		eventWait = 1 * time.Second
+		idleWait  = 100 * time.Millisecond
+	)
+
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	consumer := tb.GetHub().NewAggregateConsumer(
+		timebox.NewAggregateID(),
+		EventIncremented,
+	)
+	defer consumer.Close()
+
+	ctx := context.Background()
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("flow", "a"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("engine", "x"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventDecremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	select {
+	case ev := <-consumer.Receive():
+		assert.Equal(t, EventIncremented, ev.Type)
+	case <-time.After(eventWait):
+		t.Fatal("timeout waiting for increment event")
+	}
+
+	select {
+	case ev := <-consumer.Receive():
+		t.Fatalf("unexpected event for %v", ev.AggregateID)
+	case <-time.After(idleWait):
+	}
+}
+
+func TestEventHubUnsubscribe(t *testing.T) {
+	const (
+		eventWait = 1 * time.Second
+		closeWait = 1 * time.Second
+	)
+
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	consumer := tb.GetHub().NewAggregateConsumer(
+		timebox.NewAggregateID("flow"),
+	)
+
+	ctx := context.Background()
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("flow", "a"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	select {
+	case <-consumer.Receive():
+	case <-time.After(eventWait):
+		t.Fatal("timeout waiting for event")
+	}
+
+	err = consumer.Close()
+	assert.NoError(t, err)
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("flow", "a"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	select {
+	case _, ok := <-consumer.Receive():
+		assert.False(t, ok)
+	case <-time.After(closeWait):
+		t.Fatal("timeout waiting for consumer close")
+	}
+}
+
+func TestEventHubMultiplePrefixes(t *testing.T) {
+	const eventWait = 1 * time.Second
+
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	flowConsumer := tb.GetHub().NewAggregateConsumer(
+		timebox.NewAggregateID("flow"),
+	)
+	defer flowConsumer.Close()
+
+	engineConsumer := tb.GetHub().NewAggregateConsumer(
+		timebox.NewAggregateID("engine"),
+	)
+	defer engineConsumer.Close()
+
+	ctx := context.Background()
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("flow", "a"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("engine", "x"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+	assert.NoError(t, err)
+
+	select {
+	case ev := <-flowConsumer.Receive():
+		assert.Equal(t, timebox.ID("flow"), ev.AggregateID[0])
+	case <-time.After(eventWait):
+		t.Fatal("timeout waiting for flow event")
+	}
+
+	select {
+	case ev := <-engineConsumer.Receive():
+		assert.Equal(t, timebox.ID("engine"), ev.AggregateID[0])
+	case <-time.After(eventWait):
+		t.Fatal("timeout waiting for engine event")
+	}
+}
+
+func TestEventHubNoSubscribers(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	ctx := context.Background()
+
+	_, err = executor.Exec(ctx, timebox.NewAggregateID("flow", "a"),
+		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+	assert.NoError(t, err)
 }
 
 func newCounterState() *CounterState {
