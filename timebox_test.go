@@ -374,8 +374,7 @@ func TestEventHubUnsubscribe(t *testing.T) {
 		t.Fatal("timeout waiting for event")
 	}
 
-	err = consumer.Close()
-	assert.NoError(t, err)
+	consumer.Close()
 
 	_, err = executor.Exec(ctx, timebox.NewAggregateID("flow", "a"),
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {

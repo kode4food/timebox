@@ -133,12 +133,11 @@ func (c *Consumer) Receive() <-chan *Event {
 }
 
 // Close unregisters the consumer
-func (c *Consumer) Close() error {
+func (c *Consumer) Close() {
 	c.closeOnce.Do(func() {
 		c.registry.unregister(c.interests)
 		c.inner.Close()
 	})
-	return nil
 }
 
 // matches checks if an event matches the consumer's interests
