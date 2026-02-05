@@ -1,6 +1,7 @@
 package timebox
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/kode4food/caravan/topic"
@@ -32,10 +33,12 @@ type (
 
 	// interests describes what events a consumer is interested in
 	interests struct {
-		eventTypes  map[EventType]bool // empty = all event types
-		aggregateID AggregateID        // nil = all aggregates
+		eventTypes map[EventType]bool // empty = all event types
+		prefix     AggregateID        // nil = all aggregates
 	}
 )
+
+const aggIDSep = "\x00"
 
 // NewEventHub creates a new EventHub that filters events based on active
 // subscriptions
@@ -69,14 +72,14 @@ func (eh *EventHub) NewConsumer(eventTypes ...EventType) *Consumer {
 	}
 }
 
-// NewAggregateConsumer creates a consumer interested in events from a specific
-// aggregate. If no event types are specified, the consumer receives all events
-// for that aggregate
+// NewAggregateConsumer creates a consumer interested in events from aggregates
+// matching the provided prefix. If no event types are specified, the consumer
+// receives all events for aggregates matching the prefix
 func (eh *EventHub) NewAggregateConsumer(
-	aggregateID AggregateID, eventTypes ...EventType,
+	prefix AggregateID, eventTypes ...EventType,
 ) *Consumer {
 	i := &interests{
-		aggregateID: aggregateID,
+		prefix: normalizePrefix(prefix),
 	}
 
 	if len(eventTypes) > 0 {
@@ -138,8 +141,8 @@ func (c *Consumer) Close() error {
 
 // matches checks if an event matches the consumer's interests
 func (c *Consumer) matches(ev *Event) bool {
-	if c.interests.aggregateID != nil &&
-		!ev.AggregateID.Equal(c.interests.aggregateID) {
+	if c.interests.prefix != nil &&
+		!ev.AggregateID.HasPrefix(c.interests.prefix) {
 		return false
 	}
 
@@ -156,13 +159,13 @@ func (r *registry) register(i *interests) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if i.aggregateID == nil && len(i.eventTypes) == 0 {
+	if i.prefix == nil && len(i.eventTypes) == 0 {
 		r.allEventsCount++
 		return
 	}
 
 	if len(i.eventTypes) == 0 {
-		aggID := aggIDKey(i.aggregateID)
+		aggID := aggIDKey(i.prefix)
 		if r.subscriptions[""] == nil {
 			r.subscriptions[""] = make(map[string]int64)
 		}
@@ -170,7 +173,7 @@ func (r *registry) register(i *interests) {
 		return
 	}
 
-	if i.aggregateID == nil {
+	if i.prefix == nil {
 		for et := range i.eventTypes {
 			if r.subscriptions[et] == nil {
 				r.subscriptions[et] = make(map[string]int64)
@@ -180,7 +183,7 @@ func (r *registry) register(i *interests) {
 		return
 	}
 
-	aggID := aggIDKey(i.aggregateID)
+	aggID := aggIDKey(i.prefix)
 	for et := range i.eventTypes {
 		if r.subscriptions[et] == nil {
 			r.subscriptions[et] = make(map[string]int64)
@@ -194,13 +197,13 @@ func (r *registry) unregister(i *interests) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if i.aggregateID == nil && len(i.eventTypes) == 0 {
+	if i.prefix == nil && len(i.eventTypes) == 0 {
 		r.allEventsCount--
 		return
 	}
 
 	if len(i.eventTypes) == 0 {
-		aggID := aggIDKey(i.aggregateID)
+		aggID := aggIDKey(i.prefix)
 		r.subscriptions[""][aggID]--
 		if r.subscriptions[""][aggID] == 0 {
 			delete(r.subscriptions[""], aggID)
@@ -211,7 +214,7 @@ func (r *registry) unregister(i *interests) {
 		return
 	}
 
-	if i.aggregateID == nil {
+	if i.prefix == nil {
 		for et := range i.eventTypes {
 			r.subscriptions[et][""]--
 			if r.subscriptions[et][""] == 0 {
@@ -224,7 +227,7 @@ func (r *registry) unregister(i *interests) {
 		return
 	}
 
-	aggID := aggIDKey(i.aggregateID)
+	aggID := aggIDKey(i.prefix)
 	for et := range i.eventTypes {
 		r.subscriptions[et][aggID]--
 		if r.subscriptions[et][aggID] == 0 {
@@ -249,7 +252,7 @@ func (r *registry) hasSubscribers(
 
 	if subs, ok := r.subscriptions[""]; ok {
 		aggIDStr := aggIDKey(aggregateID)
-		if _, hasAgg := subs[aggIDStr]; hasAgg {
+		if hasPrefixSubscriber(subs, aggIDStr) {
 			return true
 		}
 	}
@@ -259,7 +262,7 @@ func (r *registry) hasSubscribers(
 			return true
 		}
 		aggIDStr := aggIDKey(aggregateID)
-		if _, hasAgg := subs[aggIDStr]; hasAgg {
+		if hasPrefixSubscriber(subs, aggIDStr) {
 			return true
 		}
 	}
@@ -267,7 +270,26 @@ func (r *registry) hasSubscribers(
 	return false
 }
 
-// aggIDKey converts an AggregateID to a string key for map lookup
+func normalizePrefix(prefix AggregateID) AggregateID {
+	if len(prefix) == 0 {
+		return nil
+	}
+	return prefix
+}
+
+func hasPrefixSubscriber(subs map[string]int64, aggregateID string) bool {
+	for prefix := range subs {
+		if prefix == "" {
+			continue
+		}
+		if aggregateID == prefix ||
+			strings.HasPrefix(aggregateID, prefix+aggIDSep) {
+			return true
+		}
+	}
+	return false
+}
+
 func aggIDKey(id AggregateID) string {
-	return id.Join("\x00")
+	return id.Join(aggIDSep)
 }

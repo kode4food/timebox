@@ -141,6 +141,19 @@ func (id AggregateID) Equal(other AggregateID) bool {
 	return true
 }
 
+// HasPrefix checks if the AggregateID starts with the provided prefix
+func (id AggregateID) HasPrefix(prefix AggregateID) bool {
+	if len(prefix) > len(id) {
+		return false
+	}
+	for i, p := range prefix {
+		if id[i] != p {
+			return false
+		}
+	}
+	return true
+}
+
 // Raise marshals the value and enqueues a new event on the Aggregator
 func Raise[T, V any](ag *Aggregator[T], typ EventType, value V) error {
 	return ag.raise(typ, value)
