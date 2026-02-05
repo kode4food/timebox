@@ -58,22 +58,7 @@ func NewEventHub(inner topic.Topic[*Event]) *EventHub {
 // NewConsumer creates a consumer interested in specific event types. If no
 // event types are specified, the consumer receives all events
 func (eh *EventHub) NewConsumer(eventTypes ...EventType) *Consumer {
-	i := &interests{}
-
-	if len(eventTypes) > 0 {
-		i.eventTypes = make(map[EventType]bool)
-		for _, et := range eventTypes {
-			i.eventTypes[et] = true
-		}
-	}
-
-	eh.registry.register(i)
-
-	return &Consumer{
-		inner:     eh.inner.NewConsumer(),
-		interests: i,
-		registry:  eh.registry,
-	}
+	return eh.NewAggregateConsumer(nil, eventTypes...)
 }
 
 // NewAggregateConsumer creates a consumer interested in events from aggregates
