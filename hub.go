@@ -55,9 +55,13 @@ func NewEventHub(inner topic.Topic[*Event]) *EventHub {
 	}
 }
 
-// NewConsumer creates a consumer interested in specific event types. If no
-// event types are specified, the consumer receives all events
-func (eh *EventHub) NewConsumer(eventTypes ...EventType) *Consumer {
+// NewConsumer creates a consumer that receives all events
+func (eh *EventHub) NewConsumer() *Consumer {
+	return eh.NewAggregateConsumer(nil)
+}
+
+// NewTypeConsumer creates a consumer interested in specific event types
+func (eh *EventHub) NewTypeConsumer(eventTypes ...EventType) *Consumer {
 	return eh.NewAggregateConsumer(nil, eventTypes...)
 }
 

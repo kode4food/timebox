@@ -296,8 +296,7 @@ func TestEventHubTypeOnly(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	consumer := tb.GetHub().NewAggregateConsumer(
-		timebox.NewAggregateID(),
+	consumer := tb.GetHub().NewTypeConsumer(
 		EventIncremented,
 	)
 	defer consumer.Close()
