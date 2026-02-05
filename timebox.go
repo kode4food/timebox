@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/kode4food/caravan"
-	"github.com/kode4food/caravan/topic"
 )
 
 type (
@@ -15,7 +14,7 @@ type (
 	// and is responsible for creating Stores that publish events
 	Timebox struct {
 		config Config
-		hub    EventHub
+		hub    *EventHub
 		ctx    context.Context
 		cancel context.CancelFunc
 	}
@@ -33,9 +32,6 @@ type (
 		value any
 	}
 
-	// EventHub is a typed pub-sub topic used to fan out appended events
-	EventHub topic.Topic[*Event]
-
 	// EventType is the string identifier associated with an Event
 	EventType string
 )
@@ -48,7 +44,7 @@ func NewTimebox(cfg Config) (*Timebox, error) {
 
 	tb := &Timebox{
 		config: cfg,
-		hub:    hub,
+		hub:    NewEventHub(hub),
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -57,7 +53,7 @@ func NewTimebox(cfg Config) (*Timebox, error) {
 }
 
 // GetHub returns the EventHub instance
-func (tb *Timebox) GetHub() EventHub {
+func (tb *Timebox) GetHub() *EventHub {
 	return tb.hub
 }
 

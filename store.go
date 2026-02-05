@@ -95,7 +95,7 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		tb:             tb,
 		client:         client,
 		prefix:         cfg.Prefix,
-		producer:       tb.hub.NewProducer(),
+		producer:       tb.hub.newProducer(),
 		appendEvents:   redis.NewScript(appendEventsScript),
 		getEvents:      redis.NewScript(getEventsScript),
 		putSnapshot:    redis.NewScript(putSnapshotScript),
@@ -172,7 +172,9 @@ func (s *Store) AppendEvents(
 
 	if s.producer != nil {
 		for _, ev := range evs {
-			s.producer.Send() <- ev
+			if s.tb.hub.hasSubscribers(ev.Type, ev.AggregateID) {
+				s.producer.Send() <- ev
+			}
 		}
 	}
 
