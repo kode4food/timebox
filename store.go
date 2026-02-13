@@ -214,10 +214,7 @@ func (s *Store) GetEvents(
 			return nil, err
 		}
 		if len(rawMessages) > 0 {
-			startSeq := fromSeq
-			if startSeq < offset {
-				startSeq = offset
-			}
+			startSeq := max(fromSeq, offset)
 			return s.decodeEvents(id, startSeq, rawMessages)
 		}
 

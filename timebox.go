@@ -94,7 +94,7 @@ func (e *Event) getValue(target any) error {
 		return json.Unmarshal(data, target)
 	}
 
-	var cache interface{}
+	var cache any
 	if err := json.Unmarshal(e.Data, &cache); err != nil {
 		return err
 	}
