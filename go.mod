@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/kode4food/caravan v0.0.0-20251025080141-10eee0f8ea05
+	github.com/kode4food/caravan v0.0.0-20260213081010-9cf178c64677
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/stretchr/testify v1.11.1
 )
