@@ -17,6 +17,7 @@ vendor/
 # Go workspace file
 go.work
 go.work.sum
+.gocache
 
 # IDE files
 .idea/

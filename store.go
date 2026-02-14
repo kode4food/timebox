@@ -51,11 +51,15 @@ const (
 	// RedisConnectTimeout is the ping timeout when creating a Store
 	RedisConnectTimeout = 5 * time.Second
 
-	eventsSuffix = ":events"
+	eventsSuffix = "events"
 
 	defaultSnapshot   = "snapshot"
-	snapshotValSuffix = ":" + defaultSnapshot + ":val"
-	snapshotSeqSuffix = ":" + defaultSnapshot + ":seq"
+	snapshotValSuffix = defaultSnapshot + ":val"
+	snapshotSeqSuffix = defaultSnapshot + ":seq"
+
+	archiveStreamSuffix   = "archive"
+	archiveGroupSuffix    = archiveStreamSuffix + ":group"
+	archiveConsumerSuffix = archiveStreamSuffix + ":consumer"
 )
 
 var (
@@ -310,10 +314,9 @@ func (s *Store) PutSnapshot(
 func (s *Store) ListAggregates(
 	ctx context.Context, id AggregateID,
 ) ([]AggregateID, error) {
-	str := id.Join(":")
 	searchKeys := []string{
-		fmt.Sprintf("%s:%s%s", s.prefix, str, eventsSuffix),
-		fmt.Sprintf("%s:%s%s", s.prefix, str, snapshotSeqSuffix),
+		s.buildKey(id, eventsSuffix),
+		s.buildKey(id, snapshotSeqSuffix),
 	}
 
 	seen := map[string]AggregateID{}
@@ -324,11 +327,8 @@ func (s *Store) ListAggregates(
 		}
 
 		for _, key := range keys {
-			trimmed := strings.TrimPrefix(key, s.prefix+":")
-			aggregateIDStr := strings.TrimSuffix(trimmed, eventsSuffix)
-			aggregateIDStr = strings.TrimSuffix(aggregateIDStr, snapshotSeqSuffix)
-			aid := s.parseAggregateID(aggregateIDStr)
-			seen[aggregateIDStr] = aid
+			aid := s.parseAggregateIDFromKey(key)
+			seen[aid.Join(":")] = aid
 		}
 	}
 
@@ -348,20 +348,23 @@ func (e *VersionConflictError) Error() string {
 }
 
 func (s *Store) buildKey(id AggregateID, suffix string) string {
-	str := id.Join(":")
-	return fmt.Sprintf("%s:%s%s", s.prefix, str, suffix)
+	return fmt.Sprintf("%s:{%s}:%s", s.prefix, id.Join(":"), suffix)
+}
+
+func (s *Store) buildGlobalKey(suffix string) string {
+	return fmt.Sprintf("%s:%s", s.prefix, suffix)
 }
 
 func (s *Store) archiveStreamKey() string {
-	return fmt.Sprintf("%s:archive", s.prefix)
+	return s.buildGlobalKey(archiveStreamSuffix)
 }
 
 func (s *Store) archiveGroup() string {
-	return fmt.Sprintf("%s:archive:group", s.prefix)
+	return s.buildGlobalKey(archiveGroupSuffix)
 }
 
 func (s *Store) archiveConsumer() string {
-	return fmt.Sprintf("%s:archive:consumer", s.prefix)
+	return s.buildGlobalKey(archiveConsumerSuffix)
 }
 
 func (s *Store) handleVersionConflict(
@@ -401,6 +404,29 @@ func (s *Store) decodeEvents(
 
 func (s *Store) parseAggregateID(str string) AggregateID {
 	return ParseAggregateID(str, ":")
+}
+
+func (s *Store) parseAggregateIDFromKey(key string) AggregateID {
+	str, _ := strings.CutPrefix(key, s.prefix+":")
+
+	for _, suffix := range [...]string{
+		":" + eventsSuffix,
+		":" + snapshotValSuffix,
+		":" + snapshotSeqSuffix,
+	} {
+		if trimmed, ok := strings.CutSuffix(str, suffix); ok {
+			str = trimmed
+			break
+		}
+	}
+
+	if tagged, ok := strings.CutPrefix(str, "{"); ok {
+		if untagged, ok := strings.CutSuffix(tagged, "}"); ok {
+			str = untagged
+		}
+	}
+
+	return s.parseAggregateID(str)
 }
 
 func toRawMessages(data []any) ([]json.RawMessage, error) {

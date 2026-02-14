@@ -61,6 +61,47 @@ func TestStore(t *testing.T) {
 	assert.Equal(t, EventIncremented, events[0].Type)
 }
 
+func TestStoreUsesHashedAggregateKeys(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = "hashed"
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("order", "1")
+	ev := &timebox.Event{
+		Type:      EventIncremented,
+		Timestamp: time.Now(),
+		Data:      json.RawMessage(`5`),
+	}
+	assert.NoError(t, store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}))
+	assert.NoError(t, store.PutSnapshot(ctx, id, map[string]int{"value": 1}, 1))
+
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = client.Close() }()
+
+	keys, err := client.Keys(ctx, "hashed:*").Result()
+	assert.NoError(t, err)
+	assert.Contains(t, keys, "hashed:{order:1}:events")
+	assert.Contains(t, keys, "hashed:{order:1}:snapshot:val")
+	assert.Contains(t, keys, "hashed:{order:1}:snapshot:seq")
+	assert.NotContains(t, keys, "hashed:order:1:events")
+	assert.NotContains(t, keys, "hashed:order:1:snapshot:val")
+	assert.NotContains(t, keys, "hashed:order:1:snapshot:seq")
+}
+
 func TestAppendConflict(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
@@ -147,7 +188,7 @@ func TestCorruptEvents(t *testing.T) {
 
 	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "1")
-	eventsKey := storeCfg.Prefix + ":" + id.Join(":") + ":events"
+	eventsKey := storeCfg.Prefix + ":{" + id.Join(":") + "}:events"
 
 	client := redis.NewClient(&redis.Options{
 		Addr: server.Addr(),
