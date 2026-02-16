@@ -1,10 +1,11 @@
 module github.com/kode4food/timebox
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/kode4food/caravan v0.0.0-20260213081010-9cf178c64677
+	github.com/kode4food/lru v0.0.0-20260216135335-c8f3536f3b5e
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/stretchr/testify v1.11.1
 )
