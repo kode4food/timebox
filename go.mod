@@ -1,11 +1,11 @@
 module github.com/kode4food/timebox
 
-go 1.25.3
+go 1.25.7
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/kode4food/caravan v0.0.0-20260214080757-320930a6cebc
-	github.com/kode4food/lru v0.0.0-20260216174936-ab1f3aa333ef
+	github.com/kode4food/lru v0.0.0-20260217084209-144fda8850c9
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/stretchr/testify v1.11.1
 )
@@ -21,6 +21,8 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260213145524-e0ab670178e1 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
