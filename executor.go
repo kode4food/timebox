@@ -13,7 +13,7 @@ type (
 		store      *Store
 		appliers   Appliers[T]
 		construct  constructor[T]
-		cache      *lruCache[*projection[T]]
+		cache      *cache[*projection[T]]
 		maxRetries int
 	}
 
@@ -42,7 +42,7 @@ func NewExecutor[T any](
 		store:      store,
 		appliers:   apps,
 		construct:  cons,
-		cache:      newLRUCache[*projection[T]](store.tb.config.CacheSize),
+		cache:      newCache[*projection[T]](store.tb.config.CacheSize),
 		maxRetries: store.tb.config.MaxRetries,
 	}
 }

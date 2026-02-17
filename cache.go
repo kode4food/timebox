@@ -7,7 +7,7 @@ import (
 )
 
 type (
-	lruCache[T any] struct {
+	cache[T any] struct {
 		cache *lru.Cache[*cacheEntry[T]]
 	}
 
@@ -23,16 +23,16 @@ type (
 // DefaultCacheSize is used when an LRU cache size is not provided or invalid
 const DefaultCacheSize = 4096
 
-func newLRUCache[T any](maxSize int) *lruCache[T] {
+func newCache[T any](maxSize int) *cache[T] {
 	if maxSize <= 0 {
 		maxSize = DefaultCacheSize
 	}
-	return &lruCache[T]{
+	return &cache[T]{
 		cache: lru.NewCache[*cacheEntry[T]](maxSize),
 	}
 }
 
-func (c *lruCache[T]) Get(key string, cons constructor[T]) *cacheEntry[T] {
+func (c *cache[T]) Get(key string, cons constructor[T]) *cacheEntry[T] {
 	entry, _ := c.cache.Get(key, func() (*cacheEntry[T], error) {
 		return &cacheEntry[T]{key: key, value: cons()}, nil
 	})
