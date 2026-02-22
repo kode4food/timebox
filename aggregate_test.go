@@ -19,19 +19,37 @@ func TestAggregateID(t *testing.T) {
 	assert.Equal(t, id, parsed)
 }
 
-func TestSlotByLeadingParts(t *testing.T) {
-	fn1 := timebox.SlotByLeadingParts(1)
-	assert.Equal(t, "flow", fn1(timebox.NewAggregateID("flow", "abc")))
-	assert.Equal(t, "flow", fn1(timebox.NewAggregateID("flow", "abc", "xyz")))
-
-	fn2 := timebox.SlotByLeadingParts(2)
+func TestJoinKeySlotted(t *testing.T) {
+	fn1 := timebox.JoinKeySlotted(1)
+	assert.Equal(t, "{flow}:abc", fn1(timebox.NewAggregateID("flow", "abc")))
 	assert.Equal(t,
-		"flow:abc", fn2(timebox.NewAggregateID("flow", "abc", "xyz")),
+		"{flow}:abc:xyz", fn1(timebox.NewAggregateID("flow", "abc", "xyz")),
 	)
 
-	// n >= len(id) clamps to full ID
-	fnBig := timebox.SlotByLeadingParts(99)
-	assert.Equal(t, "flow:abc", fnBig(timebox.NewAggregateID("flow", "abc")))
+	fn2 := timebox.JoinKeySlotted(2)
+	assert.Equal(t,
+		"{flow:abc}:xyz", fn2(timebox.NewAggregateID("flow", "abc", "xyz")),
+	)
+
+	// n >= len(id) clamps to full ID in slot
+	fnBig := timebox.JoinKeySlotted(99)
+	assert.Equal(t, "{flow:abc}", fnBig(timebox.NewAggregateID("flow", "abc")))
+}
+
+func TestParseKeySlotted(t *testing.T) {
+	fn := timebox.ParseKeySlotted(1)
+	assert.Equal(t,
+		timebox.NewAggregateID("flow", "abc"),
+		fn("{flow}:abc"),
+	)
+	assert.Equal(t,
+		timebox.NewAggregateID("flow", "abc", "xyz"),
+		fn("{flow}:abc:xyz"),
+	)
+	assert.Equal(t,
+		timebox.NewAggregateID("flow", "abc"),
+		fn("{flow:abc}"),
+	)
 }
 
 func TestAggregateIDEqual(t *testing.T) {

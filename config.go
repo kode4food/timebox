@@ -24,7 +24,8 @@ type (
 		SaveTimeout  time.Duration
 		TrimEvents   bool
 		Archiving    bool
-		SlotKey      SlotKeyFunc
+		JoinKey      JoinKeyFunc
+		ParseKey     ParseKeyFunc
 	}
 )
 
@@ -77,5 +78,7 @@ func DefaultStoreConfig() StoreConfig {
 		MaxQueueSize: DefaultSnapshotQueueSize,
 		SaveTimeout:  DefaultSnapshotSaveTimeout,
 		TrimEvents:   DefaultTrimEvents,
+		JoinKey:      JoinKey,
+		ParseKey:     ParseKey,
 	}
 }

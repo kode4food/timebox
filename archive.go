@@ -188,7 +188,7 @@ func (s *Store) parseArchiveRecord(msg redis.XMessage) (*ArchiveRecord, error) {
 
 	record := &ArchiveRecord{
 		StreamID:         msg.ID,
-		AggregateID:      s.parseAggregateID(payload.AggregateID),
+		AggregateID:      s.config.ParseKey(payload.AggregateID),
 		SnapshotData:     json.RawMessage(payload.SnapshotData),
 		SnapshotSequence: payload.SnapshotSequence,
 		Events:           make([]json.RawMessage, 0, len(payload.Events)),

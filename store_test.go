@@ -61,7 +61,7 @@ func TestStore(t *testing.T) {
 	assert.Equal(t, EventIncremented, events[0].Type)
 }
 
-func TestStoreNoSlotKey(t *testing.T) {
+func TestStoreDefaultKeys(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	defer server.Close()
@@ -100,7 +100,7 @@ func TestStoreNoSlotKey(t *testing.T) {
 	assert.NotContains(t, keys, "noslot:{order:1}:events")
 }
 
-func TestStoreSlotByLeadingParts(t *testing.T) {
+func TestStoreJoinKeySlotted(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	defer server.Close()
@@ -109,7 +109,8 @@ func TestStoreSlotByLeadingParts(t *testing.T) {
 	storeCfg := cfg.Store
 	storeCfg.Addr = server.Addr()
 	storeCfg.Prefix = "slotted"
-	storeCfg.SlotKey = timebox.SlotByLeadingParts(1)
+	storeCfg.JoinKey = timebox.JoinKeySlotted(1)
+	storeCfg.ParseKey = timebox.ParseKeySlotted(1)
 
 	tb, err := timebox.NewTimebox(cfg)
 	assert.NoError(t, err)

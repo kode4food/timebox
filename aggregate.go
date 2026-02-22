@@ -31,10 +31,13 @@ type (
 	// ID is a single component of an AggregateID
 	ID string
 
-	// SlotKeyFunc returns the Redis hash slot key for an AggregateID. It must
-	// return a string that is a prefix of id.Join(":"), so that the full ID
-	// can be reconstructed from the key
-	SlotKeyFunc func(AggregateID) string
+	// JoinKeyFunc joins the parts of an AggregateID into a string for use as
+	// the identity portion of a Redis key
+	JoinKeyFunc func(AggregateID) string
+
+	// ParseKeyFunc parses the identity portion of a Redis key back into an
+	// AggregateID
+	ParseKeyFunc func(string) AggregateID
 )
 
 func newAggregator[T any](
@@ -159,12 +162,45 @@ func (id AggregateID) HasPrefix(prefix AggregateID) bool {
 	return true
 }
 
-// SlotByLeadingParts returns a SlotKeyFunc that uses the first n parts of the
-// AggregateID as the Redis hash slot key, ensuring all aggregates sharing
-// those leading parts are co-located on the same slot
-func SlotByLeadingParts(n int) SlotKeyFunc {
+// JoinKey is the default JoinKeyFunc; it joins AggregateID parts with ":"
+func JoinKey(id AggregateID) string {
+	return id.Join(":")
+}
+
+// ParseKey is the default ParseKeyFunc; it splits on ":" to reconstruct an
+// AggregateID
+func ParseKey(str string) AggregateID {
+	return ParseAggregateID(str, ":")
+}
+
+// JoinKeySlotted returns a JoinKeyFunc that wraps the first n ID parts in
+// Redis hash slot notation ({...}), ensuring related aggregates land on the
+// same cluster slot
+func JoinKeySlotted(n int) JoinKeyFunc {
 	return func(id AggregateID) string {
-		return AggregateID(id[:min(n, len(id))]).Join(":")
+		slot := AggregateID(id[:min(n, len(id))]).Join(":")
+		if n >= len(id) {
+			return "{" + slot + "}"
+		}
+		remaining := AggregateID(id[n:]).Join(":")
+		return "{" + slot + "}:" + remaining
+	}
+}
+
+// ParseKeySlotted returns a ParseKeyFunc that strips Redis hash slot notation
+// added by JoinKeySlotted before reconstructing the AggregateID. The index
+// parameter is accepted for symmetry with JoinKeySlotted but is not used.
+func ParseKeySlotted(_ int) ParseKeyFunc {
+	return func(str string) AggregateID {
+		if after, ok := strings.CutPrefix(str, "{"); ok {
+			slotKey, remaining, hasRemaining := strings.Cut(after, "}:")
+			if hasRemaining {
+				str = slotKey + ":" + remaining
+			} else {
+				str = strings.TrimSuffix(slotKey, "}")
+			}
+		}
+		return ParseAggregateID(str, ":")
 	}
 }
 

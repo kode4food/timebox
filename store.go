@@ -348,16 +348,7 @@ func (e *VersionConflictError) Error() string {
 }
 
 func (s *Store) buildKey(id AggregateID, suffix string) string {
-	fullID := id.Join(":")
-	if s.config.SlotKey == nil {
-		return fmt.Sprintf("%s:%s:%s", s.prefix, fullID, suffix)
-	}
-	slotKey := s.config.SlotKey(id)
-	if len(slotKey) == len(fullID) {
-		return fmt.Sprintf("%s:{%s}:%s", s.prefix, slotKey, suffix)
-	}
-	remaining := fullID[len(slotKey)+1:]
-	return fmt.Sprintf("%s:{%s}:%s:%s", s.prefix, slotKey, remaining, suffix)
+	return fmt.Sprintf("%s:%s:%s", s.prefix, s.config.JoinKey(id), suffix)
 }
 
 func (s *Store) buildGlobalKey(suffix string) string {
@@ -411,10 +402,6 @@ func (s *Store) decodeEvents(
 	return events, nil
 }
 
-func (s *Store) parseAggregateID(str string) AggregateID {
-	return ParseAggregateID(str, ":")
-}
-
 func (s *Store) parseAggregateIDFromKey(key string) AggregateID {
 	str, _ := strings.CutPrefix(key, s.prefix+":")
 
@@ -429,16 +416,7 @@ func (s *Store) parseAggregateIDFromKey(key string) AggregateID {
 		}
 	}
 
-	if after, ok := strings.CutPrefix(str, "{"); ok {
-		slotKey, remaining, hasRemaining := strings.Cut(after, "}:")
-		if hasRemaining {
-			str = slotKey + ":" + remaining
-		} else {
-			str = strings.TrimSuffix(slotKey, "}")
-		}
-	}
-
-	return s.parseAggregateID(str)
+	return s.config.ParseKey(str)
 }
 
 func toRawMessages(data []any) ([]json.RawMessage, error) {
