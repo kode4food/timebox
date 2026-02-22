@@ -404,8 +404,8 @@ func TestGetSnapshotCorruptPayload(t *testing.T) {
 
 	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "1")
-	snapValKey := storeCfg.Prefix + ":{" + id.Join(":") + "}:snapshot:val"
-	snapSeqKey := storeCfg.Prefix + ":{" + id.Join(":") + "}:snapshot:seq"
+	snapValKey := storeCfg.Prefix + ":" + id.Join(":") + ":snapshot:val"
+	snapSeqKey := storeCfg.Prefix + ":" + id.Join(":") + ":snapshot:seq"
 
 	client := redis.NewClient(&redis.Options{
 		Addr: server.Addr(),

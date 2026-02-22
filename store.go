@@ -348,7 +348,16 @@ func (e *VersionConflictError) Error() string {
 }
 
 func (s *Store) buildKey(id AggregateID, suffix string) string {
-	return fmt.Sprintf("%s:{%s}:%s", s.prefix, id.Join(":"), suffix)
+	fullID := id.Join(":")
+	if s.config.SlotKey == nil {
+		return fmt.Sprintf("%s:%s:%s", s.prefix, fullID, suffix)
+	}
+	slotKey := s.config.SlotKey(id)
+	if len(slotKey) == len(fullID) {
+		return fmt.Sprintf("%s:{%s}:%s", s.prefix, slotKey, suffix)
+	}
+	remaining := fullID[len(slotKey)+1:]
+	return fmt.Sprintf("%s:{%s}:%s:%s", s.prefix, slotKey, remaining, suffix)
 }
 
 func (s *Store) buildGlobalKey(suffix string) string {
@@ -420,9 +429,12 @@ func (s *Store) parseAggregateIDFromKey(key string) AggregateID {
 		}
 	}
 
-	if tagged, ok := strings.CutPrefix(str, "{"); ok {
-		if untagged, ok := strings.CutSuffix(tagged, "}"); ok {
-			str = untagged
+	if after, ok := strings.CutPrefix(str, "{"); ok {
+		slotKey, remaining, hasRemaining := strings.Cut(after, "}:")
+		if hasRemaining {
+			str = slotKey + ":" + remaining
+		} else {
+			str = strings.TrimSuffix(slotKey, "}")
 		}
 	}
 

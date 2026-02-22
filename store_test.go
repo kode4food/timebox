@@ -61,7 +61,7 @@ func TestStore(t *testing.T) {
 	assert.Equal(t, EventIncremented, events[0].Type)
 }
 
-func TestStoreUsesHashedAggregateKeys(t *testing.T) {
+func TestStoreNoSlotKey(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	defer server.Close()
@@ -69,7 +69,7 @@ func TestStoreUsesHashedAggregateKeys(t *testing.T) {
 	cfg := timebox.DefaultConfig()
 	storeCfg := cfg.Store
 	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "hashed"
+	storeCfg.Prefix = "noslot"
 
 	tb, err := timebox.NewTimebox(cfg)
 	assert.NoError(t, err)
@@ -92,14 +92,69 @@ func TestStoreUsesHashedAggregateKeys(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	keys, err := client.Keys(ctx, "hashed:*").Result()
+	keys, err := client.Keys(ctx, "noslot:*").Result()
 	assert.NoError(t, err)
-	assert.Contains(t, keys, "hashed:{order:1}:events")
-	assert.Contains(t, keys, "hashed:{order:1}:snapshot:val")
-	assert.Contains(t, keys, "hashed:{order:1}:snapshot:seq")
-	assert.NotContains(t, keys, "hashed:order:1:events")
-	assert.NotContains(t, keys, "hashed:order:1:snapshot:val")
-	assert.NotContains(t, keys, "hashed:order:1:snapshot:seq")
+	assert.Contains(t, keys, "noslot:order:1:events")
+	assert.Contains(t, keys, "noslot:order:1:snapshot:val")
+	assert.Contains(t, keys, "noslot:order:1:snapshot:seq")
+	assert.NotContains(t, keys, "noslot:{order:1}:events")
+}
+
+func TestStoreSlotByLeadingParts(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = "slotted"
+	storeCfg.SlotKey = timebox.SlotByLeadingParts(1)
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id1 := timebox.NewAggregateID("flow", "abc")
+	id2 := timebox.NewAggregateID("flow", "xyz")
+	ev := &timebox.Event{
+		Type:      EventIncremented,
+		Timestamp: time.Now(),
+		Data:      json.RawMessage(`5`),
+	}
+	assert.NoError(t, store.AppendEvents(ctx, id1, 0, []*timebox.Event{ev}))
+	assert.NoError(t, store.AppendEvents(ctx, id2, 0, []*timebox.Event{ev}))
+	assert.NoError(t,
+		store.PutSnapshot(ctx, id1, map[string]int{"value": 1}, 1),
+	)
+
+	// verify key format: slot key in braces, remaining component outside
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = client.Close() }()
+
+	keys, err := client.Keys(ctx, "slotted:*").Result()
+	assert.NoError(t, err)
+	assert.Contains(t, keys, "slotted:{flow}:abc:events")
+	assert.Contains(t, keys, "slotted:{flow}:xyz:events")
+	assert.Contains(t, keys, "slotted:{flow}:abc:snapshot:val")
+	assert.Contains(t, keys, "slotted:{flow}:abc:snapshot:seq")
+
+	// verify round-trip: GetEvents returns correct events with correct ID
+	events, err := store.GetEvents(ctx, id1, 0)
+	assert.NoError(t, err)
+	assert.Len(t, events, 1)
+	assert.Equal(t, id1, events[0].AggregateID)
+
+	// verify ListAggregates reconstructs the full ID correctly
+	ids, err := store.ListAggregates(ctx, timebox.NewAggregateID("flow", "abc"))
+	assert.NoError(t, err)
+	assert.Len(t, ids, 1)
+	assert.Equal(t, id1, ids[0])
 }
 
 func TestAppendConflict(t *testing.T) {
@@ -188,7 +243,7 @@ func TestCorruptEvents(t *testing.T) {
 
 	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "1")
-	eventsKey := storeCfg.Prefix + ":{" + id.Join(":") + "}:events"
+	eventsKey := storeCfg.Prefix + ":" + id.Join(":") + ":events"
 
 	client := redis.NewClient(&redis.Options{
 		Addr: server.Addr(),

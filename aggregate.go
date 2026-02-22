@@ -30,6 +30,11 @@ type (
 
 	// ID is a single component of an AggregateID
 	ID string
+
+	// SlotKeyFunc returns the Redis hash slot key for an AggregateID. It must
+	// return a string that is a prefix of id.Join(":"), so that the full ID
+	// can be reconstructed from the key
+	SlotKeyFunc func(AggregateID) string
 )
 
 func newAggregator[T any](
@@ -152,6 +157,15 @@ func (id AggregateID) HasPrefix(prefix AggregateID) bool {
 		}
 	}
 	return true
+}
+
+// SlotByLeadingParts returns a SlotKeyFunc that uses the first n parts of the
+// AggregateID as the Redis hash slot key, ensuring all aggregates sharing
+// those leading parts are co-located on the same slot
+func SlotByLeadingParts(n int) SlotKeyFunc {
+	return func(id AggregateID) string {
+		return AggregateID(id[:min(n, len(id))]).Join(":")
+	}
 }
 
 // Raise marshals the value and enqueues a new event on the Aggregator
