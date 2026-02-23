@@ -95,6 +95,13 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		getSnapshotScript = luaGetSnapshotTrim
 	}
 
+	if cfg.JoinKey == nil {
+		cfg.JoinKey = JoinKey
+	}
+	if cfg.ParseKey == nil {
+		cfg.ParseKey = ParseKey
+	}
+
 	s := &Store{
 		tb:             tb,
 		client:         client,
