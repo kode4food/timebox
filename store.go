@@ -51,8 +51,9 @@ const (
 	// RedisConnectTimeout is the ping timeout when creating a Store
 	RedisConnectTimeout = 5 * time.Second
 
-	eventsSuffix = "events"
-	statusSuffix = "status"
+	eventsSuffix    = "events"
+	statusSuffix    = "status"
+	statusSetSuffix = "status:set"
 
 	defaultSnapshot   = "snapshot"
 	snapshotValSuffix = defaultSnapshot + ":val"
@@ -181,7 +182,9 @@ func (s *Store) AppendEvents(
 		args = append(args, string(reData))
 	}
 	if status != nil {
-		args = append(args, id.Join(":"), *status)
+		args = append(
+			args, id.Join(":"), s.buildGlobalKey(statusSetSuffix), *status,
+		)
 	}
 
 	result, err := s.appendEvents.Run(ctx, s.client, keys, args...).Result()

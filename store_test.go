@@ -532,11 +532,11 @@ func statusEvent(id timebox.AggregateID, idx *timebox.Index) *timebox.Event {
 }
 
 func eventListKey(prefix string, id timebox.AggregateID) string {
-	return prefix + ":{" + id.Join(":") + "}:events"
+	return prefix + ":" + id.Join(":") + ":events"
 }
 
 func currentStatusKey(prefix string, id timebox.AggregateID) string {
-	return prefix + ":{" + id.Join(":") + "}:status"
+	return prefix + ":" + id.Join(":") + ":status"
 }
 
 func statusSetKey(prefix, status string) string {
