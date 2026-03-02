@@ -19,6 +19,13 @@ type (
 		cancel context.CancelFunc
 	}
 
+	// Index stores optional projection metadata derived from an event
+	Index struct {
+		// Status represents the resultant aggregate status.
+		// nil means no status change, and "" clears any prior status
+		Status *string `json:"status,omitempty"`
+	}
+
 	// Event represents a single immutable event in the log, including its
 	// sequence, timestamp, and serialized payload
 	Event struct {
@@ -27,6 +34,7 @@ type (
 		Type        EventType       `json:"type"`
 		AggregateID AggregateID     `json:"aggregate_id"`
 		Data        json.RawMessage `json:"data"`
+		Index       *Index          `json:"index,omitempty"`
 
 		mu    sync.RWMutex
 		value any

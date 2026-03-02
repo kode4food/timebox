@@ -302,3 +302,291 @@ func TestNewStorePingError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, store)
 }
+
+func TestStoreStatusIndexing(t *testing.T) {
+	for _, trimEvents := range []bool{false, true} {
+		mode := "untrimmed"
+		if trimEvents {
+			mode = "trimmed"
+		}
+
+		t.Run(mode, func(t *testing.T) {
+			t.Run("NoIndexNoMutation", func(t *testing.T) {
+				withStatusStore(t, trimEvents, "status-no-index", func(
+					ctx context.Context, store *timebox.Store, client *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+
+					err := store.AppendEvents(
+						ctx, id, 0, []*timebox.Event{statusEvent(id, nil)},
+					)
+					assert.NoError(t, err)
+
+					raw, err := client.LIndex(ctx, eventListKey("status-no-index", id), 0).Result()
+					assert.NoError(t, err)
+					assert.NotContains(t, raw, `"index"`)
+
+					assertNoCurrentStatus(t, ctx, client, "status-no-index", id)
+					assertStatusMembership(
+						t, ctx, client, "status-no-index", "active", id, false,
+					)
+
+					events, err := store.GetEvents(ctx, id, 0)
+					assert.NoError(t, err)
+					assert.Len(t, events, 1)
+					assert.Nil(t, events[0].Index)
+				})
+			})
+
+			t.Run("SingleStatusSetsMembership", func(t *testing.T) {
+				withStatusStore(t, trimEvents, "status-single", func(
+					ctx context.Context, store *timebox.Store, client *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+					active := "active"
+
+					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &active}),
+					})
+					assert.NoError(t, err)
+
+					raw, err := client.LIndex(ctx, eventListKey("status-single", id), 0).Result()
+					assert.NoError(t, err)
+					assert.Contains(t, raw, `"index":{"status":"active"}`)
+
+					assertCurrentStatus(
+						t, ctx, client, "status-single", id, active,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-single", active, id, true,
+					)
+
+					events, err := store.GetEvents(ctx, id, 0)
+					assert.NoError(t, err)
+					assert.Len(t, events, 1)
+					if assert.NotNil(t, events[0].Index) {
+						assert.Equal(t, active, *events[0].Index.Status)
+					}
+				})
+			})
+
+			t.Run("FinalStatusWinsWithinBatch", func(t *testing.T) {
+				withStatusStore(t, trimEvents, "status-batch", func(
+					ctx context.Context, store *timebox.Store, client *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+					pending := "pending"
+					processing := "processing"
+					active := "active"
+
+					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &pending}),
+						statusEvent(id, &timebox.Index{Status: &processing}),
+						statusEvent(id, &timebox.Index{Status: &active}),
+					})
+					assert.NoError(t, err)
+
+					assertCurrentStatus(
+						t, ctx, client, "status-batch", id, active,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-batch", pending, id, false,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-batch", processing, id, false,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-batch", active, id, true,
+					)
+				})
+			})
+
+			t.Run("TransitionMovesBetweenSets", func(t *testing.T) {
+				withStatusStore(t, trimEvents, "status-transition", func(
+					ctx context.Context, store *timebox.Store, client *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+					active := "active"
+					paused := "paused"
+
+					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &active}),
+					})
+					assert.NoError(t, err)
+
+					err = store.AppendEvents(ctx, id, 1, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &paused}),
+					})
+					assert.NoError(t, err)
+
+					assertCurrentStatus(
+						t, ctx, client, "status-transition", id, paused,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-transition", active, id, false,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-transition", paused, id, true,
+					)
+				})
+			})
+
+			t.Run("ClearStatusRemovesMembership", func(t *testing.T) {
+				withStatusStore(t, trimEvents, "status-clear", func(
+					ctx context.Context, store *timebox.Store, client *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+					active := "active"
+					cleared := ""
+
+					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &active}),
+					})
+					assert.NoError(t, err)
+
+					err = store.AppendEvents(ctx, id, 1, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &cleared}),
+					})
+					assert.NoError(t, err)
+
+					assertNoCurrentStatus(t, ctx, client, "status-clear", id)
+					assertStatusMembership(
+						t, ctx, client, "status-clear", active, id, false,
+					)
+				})
+			})
+
+			t.Run("ConflictDoesNotMutateStatus", func(t *testing.T) {
+				withStatusStore(t, trimEvents, "status-conflict", func(
+					ctx context.Context, store *timebox.Store, client *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+					active := "active"
+					paused := "paused"
+
+					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &active}),
+					})
+					assert.NoError(t, err)
+
+					err = store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						statusEvent(id, &timebox.Index{Status: &paused}),
+					})
+					assert.Error(t, err)
+
+					assertCurrentStatus(
+						t, ctx, client, "status-conflict", id, active,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-conflict", active, id, true,
+					)
+					assertStatusMembership(
+						t, ctx, client, "status-conflict", paused, id, false,
+					)
+				})
+			})
+		})
+	}
+}
+
+func withStatusStore(
+	t *testing.T,
+	trimEvents bool,
+	prefix string,
+	fn func(context.Context, *timebox.Store, *redis.Client),
+) {
+	t.Helper()
+
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = prefix
+	storeCfg.TrimEvents = trimEvents
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = client.Close() }()
+
+	fn(context.Background(), store, client)
+}
+
+func statusEvent(id timebox.AggregateID, idx *timebox.Index) *timebox.Event {
+	return &timebox.Event{
+		Timestamp:   time.Now(),
+		Type:        EventIncremented,
+		AggregateID: id,
+		Data:        json.RawMessage(`1`),
+		Index:       idx,
+	}
+}
+
+func eventListKey(prefix string, id timebox.AggregateID) string {
+	return prefix + ":{" + id.Join(":") + "}:events"
+}
+
+func currentStatusKey(prefix string, id timebox.AggregateID) string {
+	return prefix + ":{" + id.Join(":") + "}:status"
+}
+
+func statusSetKey(prefix, status string) string {
+	return prefix + ":status:set:" + status
+}
+
+func assertCurrentStatus(
+	t *testing.T,
+	ctx context.Context,
+	client *redis.Client,
+	prefix string,
+	id timebox.AggregateID,
+	expected string,
+) {
+	t.Helper()
+
+	actual, err := client.Get(ctx, currentStatusKey(prefix, id)).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, expected, actual)
+}
+
+func assertNoCurrentStatus(
+	t *testing.T,
+	ctx context.Context,
+	client *redis.Client,
+	prefix string,
+	id timebox.AggregateID,
+) {
+	t.Helper()
+
+	_, err := client.Get(ctx, currentStatusKey(prefix, id)).Result()
+	assert.ErrorIs(t, err, redis.Nil)
+}
+
+func assertStatusMembership(
+	t *testing.T,
+	ctx context.Context,
+	client *redis.Client,
+	prefix string,
+	status string,
+	id timebox.AggregateID,
+	expected bool,
+) {
+	t.Helper()
+
+	members, err := client.SMembers(ctx, statusSetKey(prefix, status)).Result()
+	assert.NoError(t, err)
+	if expected {
+		assert.Contains(t, members, id.Join(":"))
+		return
+	}
+	assert.NotContains(t, members, id.Join(":"))
+}

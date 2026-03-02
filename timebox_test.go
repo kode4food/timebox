@@ -479,6 +479,55 @@ func TestEventHubNoSubscribers(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestRaiseWithIndex(t *testing.T) {
+	for _, trimEvents := range []bool{false, true} {
+		mode := "untrimmed"
+		if trimEvents {
+			mode = "trimmed"
+		}
+
+		t.Run(mode, func(t *testing.T) {
+			server, tb, store, executor := setupTestExecutorWithStoreConfig(
+				t,
+				func(cfg *timebox.StoreConfig) {
+					cfg.TrimEvents = trimEvents
+					cfg.Prefix = "raise-with-index"
+				},
+			)
+			defer server.Close()
+			defer func() { _ = store.Close() }()
+			defer func() { _ = tb.Close() }()
+
+			id := timebox.NewAggregateID("counter", "indexed")
+			active := "active"
+
+			state, err := executor.Exec(
+				context.Background(),
+				id,
+				func(
+					s *CounterState,
+					ag *timebox.Aggregator[*CounterState],
+				) error {
+					return timebox.RaiseWithIndex(
+						ag,
+						EventIncremented,
+						2,
+						&timebox.Index{Status: &active},
+					)
+				},
+			)
+			assert.NoError(t, err)
+			assert.Equal(t, 2, state.Value)
+
+			events, err := store.GetEvents(context.Background(), id, 0)
+			assert.NoError(t, err)
+			if assert.Len(t, events, 1) && assert.NotNil(t, events[0].Index) {
+				assert.Equal(t, active, *events[0].Index.Status)
+			}
+		})
+	}
+}
+
 func newCounterState() *CounterState {
 	return &CounterState{Value: 0}
 }

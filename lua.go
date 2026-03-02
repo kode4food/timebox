@@ -1,12 +1,54 @@
 package timebox
 
 const (
+	_appendAndProjectStatus = `
+		local function appendAndProjectStatus(statusKeyMin, statusKey)
+			local statusEnabled = #KEYS > statusKeyMin
+			local chunkSize = 128
+			local lastEventIdx = #ARGV
+			if statusEnabled then
+				lastEventIdx = lastEventIdx - 2
+			end
+			local startIdx = 2
+
+			while startIdx <= lastEventIdx do
+				local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
+				local chunk = {}
+				for i = startIdx, endIdx do
+					table.insert(chunk, ARGV[i])
+				end
+				redis.call('RPUSH', KEYS[1], unpack(chunk))
+				startIdx = endIdx + 1
+			end
+
+			if statusEnabled then
+				local aggID = ARGV[lastEventIdx + 1]
+				local newStatus = ARGV[lastEventIdx + 2]
+				local statusSetPrefix =
+					string.match(KEYS[statusKey], "^(.-):%b{}:status$") ..
+					":status:set:"
+				local oldStatus = redis.call('GET', KEYS[statusKey]) or ""
+				if oldStatus ~= "" and oldStatus ~= newStatus then
+					redis.call('SREM', statusSetPrefix .. oldStatus, aggID)
+				end
+				if newStatus ~= "" then
+					redis.call('SADD', statusSetPrefix .. newStatus, aggID)
+					redis.call('SET', KEYS[statusKey], newStatus)
+				else
+					redis.call('DEL', KEYS[statusKey])
+				end
+			end
+		end
+		`
+
 	luaAppendEventsTrim = `
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
 		-- KEYS[2] = snapshot sequence key
+		-- KEYS[3] = aggregate status key (optional)
 		-- ARGV[1] = expected sequence (global)
-		-- ARGV[2..N] = event data (JSON)
+		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
+		--                when status projection is enabled
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -26,19 +68,8 @@ const (
 			return {0, currentSeq, {}}
 		end
 
-		local chunkSize = 128
-		local numEvents = #ARGV - 1
-		local startIdx = 2
-
-		while startIdx <= #ARGV do
-			local endIdx = math.min(startIdx + chunkSize - 1, #ARGV)
-			local chunk = {}
-			for i = startIdx, endIdx do
-				table.insert(chunk, ARGV[i])
-			end
-			redis.call('RPUSH', KEYS[1], unpack(chunk))
-			startIdx = endIdx + 1
-		end
+		` + _appendAndProjectStatus + `
+		appendAndProjectStatus(2, 3)
 
 		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`
@@ -103,8 +134,10 @@ const (
 	luaAppendEvents = `
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
+		-- KEYS[2] = aggregate status key (optional)
 		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2..N] = event data (JSON)
+		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
+		--                when status projection is enabled
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -118,19 +151,8 @@ const (
 			return {0, currentLen, {}}
 		end
 
-		local chunkSize = 128
-		local numEvents = #ARGV - 1
-		local startIdx = 2
-
-		while startIdx <= #ARGV do
-			local endIdx = math.min(startIdx + chunkSize - 1, #ARGV)
-			local chunk = {}
-			for i = startIdx, endIdx do
-				table.insert(chunk, ARGV[i])
-			end
-			redis.call('RPUSH', KEYS[1], unpack(chunk))
-			startIdx = endIdx + 1
-		end
+		` + _appendAndProjectStatus + `
+		appendAndProjectStatus(1, 2)
 
 		return {1, redis.call('LLEN', KEYS[1])}
 		`

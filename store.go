@@ -52,6 +52,7 @@ const (
 	RedisConnectTimeout = 5 * time.Second
 
 	eventsSuffix = "events"
+	statusSuffix = "status"
 
 	defaultSnapshot   = "snapshot"
 	snapshotValSuffix = defaultSnapshot + ":val"
@@ -143,11 +144,22 @@ func (s *Store) AppendEvents(
 		return nil
 	}
 
+	var status *string
+	for _, ev := range evs {
+		if ev.Index != nil && ev.Index.Status != nil {
+			status = ev.Index.Status
+		}
+	}
+
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
 	if s.config.TrimEvents {
 		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 		keys = []string{eventsKey, snapSeqKey}
+	}
+	if status != nil {
+		statusKey := s.buildKey(id, statusSuffix)
+		keys = append(keys, statusKey)
 	}
 	args := []any{atSeq}
 
@@ -155,16 +167,21 @@ func (s *Store) AppendEvents(
 		Timestamp time.Time       `json:"timestamp"`
 		Type      EventType       `json:"type"`
 		Data      json.RawMessage `json:"data"`
+		Index     *Index          `json:"index,omitempty"`
 	}
 	for _, ev := range evs {
 		re.Timestamp = ev.Timestamp
 		re.Type = ev.Type
 		re.Data = ev.Data
+		re.Index = ev.Index
 		reData, err := json.Marshal(&re)
 		if err != nil {
 			return err
 		}
 		args = append(args, string(reData))
+	}
+	if status != nil {
+		args = append(args, id.Join(":"), *status)
 	}
 
 	result, err := s.appendEvents.Run(ctx, s.client, keys, args...).Result()

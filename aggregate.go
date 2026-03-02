@@ -79,6 +79,12 @@ func (a *Aggregator[T]) OnSuccess(fn SuccessAction[T]) {
 }
 
 func (a *Aggregator[T]) raise(typ EventType, value any) error {
+	return a.raiseWithIndex(typ, value, nil)
+}
+
+func (a *Aggregator[T]) raiseWithIndex(
+	typ EventType, value any, idx *Index,
+) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -90,6 +96,7 @@ func (a *Aggregator[T]) raise(typ EventType, value any) error {
 		AggregateID: a.id,
 		Type:        typ,
 		Data:        data,
+		Index:       idx,
 		value:       value,
 	}
 	a.enqueued = append(a.enqueued, ev)
@@ -207,4 +214,12 @@ func ParseKeySlotted(_ int) ParseKeyFunc {
 // Raise marshals the value and enqueues a new event on the Aggregator
 func Raise[T, V any](ag *Aggregator[T], typ EventType, value V) error {
 	return ag.raise(typ, value)
+}
+
+// RaiseWithIndex marshals the value and enqueues a new event on the
+// Aggregator with optional projection metadata.
+func RaiseWithIndex[T, V any](
+	ag *Aggregator[T], typ EventType, value V, idx *Index,
+) error {
+	return ag.raiseWithIndex(typ, value, idx)
 }
