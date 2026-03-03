@@ -24,6 +24,7 @@ type (
 		SaveTimeout  time.Duration
 		TrimEvents   bool
 		Archiving    bool
+		Indexer      Indexer
 		JoinKey      JoinKeyFunc
 		ParseKey     ParseKeyFunc
 	}

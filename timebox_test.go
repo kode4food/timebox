@@ -24,14 +24,18 @@ const (
 )
 
 var appliers = timebox.Appliers[*CounterState]{
-	EventIncremented: func(state *CounterState, ev *timebox.Event) *CounterState {
+	EventIncremented: func(
+		state *CounterState, ev *timebox.Event,
+	) *CounterState {
 		var delta int
 		_ = json.Unmarshal(ev.Data, &delta)
 		res := *state
 		res.Value = state.Value + delta
 		return &res
 	},
-	EventDecremented: func(state *CounterState, ev *timebox.Event) *CounterState {
+	EventDecremented: func(
+		state *CounterState, ev *timebox.Event,
+	) *CounterState {
 		var delta int
 		_ = json.Unmarshal(ev.Data, &delta)
 		res := *state
@@ -479,7 +483,7 @@ func TestEventHubNoSubscribers(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestRaiseWithIndex(t *testing.T) {
+func TestStoreIndexer(t *testing.T) {
 	for _, trimEvents := range []bool{false, true} {
 		mode := "untrimmed"
 		if trimEvents {
@@ -491,7 +495,13 @@ func TestRaiseWithIndex(t *testing.T) {
 				t,
 				func(cfg *timebox.StoreConfig) {
 					cfg.TrimEvents = trimEvents
-					cfg.Prefix = "raise-with-index"
+					cfg.Prefix = "store-indexer"
+					cfg.Indexer = func(
+						events []*timebox.Event,
+					) []*timebox.Index {
+						active := "active"
+						return []*timebox.Index{{Status: &active}}
+					}
 				},
 			)
 			defer server.Close()
@@ -499,21 +509,14 @@ func TestRaiseWithIndex(t *testing.T) {
 			defer func() { _ = tb.Close() }()
 
 			id := timebox.NewAggregateID("counter", "indexed")
-			active := "active"
 
 			state, err := executor.Exec(
 				context.Background(),
 				id,
 				func(
-					s *CounterState,
-					ag *timebox.Aggregator[*CounterState],
+					s *CounterState, ag *timebox.Aggregator[*CounterState],
 				) error {
-					return timebox.RaiseWithIndex(
-						ag,
-						EventIncremented,
-						2,
-						&timebox.Index{Status: &active},
-					)
+					return timebox.Raise(ag, EventIncremented, 2)
 				},
 			)
 			assert.NoError(t, err)
@@ -521,9 +524,7 @@ func TestRaiseWithIndex(t *testing.T) {
 
 			events, err := store.GetEvents(context.Background(), id, 0)
 			assert.NoError(t, err)
-			if assert.Len(t, events, 1) && assert.NotNil(t, events[0].Index) {
-				assert.Equal(t, active, *events[0].Index.Status)
-			}
+			assert.Len(t, events, 1)
 		})
 	}
 }

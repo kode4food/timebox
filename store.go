@@ -144,10 +144,15 @@ func (s *Store) AppendEvents(
 		return nil
 	}
 
+	var indexes []*Index
+	if s.config.Indexer != nil {
+		indexes = s.config.Indexer(evs)
+	}
+
 	var status *string
-	for _, ev := range evs {
-		if ev.Index != nil && ev.Index.Status != nil {
-			status = ev.Index.Status
+	for _, idx := range indexes {
+		if idx != nil && idx.Status != nil {
+			status = idx.Status
 		}
 	}
 
@@ -166,13 +171,11 @@ func (s *Store) AppendEvents(
 		Timestamp time.Time       `json:"timestamp"`
 		Type      EventType       `json:"type"`
 		Data      json.RawMessage `json:"data"`
-		Index     *Index          `json:"index,omitempty"`
 	}
 	for _, ev := range evs {
 		re.Timestamp = ev.Timestamp
 		re.Type = ev.Type
 		re.Data = ev.Data
-		re.Index = ev.Index
 		reData, err := json.Marshal(&re)
 		if err != nil {
 			return err
@@ -329,7 +332,9 @@ func (s *Store) PutSnapshot(
 		keys = []string{snapKey, snapSeqKey, eventsKey}
 	}
 
-	_, err = s.putSnapshot.Run(ctx, s.client, keys, string(data), sequence).Result()
+	_, err = s.putSnapshot.Run(
+		ctx, s.client, keys, string(data), sequence,
+	).Result()
 	return err
 }
 
