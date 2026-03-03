@@ -1,10 +1,12 @@
 package timebox
 
 const (
-	_appendWithoutStatus_ = `
+	_appendChunked_ = `
 		local chunkSize = 128
-		local startIdx = 2
-		local lastEventIdx = #ARGV
+		local eventStartIdx = 5
+		local eventCount = tonumber(ARGV[2])
+		local startIdx = eventStartIdx
+		local lastEventIdx = eventStartIdx + eventCount - 1
 
 		while startIdx <= lastEventIdx do
 			local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
@@ -17,23 +19,9 @@ const (
 		end
 		`
 
-	_appendWithStatus_ = `
-		local chunkSize = 128
-		local startIdx = 2
-		local lastEventIdx = #ARGV - 2
-
-		while startIdx <= lastEventIdx do
-			local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
-			local chunk = {}
-			for i = startIdx, endIdx do
-				table.insert(chunk, ARGV[i])
-			end
-			redis.call('RPUSH', KEYS[1], unpack(chunk))
-			startIdx = endIdx + 1
-		end
-
-		local aggID = ARGV[lastEventIdx + 1]
-		local newStatus = ARGV[lastEventIdx + 2]
+	_projectStatus_ = `
+		local aggID = ARGV[3]
+		local newStatus = ARGV[4]
 		local statusSetPrefix = KEYS[2] .. ":"
 		local oldStatus = redis.call('HGET', KEYS[2], aggID) or ""
 		if oldStatus ~= "" and oldStatus ~= newStatus then
@@ -66,7 +54,10 @@ const (
 		-- KEYS[1] = event list key
 		-- KEYS[2] = snapshot sequence key
 		-- ARGV[1] = expected sequence (global)
-		-- ARGV[2..N] = event data (JSON)
+		-- ARGV[2] = event count
+		-- ARGV[3] = aggregate ID (unused)
+		-- ARGV[4] = status (unused)
+		-- ARGV[5..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -76,7 +67,7 @@ const (
 
 		` + _appendSequenceCheck_ + `
 
-		` + _appendWithoutStatus_ + `
+		` + _appendChunked_ + `
 
 		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`
@@ -87,7 +78,10 @@ const (
 		-- KEYS[2] = status hash key
 		-- KEYS[3] = snapshot sequence key
 		-- ARGV[1] = expected sequence (global)
-		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
+		-- ARGV[2] = event count
+		-- ARGV[3] = aggregate ID
+		-- ARGV[4] = status
+		-- ARGV[5..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -97,7 +91,9 @@ const (
 
 		` + _appendSequenceCheck_ + `
 
-		` + _appendWithStatus_ + `
+		` + _appendChunked_ + `
+
+		` + _projectStatus_ + `
 
 		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`
@@ -163,7 +159,10 @@ const (
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
 		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2..N] = event data (JSON)
+		-- ARGV[2] = event count
+		-- ARGV[3] = aggregate ID (unused)
+		-- ARGV[4] = status (unused)
+		-- ARGV[5..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -173,7 +172,7 @@ const (
 
 		` + _appendSequenceCheck_ + `
 
-		` + _appendWithoutStatus_ + `
+		` + _appendChunked_ + `
 
 		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`
@@ -183,7 +182,10 @@ const (
 		-- KEYS[1] = event list key
 		-- KEYS[2] = status hash key
 		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
+		-- ARGV[2] = event count
+		-- ARGV[3] = aggregate ID
+		-- ARGV[4] = status
+		-- ARGV[5..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -193,7 +195,9 @@ const (
 
 		` + _appendSequenceCheck_ + `
 
-		` + _appendWithStatus_ + `
+		` + _appendChunked_ + `
+
+		` + _projectStatus_ + `
 
 		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`

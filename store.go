@@ -163,16 +163,20 @@ func (s *Store) AppendEvents(
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
 	script := s.appendEvents
+	aggID := ""
+	statusValue := ""
 	if status != nil {
 		statusKey := s.buildGlobalKey(statusSuffix)
 		keys = append(keys, statusKey)
 		script = s.appendStatus
+		aggID = id.Join(":")
+		statusValue = *status
 	}
 	if s.config.TrimEvents {
 		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 		keys = append(keys, snapSeqKey)
 	}
-	args := []any{atSeq}
+	args := []any{atSeq, len(evs), aggID, statusValue}
 
 	var re struct {
 		Timestamp time.Time       `json:"timestamp"`
@@ -188,9 +192,6 @@ func (s *Store) AppendEvents(
 			return err
 		}
 		args = append(args, string(reData))
-	}
-	if status != nil {
-		args = append(args, id.Join(":"), *status)
 	}
 
 	result, err := script.Run(ctx, s.client, keys, args...).Result()
