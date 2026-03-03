@@ -50,5 +50,5 @@ func (s *Store) RemoveAggregateFromStatus(
 }
 
 func (s *Store) buildStatusSetKey(status string) string {
-	return s.buildGlobalKey(statusSetSuffix + ":" + status)
+	return s.buildGlobalKey(statusSuffix + ":" + status)
 }

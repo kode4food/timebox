@@ -540,7 +540,7 @@ func currentStatusKey(prefix string, id timebox.AggregateID) string {
 }
 
 func statusSetKey(prefix, status string) string {
-	return prefix + ":status:set:" + status
+	return prefix + ":status:" + status
 }
 
 func assertCurrentStatus(
