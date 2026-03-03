@@ -21,6 +21,7 @@ type (
 		prefix         string
 		producer       topic.Producer[*Event]
 		appendEvents   *redis.Script
+		appendStatus   *redis.Script
 		getEvents      *redis.Script
 		putSnapshot    *redis.Script
 		getSnapshot    *redis.Script
@@ -86,11 +87,13 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	}
 
 	appendEventsScript := luaAppendEvents
+	appendEventsStatusScript := luaAppendEventsStatus
 	getEventsScript := luaGetEvents
 	putSnapshotScript := luaPutSnapshot
 	getSnapshotScript := luaGetSnapshot
 	if cfg.TrimEvents {
 		appendEventsScript = luaAppendEventsTrim
+		appendEventsStatusScript = luaAppendEventsTrimStatus
 		getEventsScript = luaGetEventsTrim
 		putSnapshotScript = luaPutSnapshotTrim
 		getSnapshotScript = luaGetSnapshotTrim
@@ -109,6 +112,7 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		prefix:         cfg.Prefix,
 		producer:       tb.hub.newProducer(),
 		appendEvents:   redis.NewScript(appendEventsScript),
+		appendStatus:   redis.NewScript(appendEventsStatusScript),
 		getEvents:      redis.NewScript(getEventsScript),
 		putSnapshot:    redis.NewScript(putSnapshotScript),
 		getSnapshot:    redis.NewScript(getSnapshotScript),
@@ -157,11 +161,13 @@ func (s *Store) AppendEvents(
 	}
 
 	eventsKey := s.buildKey(id, eventsSuffix)
-	statusKey := ""
+	keys := []string{eventsKey}
+	script := s.appendEvents
 	if status != nil {
-		statusKey = s.buildGlobalKey(statusSuffix)
+		statusKey := s.buildGlobalKey(statusSuffix)
+		keys = append(keys, statusKey)
+		script = s.appendStatus
 	}
-	keys := []string{eventsKey, statusKey}
 	if s.config.TrimEvents {
 		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 		keys = append(keys, snapSeqKey)
@@ -187,7 +193,7 @@ func (s *Store) AppendEvents(
 		args = append(args, id.Join(":"), *status)
 	}
 
-	result, err := s.appendEvents.Run(ctx, s.client, keys, args...).Result()
+	result, err := script.Run(ctx, s.client, keys, args...).Result()
 	if err != nil {
 		return err
 	}
