@@ -157,13 +157,14 @@ func (s *Store) AppendEvents(
 	}
 
 	eventsKey := s.buildKey(id, eventsSuffix)
-	keys := []string{eventsKey}
+	statusKey := ""
+	if status != nil {
+		statusKey = s.buildGlobalKey(statusSuffix)
+	}
+	keys := []string{eventsKey, statusKey}
 	if s.config.TrimEvents {
 		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
-		keys = []string{eventsKey, snapSeqKey}
-	}
-	if status != nil {
-		keys = append(keys, s.buildGlobalKey(statusSuffix))
+		keys = append(keys, snapSeqKey)
 	}
 	args := []any{atSeq}
 

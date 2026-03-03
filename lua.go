@@ -1,40 +1,38 @@
 package timebox
 
 const (
-	_appendAndProjectStatus = `
-		local function appendAndProjectStatus(statusKeyMin, statusKey)
-			local statusEnabled = #KEYS > statusKeyMin
-			local chunkSize = 128
-			local lastEventIdx = #ARGV
-			if statusEnabled then
-				lastEventIdx = lastEventIdx - 2
-			end
-			local startIdx = 2
+	_appendAndProjectStatus_ = `
+		local statusEnabled = KEYS[2] ~= ""
+		local chunkSize = 128
+		local lastEventIdx = #ARGV
+		if statusEnabled then
+			lastEventIdx = lastEventIdx - 2
+		end
+		local startIdx = 2
 
-			while startIdx <= lastEventIdx do
-				local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
-				local chunk = {}
-				for i = startIdx, endIdx do
-					table.insert(chunk, ARGV[i])
-				end
-				redis.call('RPUSH', KEYS[1], unpack(chunk))
-				startIdx = endIdx + 1
+		while startIdx <= lastEventIdx do
+			local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
+			local chunk = {}
+			for i = startIdx, endIdx do
+				table.insert(chunk, ARGV[i])
 			end
+			redis.call('RPUSH', KEYS[1], unpack(chunk))
+			startIdx = endIdx + 1
+		end
 
-			if statusEnabled then
-				local aggID = ARGV[lastEventIdx + 1]
-				local newStatus = ARGV[lastEventIdx + 2]
-				local statusSetPrefix = KEYS[statusKey] .. ":"
-				local oldStatus = redis.call('HGET', KEYS[statusKey], aggID) or ""
-				if oldStatus ~= "" and oldStatus ~= newStatus then
-					redis.call('SREM', statusSetPrefix .. oldStatus, aggID)
-				end
-				if newStatus ~= "" then
-					redis.call('SADD', statusSetPrefix .. newStatus, aggID)
-					redis.call('HSET', KEYS[statusKey], aggID, newStatus)
-				else
-					redis.call('HDEL', KEYS[statusKey], aggID)
-				end
+		if statusEnabled then
+			local aggID = ARGV[lastEventIdx + 1]
+			local newStatus = ARGV[lastEventIdx + 2]
+			local statusSetPrefix = KEYS[2] .. ":"
+			local oldStatus = redis.call('HGET', KEYS[2], aggID) or ""
+			if oldStatus ~= "" and oldStatus ~= newStatus then
+				redis.call('SREM', statusSetPrefix .. oldStatus, aggID)
+			end
+			if newStatus ~= "" then
+				redis.call('SADD', statusSetPrefix .. newStatus, aggID)
+				redis.call('HSET', KEYS[2], aggID, newStatus)
+			else
+				redis.call('HDEL', KEYS[2], aggID)
 			end
 		end
 		`
@@ -42,8 +40,8 @@ const (
 	luaAppendEventsTrim = `
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
-		-- KEYS[2] = snapshot sequence key
-		-- KEYS[3] = status hash key (optional)
+		-- KEYS[2] = status hash key (empty string when disabled)
+		-- KEYS[3] = snapshot sequence key
 		-- ARGV[1] = expected sequence (global)
 		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
 		--                when status projection is enabled
@@ -51,7 +49,7 @@ const (
 
 		local currentLen = redis.call('LLEN', KEYS[1])
 		local expected = tonumber(ARGV[1])
-		local offset = tonumber(redis.call('GET', KEYS[2]) or "0")
+		local offset = tonumber(redis.call('GET', KEYS[3]) or "0")
 		local currentSeq = offset + currentLen
 
 		if expected ~= currentSeq then
@@ -66,8 +64,7 @@ const (
 			return {0, currentSeq, {}}
 		end
 
-		` + _appendAndProjectStatus + `
-		appendAndProjectStatus(2, 3)
+		` + _appendAndProjectStatus_ + `
 
 		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`
@@ -132,7 +129,7 @@ const (
 	luaAppendEvents = `
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
-		-- KEYS[2] = status hash key (optional)
+		-- KEYS[2] = status hash key (empty string when disabled)
 		-- ARGV[1] = expected sequence (current list length)
 		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
 		--                when status projection is enabled
@@ -149,8 +146,7 @@ const (
 			return {0, currentLen, {}}
 		end
 
-		` + _appendAndProjectStatus + `
-		appendAndProjectStatus(1, 2)
+		` + _appendAndProjectStatus_ + `
 
 		return {1, redis.call('LLEN', KEYS[1])}
 		`
