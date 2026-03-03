@@ -535,8 +535,8 @@ func eventListKey(prefix string, id timebox.AggregateID) string {
 	return prefix + ":" + id.Join(":") + ":events"
 }
 
-func currentStatusKey(prefix string, id timebox.AggregateID) string {
-	return prefix + ":" + id.Join(":") + ":status"
+func currentStatusKey(prefix string) string {
+	return prefix + ":status"
 }
 
 func statusSetKey(prefix, status string) string {
@@ -553,7 +553,7 @@ func assertCurrentStatus(
 ) {
 	t.Helper()
 
-	actual, err := client.Get(ctx, currentStatusKey(prefix, id)).Result()
+	actual, err := client.HGet(ctx, currentStatusKey(prefix), id.Join(":")).Result()
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 }
@@ -567,7 +567,7 @@ func assertNoCurrentStatus(
 ) {
 	t.Helper()
 
-	_, err := client.Get(ctx, currentStatusKey(prefix, id)).Result()
+	_, err := client.HGet(ctx, currentStatusKey(prefix), id.Join(":")).Result()
 	assert.ErrorIs(t, err, redis.Nil)
 }
 

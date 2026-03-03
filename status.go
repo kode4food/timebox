@@ -7,9 +7,9 @@ import (
 )
 
 var removeAggregateFromStatusScript = redis.NewScript(`
-	local currentStatus = redis.call('GET', KEYS[1]) or ""
+	local currentStatus = redis.call('HGET', KEYS[1], ARGV[2]) or ""
 	if currentStatus == ARGV[1] then
-		redis.call('DEL', KEYS[1])
+		redis.call('HDEL', KEYS[1], ARGV[2])
 	end
 	return redis.call('SREM', KEYS[2], ARGV[2])
 `)
@@ -39,7 +39,7 @@ func (s *Store) RemoveAggregateFromStatus(
 	ctx context.Context, id AggregateID, status string,
 ) error {
 	keys := []string{
-		s.buildKey(id, statusSuffix),
+		s.buildStatusHashKey(),
 		s.buildStatusSetKey(status),
 	}
 	args := []any{status, id.Join(":")}
@@ -51,4 +51,8 @@ func (s *Store) RemoveAggregateFromStatus(
 
 func (s *Store) buildStatusSetKey(status string) string {
 	return s.buildGlobalKey(statusSuffix + ":" + status)
+}
+
+func (s *Store) buildStatusHashKey() string {
+	return s.buildGlobalKey(statusSuffix)
 }

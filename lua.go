@@ -7,7 +7,7 @@ const (
 			local chunkSize = 128
 			local lastEventIdx = #ARGV
 			if statusEnabled then
-				lastEventIdx = lastEventIdx - 3
+				lastEventIdx = lastEventIdx - 2
 			end
 			local startIdx = 2
 
@@ -23,17 +23,17 @@ const (
 
 			if statusEnabled then
 				local aggID = ARGV[lastEventIdx + 1]
-				local statusSetPrefix = ARGV[lastEventIdx + 2] .. ":"
-				local newStatus = ARGV[lastEventIdx + 3]
-				local oldStatus = redis.call('GET', KEYS[statusKey]) or ""
+				local newStatus = ARGV[lastEventIdx + 2]
+				local statusSetPrefix = KEYS[statusKey] .. ":"
+				local oldStatus = redis.call('HGET', KEYS[statusKey], aggID) or ""
 				if oldStatus ~= "" and oldStatus ~= newStatus then
 					redis.call('SREM', statusSetPrefix .. oldStatus, aggID)
 				end
 				if newStatus ~= "" then
 					redis.call('SADD', statusSetPrefix .. newStatus, aggID)
-					redis.call('SET', KEYS[statusKey], newStatus)
+					redis.call('HSET', KEYS[statusKey], aggID, newStatus)
 				else
-					redis.call('DEL', KEYS[statusKey])
+					redis.call('HDEL', KEYS[statusKey], aggID)
 				end
 			end
 		end
@@ -43,11 +43,10 @@ const (
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
 		-- KEYS[2] = snapshot sequence key
-		-- KEYS[3] = aggregate status key (optional)
+		-- KEYS[3] = status hash key (optional)
 		-- ARGV[1] = expected sequence (global)
-		-- ARGV[2..N] = event data (JSON), followed by aggregate ID,
-		--                status set prefix, and status when projection is
-		--                enabled
+		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
+		--                when status projection is enabled
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -133,11 +132,10 @@ const (
 	luaAppendEvents = `
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
-		-- KEYS[2] = aggregate status key (optional)
+		-- KEYS[2] = status hash key (optional)
 		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2..N] = event data (JSON), followed by aggregate ID,
-		--                status set prefix, and status when projection is
-		--                enabled
+		-- ARGV[2..N] = event data (JSON), followed by aggregate ID and status
+		--                when status projection is enabled
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])

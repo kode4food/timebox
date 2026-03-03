@@ -158,8 +158,7 @@ func (s *Store) AppendEvents(
 		keys = []string{eventsKey, snapSeqKey}
 	}
 	if status != nil {
-		statusKey := s.buildKey(id, statusSuffix)
-		keys = append(keys, statusKey)
+		keys = append(keys, s.buildGlobalKey(statusSuffix))
 	}
 	args := []any{atSeq}
 
@@ -181,9 +180,7 @@ func (s *Store) AppendEvents(
 		args = append(args, string(reData))
 	}
 	if status != nil {
-		args = append(
-			args, id.Join(":"), s.buildGlobalKey(statusSuffix), *status,
-		)
+		args = append(args, id.Join(":"), *status)
 	}
 
 	result, err := s.appendEvents.Run(ctx, s.client, keys, args...).Result()
