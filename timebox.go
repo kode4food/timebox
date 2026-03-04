@@ -42,8 +42,14 @@ type (
 		Status *string `json:"status,omitempty"`
 	}
 
-	// Indexer derives zero or more index records for an event batch
+	// Indexer derives projection metadata for an event batch
 	Indexer func([]*Event) []*Index
+
+	// StatusEntry holds an aggregate ID and the time it entered a status
+	StatusEntry struct {
+		ID        AggregateID
+		Timestamp time.Time
+	}
 )
 
 // NewTimebox creates a new Timebox instance with the given configuration and a

@@ -2,6 +2,8 @@ package timebox
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -11,23 +13,26 @@ var removeAggregateFromStatusScript = redis.NewScript(`
 	if currentStatus == ARGV[1] then
 		redis.call('HDEL', KEYS[1], ARGV[2])
 	end
-	return redis.call('SREM', KEYS[2], ARGV[2])
+	return redis.call('ZREM', KEYS[2], ARGV[2])
 `)
 
-// ListAggregatesByStatus returns the aggregate IDs currently indexed under the
-// provided status
+// ListAggregatesByStatus returns the aggregates currently indexed under the
+// provided status, including when they entered that status
 func (s *Store) ListAggregatesByStatus(
 	ctx context.Context, status string,
-) ([]AggregateID, error) {
-	key := s.buildStatusSetKey(status)
-	members, err := s.client.SMembers(ctx, key).Result()
+) ([]StatusEntry, error) {
+	key := s.buildStatusIndexKey(status)
+	members, err := s.client.ZRangeWithScores(ctx, key, 0, -1).Result()
 	if err != nil {
 		return nil, err
 	}
 
-	res := make([]AggregateID, 0, len(members))
+	res := make([]StatusEntry, 0, len(members))
 	for _, member := range members {
-		res = append(res, ParseAggregateID(member, ":"))
+		res = append(res, StatusEntry{
+			ID:        ParseAggregateID(fmt.Sprint(member.Member), ":"),
+			Timestamp: time.UnixMilli(int64(member.Score)).UTC(),
+		})
 	}
 	return res, nil
 }
@@ -40,7 +45,7 @@ func (s *Store) RemoveAggregateFromStatus(
 ) error {
 	keys := []string{
 		s.buildStatusHashKey(),
-		s.buildStatusSetKey(status),
+		s.buildStatusIndexKey(status),
 	}
 	args := []any{status, id.Join(":")}
 	_, err := removeAggregateFromStatusScript.Run(
@@ -49,7 +54,7 @@ func (s *Store) RemoveAggregateFromStatus(
 	return err
 }
 
-func (s *Store) buildStatusSetKey(status string) string {
+func (s *Store) buildStatusIndexKey(status string) string {
 	return s.buildGlobalKey(statusSuffix + ":" + status)
 }
 

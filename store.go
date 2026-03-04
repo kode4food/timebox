@@ -154,10 +154,14 @@ func (s *Store) AppendEvents(
 	}
 
 	var status *string
+	statusAt := ""
 	for _, idx := range indexes {
 		if idx != nil && idx.Status != nil {
 			status = idx.Status
 		}
+	}
+	if status != nil && len(evs) > 0 {
+		statusAt = fmt.Sprintf("%d", evs[len(evs)-1].Timestamp.UnixMilli())
 	}
 
 	eventsKey := s.buildKey(id, eventsSuffix)
@@ -176,7 +180,7 @@ func (s *Store) AppendEvents(
 		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 		keys = append(keys, snapSeqKey)
 	}
-	args := []any{atSeq, len(evs), aggID, statusValue}
+	args := []any{atSeq, len(evs), aggID, statusValue, statusAt}
 
 	var re struct {
 		Timestamp time.Time       `json:"timestamp"`

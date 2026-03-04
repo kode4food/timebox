@@ -3,7 +3,7 @@ package timebox
 const (
 	_appendChunked_ = `
 		local chunkSize = 128
-		local eventStartIdx = 5
+		local eventStartIdx = 6
 		local eventCount = tonumber(ARGV[2])
 		local startIdx = eventStartIdx
 		local lastEventIdx = eventStartIdx + eventCount - 1
@@ -22,14 +22,19 @@ const (
 	_projectStatus_ = `
 		local aggID = ARGV[3]
 		local newStatus = ARGV[4]
+		local newStatusAt = ARGV[5]
 		local statusSetPrefix = KEYS[2] .. ":"
 		local oldStatus = redis.call('HGET', KEYS[2], aggID) or ""
 		if oldStatus ~= "" and oldStatus ~= newStatus then
-			redis.call('SREM', statusSetPrefix .. oldStatus, aggID)
+			redis.call('ZREM', statusSetPrefix .. oldStatus, aggID)
 		end
 		if newStatus ~= "" then
-			redis.call('SADD', statusSetPrefix .. newStatus, aggID)
 			redis.call('HSET', KEYS[2], aggID, newStatus)
+			if oldStatus ~= newStatus then
+				redis.call(
+					'ZADD', statusSetPrefix .. newStatus, newStatusAt, aggID
+				)
+			end
 		else
 			redis.call('HDEL', KEYS[2], aggID)
 		end
@@ -57,7 +62,8 @@ const (
 		-- ARGV[2] = event count
 		-- ARGV[3] = aggregate ID (unused)
 		-- ARGV[4] = status (unused)
-		-- ARGV[5..N] = event data (JSON)
+		-- ARGV[5] = status_at (unused)
+		-- ARGV[6..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -81,7 +87,8 @@ const (
 		-- ARGV[2] = event count
 		-- ARGV[3] = aggregate ID
 		-- ARGV[4] = status
-		-- ARGV[5..N] = event data (JSON)
+		-- ARGV[5] = status_at
+		-- ARGV[6..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -162,7 +169,8 @@ const (
 		-- ARGV[2] = event count
 		-- ARGV[3] = aggregate ID (unused)
 		-- ARGV[4] = status (unused)
-		-- ARGV[5..N] = event data (JSON)
+		-- ARGV[5] = status_at (unused)
+		-- ARGV[6..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
@@ -185,7 +193,8 @@ const (
 		-- ARGV[2] = event count
 		-- ARGV[3] = aggregate ID
 		-- ARGV[4] = status
-		-- ARGV[5..N] = event data (JSON)
+		-- ARGV[5] = status_at
+		-- ARGV[6..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])

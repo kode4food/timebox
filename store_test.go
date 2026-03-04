@@ -348,9 +348,10 @@ func TestStoreStatusIndexing(t *testing.T) {
 				) {
 					id := timebox.NewAggregateID("order", "1")
 					active := "active"
+					ts := time.Unix(1700000000, 0).UTC()
 
 					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
-						statusEvent(id, &active),
+						statusEventAt(id, &active, ts),
 					})
 					assert.NoError(t, err)
 
@@ -362,6 +363,9 @@ func TestStoreStatusIndexing(t *testing.T) {
 
 					assertCurrentStatus(
 						t, ctx, client, "status-single", id, active,
+					)
+					assertStatusTimestamp(
+						t, ctx, client, "status-single", active, id, ts,
 					)
 					assertStatusMembership(
 						t, ctx, client, "status-single", active, id, true,
@@ -413,20 +417,24 @@ func TestStoreStatusIndexing(t *testing.T) {
 					id := timebox.NewAggregateID("order", "1")
 					active := "active"
 					paused := "paused"
+					activeTS := time.Unix(1700000000, 0).UTC()
+					pausedTS := activeTS.Add(5 * time.Minute)
 
 					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
-						statusEvent(id, &active),
+						statusEventAt(id, &active, activeTS),
 					})
 					assert.NoError(t, err)
 
 					err = store.AppendEvents(ctx, id, 1, []*timebox.Event{
-						statusEvent(id, &paused),
+						statusEventAt(id, &paused, pausedTS),
 					})
 					assert.NoError(t, err)
 
 					assertCurrentStatus(
 						t, ctx, client, "status-transition", id, paused,
 					)
+					assertStatusTimestamp(t, ctx, client,
+						"status-transition", paused, id, pausedTS)
 					assertStatusMembership(
 						t, ctx, client, "status-transition", active, id, false,
 					)
@@ -444,9 +452,10 @@ func TestStoreStatusIndexing(t *testing.T) {
 					id := timebox.NewAggregateID("order", "1")
 					active := "active"
 					cleared := ""
+					activeTS := time.Unix(1700000000, 0).UTC()
 
 					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
-						statusEvent(id, &active),
+						statusEventAt(id, &active, activeTS),
 					})
 					assert.NoError(t, err)
 
@@ -456,9 +465,40 @@ func TestStoreStatusIndexing(t *testing.T) {
 					assert.NoError(t, err)
 
 					assertNoCurrentStatus(t, ctx, client, "status-clear", id)
+					assertNoStatusTimestamp(
+						t, ctx, client, "status-clear", active, id,
+					)
 					assertStatusMembership(
 						t, ctx, client, "status-clear", active, id, false,
 					)
+				})
+			})
+
+			t.Run("SameStatusPreservesOriginalTimestamp", func(t *testing.T) {
+				withStatusStore(t, trimEvents, "status-same", func(
+					ctx context.Context, store *timebox.Store,
+					client *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+					active := "active"
+					firstTS := time.Unix(1700000000, 0).UTC()
+					secondTS := firstTS.Add(10 * time.Minute)
+
+					err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						statusEventAt(id, &active, firstTS),
+					})
+					assert.NoError(t, err)
+
+					err = store.AppendEvents(ctx, id, 1, []*timebox.Event{
+						statusEventAt(id, &active, secondTS),
+					})
+					assert.NoError(t, err)
+
+					assertCurrentStatus(
+						t, ctx, client, "status-same", id, active,
+					)
+					assertStatusTimestamp(t, ctx, client, "status-same",
+						active, id, firstTS)
 				})
 			})
 
@@ -528,13 +568,19 @@ func withStatusStore(
 }
 
 func statusEvent(id timebox.AggregateID, status *string) *timebox.Event {
+	return statusEventAt(id, status, time.Now())
+}
+
+func statusEventAt(
+	id timebox.AggregateID, status *string, ts time.Time,
+) *timebox.Event {
 	data := json.RawMessage(`1`)
 	if status != nil {
 		data = json.RawMessage(strconv.Quote(*status))
 	}
 
 	return &timebox.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   ts,
 		Type:        EventIncremented,
 		AggregateID: id,
 		Data:        data,
@@ -560,7 +606,7 @@ func currentStatusKey(prefix string) string {
 	return prefix + ":status"
 }
 
-func statusSetKey(prefix, status string) string {
+func statusIndexKey(prefix, status string) string {
 	return prefix + ":status:" + status
 }
 
@@ -587,17 +633,46 @@ func assertNoCurrentStatus(
 	assert.ErrorIs(t, err, redis.Nil)
 }
 
+func assertStatusTimestamp(
+	t *testing.T, ctx context.Context, client *redis.Client, prefix string,
+	status string, id timebox.AggregateID, expected time.Time,
+) {
+	t.Helper()
+
+	actual, err := client.ZScore(
+		ctx, statusIndexKey(prefix, status), id.Join(":"),
+	).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, float64(expected.UnixMilli()), actual)
+}
+
+func assertNoStatusTimestamp(
+	t *testing.T, ctx context.Context, client *redis.Client, prefix string,
+	status string, id timebox.AggregateID,
+) {
+	t.Helper()
+
+	_, err := client.ZScore(
+		ctx, statusIndexKey(prefix, status), id.Join(":"),
+	).Result()
+	assert.ErrorIs(t, err, redis.Nil)
+}
+
 func assertStatusMembership(
 	t *testing.T, ctx context.Context, client *redis.Client, prefix string,
 	status string, id timebox.AggregateID, expected bool,
 ) {
 	t.Helper()
 
-	members, err := client.SMembers(ctx, statusSetKey(prefix, status)).Result()
-	assert.NoError(t, err)
 	if expected {
-		assert.Contains(t, members, id.Join(":"))
+		_, err := client.ZScore(
+			ctx, statusIndexKey(prefix, status), id.Join(":"),
+		).Result()
+		assert.NoError(t, err)
 		return
 	}
-	assert.NotContains(t, members, id.Join(":"))
+	_, err := client.ZScore(
+		ctx, statusIndexKey(prefix, status), id.Join(":"),
+	).Result()
+	assert.ErrorIs(t, err, redis.Nil)
 }
