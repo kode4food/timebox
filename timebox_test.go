@@ -414,15 +414,13 @@ func TestEventHubMultiplePrefixes(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	flowConsumer := tb.GetHub().NewAggregateConsumer(
-		timebox.NewAggregateID("flow"),
+	consumer := tb.GetHub().NewAggregatesConsumer(
+		[]timebox.AggregateID{
+			timebox.NewAggregateID("flow"),
+			timebox.NewAggregateID("engine"),
+		},
 	)
-	defer flowConsumer.Close()
-
-	engineConsumer := tb.GetHub().NewAggregateConsumer(
-		timebox.NewAggregateID("engine"),
-	)
-	defer engineConsumer.Close()
+	defer consumer.Close()
 
 	ctx := context.Background()
 
@@ -440,19 +438,19 @@ func TestEventHubMultiplePrefixes(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	select {
-	case ev := <-flowConsumer.Receive():
-		assert.Equal(t, timebox.ID("flow"), ev.AggregateID[0])
-	case <-time.After(eventWait):
-		t.Fatal("timeout waiting for flow event")
+	got := make([]timebox.ID, 0, 2)
+	for range 2 {
+		select {
+		case ev := <-consumer.Receive():
+			got = append(got, ev.AggregateID[0])
+		case <-time.After(eventWait):
+			t.Fatal("timeout waiting for event")
+		}
 	}
-
-	select {
-	case ev := <-engineConsumer.Receive():
-		assert.Equal(t, timebox.ID("engine"), ev.AggregateID[0])
-	case <-time.After(eventWait):
-		t.Fatal("timeout waiting for engine event")
-	}
+	assert.ElementsMatch(t, []timebox.ID{
+		timebox.ID("flow"),
+		timebox.ID("engine"),
+	}, got)
 }
 
 func TestEventHubNoSubscribers(t *testing.T) {

@@ -1,6 +1,7 @@
 package timebox
 
 import (
+	"slices"
 	"sync"
 
 	"github.com/kode4food/caravan/topic"
@@ -34,7 +35,7 @@ type (
 	// interests describes what events a consumer is interested in
 	interests struct {
 		eventTypes map[EventType]bool // empty = all event types
-		prefix     AggregateID        // nil = all aggregates
+		prefixes   []AggregateID      // empty = all aggregates
 	}
 
 	prefixNode struct {
@@ -57,12 +58,12 @@ func NewEventHub(inner topic.Topic[*Event]) *EventHub {
 
 // NewConsumer creates a consumer that receives all events
 func (eh *EventHub) NewConsumer() *Consumer {
-	return eh.NewAggregateConsumer(nil)
+	return eh.NewAggregatesConsumer(nil)
 }
 
 // NewTypeConsumer creates a consumer interested in specific event types
 func (eh *EventHub) NewTypeConsumer(eventTypes ...EventType) *Consumer {
-	return eh.NewAggregateConsumer(nil, eventTypes...)
+	return eh.NewAggregatesConsumer(nil, eventTypes...)
 }
 
 // NewAggregateConsumer creates a consumer interested in events from aggregates
@@ -71,8 +72,17 @@ func (eh *EventHub) NewTypeConsumer(eventTypes ...EventType) *Consumer {
 func (eh *EventHub) NewAggregateConsumer(
 	prefix AggregateID, eventTypes ...EventType,
 ) *Consumer {
+	return eh.NewAggregatesConsumer([]AggregateID{prefix}, eventTypes...)
+}
+
+// NewAggregatesConsumer creates a consumer interested in events from
+// aggregates matching any provided prefix. If no event types are specified,
+// the consumer receives all events for aggregates matching those prefixes
+func (eh *EventHub) NewAggregatesConsumer(
+	prefixes []AggregateID, eventTypes ...EventType,
+) *Consumer {
 	i := &interests{
-		prefix: normalizePrefix(prefix),
+		prefixes: prefixes,
 	}
 
 	if len(eventTypes) > 0 {
@@ -131,13 +141,15 @@ func (c *Consumer) Close() {
 
 // matches checks if an event matches the consumer's interests
 func (c *Consumer) matches(ev *Event) bool {
-	if c.interests.prefix != nil &&
-		!ev.AggregateID.HasPrefix(c.interests.prefix) {
-		return false
+	if len(c.interests.prefixes) > 0 {
+		if !slices.ContainsFunc(
+			c.interests.prefixes, ev.AggregateID.HasPrefix,
+		) {
+			return false
+		}
 	}
 
-	if len(c.interests.eventTypes) > 0 &&
-		!c.interests.eventTypes[ev.Type] {
+	if len(c.interests.eventTypes) > 0 && !c.interests.eventTypes[ev.Type] {
 		return false
 	}
 
@@ -149,25 +161,29 @@ func (r *registry) register(i *interests) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if i.prefix == nil && len(i.eventTypes) == 0 {
+	if len(i.prefixes) == 0 && len(i.eventTypes) == 0 {
 		r.allEventsCount++
 		return
 	}
 
 	if len(i.eventTypes) == 0 {
-		r.anyType.add(i.prefix)
+		for _, pfx := range i.prefixes {
+			r.anyType.add(pfx)
+		}
 		return
 	}
 
-	if i.prefix == nil {
+	if len(i.prefixes) == 0 {
 		for et := range i.eventTypes {
 			r.getOrCreateNode(et).add(nil)
 		}
 		return
 	}
 
-	for et := range i.eventTypes {
-		r.getOrCreateNode(et).add(i.prefix)
+	for _, pfx := range i.prefixes {
+		for et := range i.eventTypes {
+			r.getOrCreateNode(et).add(pfx)
+		}
 	}
 }
 
@@ -176,17 +192,19 @@ func (r *registry) unregister(i *interests) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if i.prefix == nil && len(i.eventTypes) == 0 {
+	if len(i.prefixes) == 0 && len(i.eventTypes) == 0 {
 		r.allEventsCount--
 		return
 	}
 
 	if len(i.eventTypes) == 0 {
-		r.anyType.remove(i.prefix)
+		for _, pfx := range i.prefixes {
+			r.anyType.remove(pfx)
+		}
 		return
 	}
 
-	if i.prefix == nil {
+	if len(i.prefixes) == 0 {
 		for et := range i.eventTypes {
 			if node, ok := r.byType[et]; ok {
 				node.remove(nil)
@@ -198,11 +216,13 @@ func (r *registry) unregister(i *interests) {
 		return
 	}
 
-	for et := range i.eventTypes {
-		if node, ok := r.byType[et]; ok {
-			node.remove(i.prefix)
-			if node.isEmpty() {
-				delete(r.byType, et)
+	for _, pfx := range i.prefixes {
+		for et := range i.eventTypes {
+			if node, ok := r.byType[et]; ok {
+				node.remove(pfx)
+				if node.isEmpty() {
+					delete(r.byType, et)
+				}
 			}
 		}
 	}
@@ -312,11 +332,4 @@ func (p *prefixNode) hasPrefixMatch(id AggregateID) bool {
 
 func (p *prefixNode) isEmpty() bool {
 	return p.count == 0 && len(p.children) == 0
-}
-
-func normalizePrefix(prefix AggregateID) AggregateID {
-	if len(prefix) == 0 {
-		return nil
-	}
-	return prefix
 }
