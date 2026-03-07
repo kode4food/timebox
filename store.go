@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,7 +23,7 @@ type (
 		prefix         string
 		producer       topic.Producer[*Event]
 		appendEvents   *redis.Script
-		appendStatus   *redis.Script
+		appendIndexed  *redis.Script
 		getEvents      *redis.Script
 		putSnapshot    *redis.Script
 		getSnapshot    *redis.Script
@@ -54,6 +56,7 @@ const (
 
 	eventsSuffix = "events"
 	statusSuffix = "status"
+	labelsSuffix = "labels"
 
 	defaultSnapshot   = "snapshot"
 	snapshotValSuffix = defaultSnapshot + ":val"
@@ -87,13 +90,13 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	}
 
 	appendEventsScript := luaAppendEvents
-	appendEventsStatusScript := luaAppendEventsStatus
+	appendIndexedScript := luaAppendEventsIndexed
 	getEventsScript := luaGetEvents
 	putSnapshotScript := luaPutSnapshot
 	getSnapshotScript := luaGetSnapshot
 	if cfg.TrimEvents {
 		appendEventsScript = luaAppendEventsTrim
-		appendEventsStatusScript = luaAppendEventsTrimStatus
+		appendIndexedScript = luaAppendEventsTrimIndexed
 		getEventsScript = luaGetEventsTrim
 		putSnapshotScript = luaPutSnapshotTrim
 		getSnapshotScript = luaGetSnapshotTrim
@@ -112,7 +115,7 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		prefix:         cfg.Prefix,
 		producer:       tb.hub.newProducer(),
 		appendEvents:   redis.NewScript(appendEventsScript),
-		appendStatus:   redis.NewScript(appendEventsStatusScript),
+		appendIndexed:  redis.NewScript(appendIndexedScript),
 		getEvents:      redis.NewScript(getEventsScript),
 		putSnapshot:    redis.NewScript(putSnapshotScript),
 		getSnapshot:    redis.NewScript(getSnapshotScript),
@@ -148,16 +151,20 @@ func (s *Store) AppendEvents(
 		return nil
 	}
 
-	var indexes []*Index
+	var idxs []*Index
 	if s.config.Indexer != nil {
-		indexes = s.config.Indexer(evs)
+		idxs = s.config.Indexer(evs)
 	}
 
 	var status *string
 	statusAt := ""
-	for _, idx := range indexes {
+	lbls := map[string]string{}
+	for _, idx := range idxs {
 		if idx != nil && idx.Status != nil {
 			status = idx.Status
+		}
+		if idx != nil {
+			maps.Copy(lbls, idx.Labels)
 		}
 	}
 	if status != nil && len(evs) > 0 {
@@ -167,20 +174,51 @@ func (s *Store) AppendEvents(
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
 	script := s.appendEvents
-	aggID := ""
-	statusValue := ""
-	if status != nil {
+	aggID := id.Join(":")
+	lblVals := make([]string, 0, len(lbls))
+	lblKeys := make([]string, 0, len(lbls)*2)
+	for label, value := range lbls {
+		if value == "" {
+			continue
+		}
+		lblVals = append(lblVals, label+"\x00"+value)
+	}
+	sort.Strings(lblVals)
+	for _, lv := range lblVals {
+		label, value, _ := strings.Cut(lv, "\x00")
+		lblKeys = append(lblKeys, s.buildLabelValuesKey(label))
+		lblKeys = append(lblKeys, s.buildLabelIndexKey(label, value))
+	}
+	indexed := status != nil || len(lblKeys) > 0
+	if indexed {
 		statusKey := s.buildGlobalKey(statusSuffix)
 		keys = append(keys, statusKey)
-		script = s.appendStatus
-		aggID = id.Join(":")
-		statusValue = *status
+		script = s.appendIndexed
 	}
 	if s.config.TrimEvents {
 		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 		keys = append(keys, snapSeqKey)
 	}
-	args := []any{atSeq, len(evs), aggID, statusValue, statusAt}
+	keys = append(keys, lblKeys...)
+
+	args := []any{atSeq, len(evs), aggID, "", statusAt}
+	if indexed {
+		setStatus := 0
+		statusVal := ""
+		if status != nil {
+			setStatus = 1
+			statusVal = *status
+		}
+		lblCount := len(lblKeys) / 2
+		args = []any{
+			atSeq, len(evs), aggID, setStatus, statusVal, statusAt,
+			lblCount,
+		}
+		for _, lv := range lblVals {
+			_, value, _ := strings.Cut(lv, "\x00")
+			args = append(args, value)
+		}
+	}
 
 	var re struct {
 		Timestamp time.Time       `json:"timestamp"`
@@ -395,6 +433,23 @@ func (s *Store) buildGlobalKey(suffix string) string {
 	return fmt.Sprintf("%s:%s", s.prefix, suffix)
 }
 
+func (s *Store) buildLabelValuesKey(label string) string {
+	return s.buildGlobalKey(
+		fmt.Sprintf("%s:%s:values", labelsSuffix, escapeKeyPart(label)),
+	)
+}
+
+func (s *Store) buildLabelIndexKey(label, value string) string {
+	return s.buildGlobalKey(
+		fmt.Sprintf(
+			"%s:%s:%s",
+			labelsSuffix,
+			escapeKeyPart(label),
+			escapeKeyPart(value),
+		),
+	)
+}
+
 func (s *Store) archiveStreamKey() string {
 	return s.buildGlobalKey(archiveStreamSuffix)
 }
@@ -469,4 +524,10 @@ func toRawMessages(data []any) ([]json.RawMessage, error) {
 		messages = append(messages, json.RawMessage(str))
 	}
 	return messages, nil
+}
+
+func escapeKeyPart(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	return strings.ReplaceAll(s, ":", `%`)
 }

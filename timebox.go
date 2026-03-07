@@ -40,6 +40,10 @@ type (
 		// Status represents the resultant aggregate status.
 		// nil means no status change, and "" clears any prior status
 		Status *string `json:"status,omitempty"`
+
+		// Labels adds append-only reverse-index memberships for the aggregate
+		// nil means no label changes, and empty values are ignored
+		Labels map[string]string `json:"labels,omitempty"`
 	}
 
 	// Indexer derives projection metadata for an event batch

@@ -19,10 +19,30 @@ const (
 		end
 		`
 
+	_appendChunkedLabels_ = `
+		local chunkSize = 128
+		local eventStartIdx = 8 + tonumber(ARGV[7])
+		local eventCount = tonumber(ARGV[2])
+		local startIdx = eventStartIdx
+		local lastEventIdx = eventStartIdx + eventCount - 1
+
+		while startIdx <= lastEventIdx do
+			local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
+			local chunk = {}
+			for i = startIdx, endIdx do
+				table.insert(chunk, ARGV[i])
+			end
+			redis.call('RPUSH', KEYS[1], unpack(chunk))
+			startIdx = endIdx + 1
+		end
+		`
+
 	_projectStatus_ = `
 		local aggID = ARGV[3]
-		local newStatus = ARGV[4]
-		local newStatusAt = ARGV[5]
+		local statusPresent = tonumber(ARGV[4]) or 0
+		if statusPresent == 1 then
+			local newStatus = ARGV[5]
+			local newStatusAt = ARGV[6]
 		local statusSetPrefix = KEYS[2] .. ":"
 		local oldStatus = redis.call('HGET', KEYS[2], aggID) or ""
 		if oldStatus ~= "" and oldStatus ~= newStatus then
@@ -38,6 +58,18 @@ const (
 		else
 			redis.call('HDEL', KEYS[2], aggID)
 		end
+		end
+		`
+
+	_projectLabels_ = `
+		local labelCount = tonumber(ARGV[7]) or 0
+		for i = 0, labelCount - 1 do
+			local value = ARGV[8 + i]
+			local valueKey = KEYS[labelKeyStart + (i * 2)]
+			local memberKey = KEYS[labelKeyStart + (i * 2) + 1]
+			redis.call('SADD', valueKey, value)
+			redis.call('SADD', memberKey, aggID)
+		end
 		`
 
 	_appendSequenceCheck_ = `
@@ -52,6 +84,63 @@ const (
 			end
 			return {0, currentSeq, {}}
 		end
+		`
+
+	luaAppendEvents = `
+		-- Atomically append events to list with sequence consistency check
+		-- KEYS[1] = event list key
+		-- ARGV[1] = expected sequence (current list length)
+		-- ARGV[2] = event count
+		-- ARGV[3] = aggregate ID (unused)
+		-- ARGV[4] = status (unused)
+		-- ARGV[5] = status_at (unused)
+		-- ARGV[6..N] = event data (JSON)
+		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
+
+		local currentLen = redis.call('LLEN', KEYS[1])
+		local expected = tonumber(ARGV[1])
+		local offset = 0
+		local currentSeq = currentLen
+
+		` + _appendSequenceCheck_ + `
+
+		` + _appendChunked_ + `
+
+		return {1, offset + redis.call('LLEN', KEYS[1])}
+		`
+
+	luaAppendEventsIndexed = `
+		-- Atomically append events to list with sequence consistency check
+		-- KEYS[1] = event list key
+		-- KEYS[2] = status hash key
+		-- KEYS[3..N] = label values and membership keys
+		-- ARGV[1] = expected sequence (current list length)
+		-- ARGV[2] = event count
+		-- ARGV[3] = aggregate ID
+		-- ARGV[4] = status present flag
+		-- ARGV[5] = status
+		-- ARGV[6] = status_at
+		-- ARGV[7] = label key count
+		-- ARGV[8..M] = label values
+		-- ARGV[M+1..N] = event data (JSON)
+		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
+
+		local currentLen = redis.call('LLEN', KEYS[1])
+		local expected = tonumber(ARGV[1])
+		local offset = 0
+		local currentSeq = currentLen
+		local aggID = ARGV[3]
+		local labelKeyStart = 3
+
+		` + _appendSequenceCheck_ + `
+
+		` + _appendChunkedLabels_ + `
+
+		` + _projectStatus_ + `
+
+		` + _projectLabels_ + `
+
+		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`
 
 	luaAppendEventsTrim = `
@@ -78,31 +167,48 @@ const (
 		return {1, offset + redis.call('LLEN', KEYS[1])}
 		`
 
-	luaAppendEventsTrimStatus = `
+	luaAppendEventsTrimIndexed = `
 		-- Atomically append events to list with sequence consistency check
 		-- KEYS[1] = event list key
 		-- KEYS[2] = status hash key
 		-- KEYS[3] = snapshot sequence key
+		-- KEYS[4..N] = label values and membership keys
 		-- ARGV[1] = expected sequence (global)
 		-- ARGV[2] = event count
 		-- ARGV[3] = aggregate ID
-		-- ARGV[4] = status
-		-- ARGV[5] = status_at
-		-- ARGV[6..N] = event data (JSON)
+		-- ARGV[4] = status present flag
+		-- ARGV[5] = status
+		-- ARGV[6] = status_at
+		-- ARGV[7] = label key count
+		-- ARGV[8..M] = label values
+		-- ARGV[M+1..N] = event data (JSON)
 		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
 
 		local currentLen = redis.call('LLEN', KEYS[1])
 		local expected = tonumber(ARGV[1])
 		local offset = tonumber(redis.call('GET', KEYS[3]) or "0")
 		local currentSeq = offset + currentLen
+		local aggID = ARGV[3]
+		local labelKeyStart = 4
 
 		` + _appendSequenceCheck_ + `
 
-		` + _appendChunked_ + `
+		` + _appendChunkedLabels_ + `
 
 		` + _projectStatus_ + `
 
+		` + _projectLabels_ + `
+
 		return {1, offset + redis.call('LLEN', KEYS[1])}
+		`
+
+	luaGetEvents = `
+		-- Get events from list starting at a given sequence
+		-- KEYS[1] = event list key
+		-- ARGV[1] = starting sequence (0-based)
+
+		local fromSeq = tonumber(ARGV[1])
+		return redis.call('LRANGE', KEYS[1], fromSeq, -1)
 		`
 
 	luaGetEventsTrim = `
@@ -119,6 +225,28 @@ const (
 		end
 		local events = redis.call('LRANGE', KEYS[1], startIndex, -1)
 		return {offset, events}
+		`
+
+	luaPutSnapshot = `
+		-- Atomically save snapshot only if new sequence is greater than stored
+		-- KEYS[1] = snapshot key
+		-- KEYS[2] = snapshot sequence key
+		-- ARGV[1] = snapshot data
+		-- ARGV[2] = snapshot sequence
+
+		local newSeq = tonumber(ARGV[2])
+		local storedSeqStr = redis.call('GET', KEYS[2])
+
+		if storedSeqStr then
+			local storedSeq = tonumber(storedSeqStr)
+			if newSeq <= storedSeq then
+				return 1
+			end
+		end
+
+		redis.call('SET', KEYS[1], ARGV[1])
+		redis.call('SET', KEYS[2], newSeq)
+		return 1
 		`
 
 	luaPutSnapshotTrim = `
@@ -149,99 +277,6 @@ const (
 		return 1
 		`
 
-	luaGetSnapshotTrim = `
-		-- Atomically get snapshot and events after snapshot sequence
-		-- KEYS[1] = snapshot key
-		-- KEYS[2] = snapshot sequence key
-		-- KEYS[3] = event list key
-		-- Returns: {snapshot_data, snapshot_seq, newEvents}
-
-		local snapData = redis.call('GET', KEYS[1])
-		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
-		local newEvents = redis.call('LRANGE', KEYS[3], 0, -1)
-		return {snapData or "", snapSeq, newEvents}
-		`
-
-	luaAppendEvents = `
-		-- Atomically append events to list with sequence consistency check
-		-- KEYS[1] = event list key
-		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2] = event count
-		-- ARGV[3] = aggregate ID (unused)
-		-- ARGV[4] = status (unused)
-		-- ARGV[5] = status_at (unused)
-		-- ARGV[6..N] = event data (JSON)
-		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
-
-		local currentLen = redis.call('LLEN', KEYS[1])
-		local expected = tonumber(ARGV[1])
-		local offset = 0
-		local currentSeq = currentLen
-
-		` + _appendSequenceCheck_ + `
-
-		` + _appendChunked_ + `
-
-		return {1, offset + redis.call('LLEN', KEYS[1])}
-		`
-
-	luaAppendEventsStatus = `
-		-- Atomically append events to list with sequence consistency check
-		-- KEYS[1] = event list key
-		-- KEYS[2] = status hash key
-		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2] = event count
-		-- ARGV[3] = aggregate ID
-		-- ARGV[4] = status
-		-- ARGV[5] = status_at
-		-- ARGV[6..N] = event data (JSON)
-		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
-
-		local currentLen = redis.call('LLEN', KEYS[1])
-		local expected = tonumber(ARGV[1])
-		local offset = 0
-		local currentSeq = currentLen
-
-		` + _appendSequenceCheck_ + `
-
-		` + _appendChunked_ + `
-
-		` + _projectStatus_ + `
-
-		return {1, offset + redis.call('LLEN', KEYS[1])}
-		`
-
-	luaGetEvents = `
-		-- Get events from list starting at a given sequence
-		-- KEYS[1] = event list key
-		-- ARGV[1] = starting sequence (0-based)
-
-		local fromSeq = tonumber(ARGV[1])
-		return redis.call('LRANGE', KEYS[1], fromSeq, -1)
-		`
-
-	luaPutSnapshot = `
-		-- Atomically save snapshot only if new sequence is greater than stored
-		-- KEYS[1] = snapshot key
-		-- KEYS[2] = snapshot sequence key
-		-- ARGV[1] = snapshot data
-		-- ARGV[2] = snapshot sequence
-
-		local newSeq = tonumber(ARGV[2])
-		local storedSeqStr = redis.call('GET', KEYS[2])
-
-		if storedSeqStr then
-			local storedSeq = tonumber(storedSeqStr)
-			if newSeq <= storedSeq then
-				return 1
-			end
-		end
-
-		redis.call('SET', KEYS[1], ARGV[1])
-		redis.call('SET', KEYS[2], newSeq)
-		return 1
-		`
-
 	luaGetSnapshot = `
 		-- Atomically get snapshot and events after snapshot sequence
 		-- KEYS[1] = snapshot key
@@ -252,6 +287,19 @@ const (
 		local snapData = redis.call('GET', KEYS[1])
 		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
 		local newEvents = redis.call('LRANGE', KEYS[3], snapSeq, -1)
+		return {snapData or "", snapSeq, newEvents}
+		`
+
+	luaGetSnapshotTrim = `
+		-- Atomically get snapshot and events after snapshot sequence
+		-- KEYS[1] = snapshot key
+		-- KEYS[2] = snapshot sequence key
+		-- KEYS[3] = event list key
+		-- Returns: {snapshot_data, snapshot_seq, newEvents}
+
+		local snapData = redis.call('GET', KEYS[1])
+		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
+		local newEvents = redis.call('LRANGE', KEYS[3], 0, -1)
 		return {snapData or "", snapSeq, newEvents}
 		`
 
