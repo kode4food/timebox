@@ -79,7 +79,7 @@ func TestStoreLabelHelpers(t *testing.T) {
 
 						assertLabelMembership(t,
 							ctx, client, "labels-values", "env", "prod", id,
-							true,
+							false,
 						)
 						assertLabelMembership(t,
 							ctx, client, "labels-values", "env", "stage", id,
@@ -88,7 +88,7 @@ func TestStoreLabelHelpers(t *testing.T) {
 
 						vals, err := store.ListLabelValues(ctx, "env")
 						assert.NoError(t, err)
-						assert.Equal(t, []string{"prod", "stage"}, vals)
+						assert.Equal(t, []string{"stage"}, vals)
 					},
 				)
 			})
@@ -125,21 +125,32 @@ func TestStoreLabelHelpers(t *testing.T) {
 				)
 			})
 
-			t.Run("EmptyValueIsIgnored", func(t *testing.T) {
+			t.Run("EmptyValueRemovesMembership", func(t *testing.T) {
 				withIndexedStore(t,
 					trimEvents, "labels-empty", labelIndexer,
 					func(
 						ctx context.Context, store *timebox.Store,
-						_ *redis.Client,
+						client *redis.Client,
 					) {
 						id := timebox.NewAggregateID("order", "1")
 
 						assert.NoError(t,
 							store.AppendEvents(ctx, id, 0, []*timebox.Event{
+								labelEvent(id,
+									map[string]string{"env": "prod"},
+								),
+							}),
+						)
+						assert.NoError(t,
+							store.AppendEvents(ctx, id, 1, []*timebox.Event{
 								labelEvent(id, map[string]string{"env": ""}),
 							}),
 						)
 
+						assertLabelMembership(t,
+							ctx, client, "labels-empty", "env", "prod", id,
+							false,
+						)
 						ids, err := store.ListAggregatesByLabel(ctx, "env", "")
 						assert.NoError(t, err)
 						assert.Empty(t, ids)
@@ -160,17 +171,21 @@ func TestStoreLabelHelpers(t *testing.T) {
 					) {
 						id := timebox.NewAggregateID("order", "1")
 
-						assert.NoError(t,
-							store.AppendEvents(ctx, id, 0, []*timebox.Event{
+						assert.NoError(t, store.AppendEvents(ctx, id, 0,
+							[]*timebox.Event{
 								labelEvent(id,
 									map[string]string{"env": "prod"},
 								),
-							}),
-						)
+							},
+						))
 
-						err := store.AppendEvents(ctx, id, 0, []*timebox.Event{
-							labelEvent(id, map[string]string{"env": "stage"}),
-						})
+						err := store.AppendEvents(ctx, id, 0,
+							[]*timebox.Event{
+								labelEvent(id,
+									map[string]string{"env": "stage"},
+								),
+							},
+						)
 						assert.Error(t, err)
 
 						assertLabelMembership(t,
@@ -214,7 +229,7 @@ func labelIndexer(events []*timebox.Event) []*timebox.Index {
 }
 
 func labelIndexKey(prefix, label, value string) string {
-	return prefix + ":labels:" + escapeKeyPart(label) + ":" +
+	return prefix + ":idx:label:" + escapeKeyPart(label) + ":" +
 		escapeKeyPart(value)
 }
 

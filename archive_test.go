@@ -48,6 +48,13 @@ func TestArchiveToStream(t *testing.T) {
 	storeCfg.Addr = server.Addr()
 	storeCfg.TrimEvents = true
 	storeCfg.Archiving = true
+	storeCfg.Indexer = func([]*timebox.Event) []*timebox.Index {
+		active := "active"
+		return []*timebox.Index{{
+			Status: &active,
+			Labels: map[string]string{"env": "prod"},
+		}}
+	}
 
 	tb, err := timebox.NewTimebox(cfg)
 	assert.NoError(t, err)
@@ -82,6 +89,15 @@ func TestArchiveToStream(t *testing.T) {
 	aggregates, err := store.ListAggregates(ctx, id)
 	assert.NoError(t, err)
 	assert.Empty(t, aggregates)
+	statusEntries, err := store.ListAggregatesByStatus(ctx, "active")
+	assert.NoError(t, err)
+	assert.Empty(t, statusEntries)
+	labelIDs, err := store.ListAggregatesByLabel(ctx, "env", "prod")
+	assert.NoError(t, err)
+	assert.Empty(t, labelIDs)
+	labelVals, err := store.ListLabelValues(ctx, "env")
+	assert.NoError(t, err)
+	assert.Empty(t, labelVals)
 
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()

@@ -52,9 +52,15 @@ func (s *Store) Archive(ctx context.Context, id AggregateID) error {
 	snapKey := s.buildKey(id, snapshotValSuffix)
 	snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 	eventsKey := s.buildKey(id, eventsSuffix)
+	statusKey := s.buildStatusHashKey()
+	labelStateKey := s.buildLabelStateKey(id)
+	labelRootKey := s.buildLabelRootKey()
 	streamKey := s.archiveStreamKey()
 
-	keys := []string{snapKey, snapSeqKey, eventsKey, streamKey}
+	keys := []string{
+		snapKey, snapSeqKey, eventsKey, streamKey, statusKey, labelStateKey,
+		labelRootKey,
+	}
 	args := []any{id.Join(":")}
 
 	result, err := s.publishArchive.Run(ctx, s.client, keys, args...).Result()

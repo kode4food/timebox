@@ -482,11 +482,11 @@ func statusIndexer(events []*timebox.Event) []*timebox.Index {
 }
 
 func currentStatusKey(prefix string) string {
-	return prefix + ":status"
+	return prefix + ":idx:status"
 }
 
 func statusIndexKey(prefix, status string) string {
-	return prefix + ":status:" + status
+	return prefix + ":idx:status:" + status
 }
 
 func assertCurrentStatus(

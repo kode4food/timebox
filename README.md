@@ -50,17 +50,39 @@ batch. These mutations are persisted atomically with the event append.
 - `Status`: tracks the aggregate's current status and when it entered that
   status. Use `Store.ListAggregatesByStatus` and
   `Store.RemoveAggregateFromStatus` to read or manage that index.
-- `Labels`: adds append-only label memberships. Empty values are ignored.
+- `Labels`: tracks the aggregate's current label values. Empty values remove
+  the label.
 
 Label indexing maintains two read paths:
 
-- `Store.ListLabelValues(ctx, label)`: returns the unique values seen for a
+- `Store.ListLabelValues(ctx, label)`: returns the unique current values for a
   label.
 - `Store.ListAggregatesByLabel(ctx, label, value)`: returns the aggregate IDs
   indexed under a label/value pair.
 
-Label memberships are append-only. If the same aggregate is later indexed under
-another value for the same label, the prior membership remains indexed.
+Label updates overwrite prior values for the same aggregate and label. Setting a
+label value to `""` removes that label from the aggregate and updates the index.
+
+The derived index keyspace lives under `idx:`:
+
+```text
+<prefix>
+└── idx
+    ├── status                       HASH
+    │   └── <aggregate-id> => <status>
+    ├── status:<status>             ZSET
+    │   └── member: <aggregate-id>
+    │   └── score: entered-at unix millis
+    ├── labels:<aggregate-id>       HASH
+    │   └── <label> => <value>
+    ├── label:<label>               SET
+    │   └── members: <value>
+    └── label:<label>:<value>       SET
+        └── members: <aggregate-id>
+```
+
+`labels` stores per-aggregate current label state. `label` stores the reverse
+lookup indexes used by `ListLabelValues` and `ListAggregatesByLabel`.
 
 ## Archiving
 

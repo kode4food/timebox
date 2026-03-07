@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"sort"
 	"strings"
 	"time"
 
@@ -22,8 +21,7 @@ type (
 		client         *redis.Client
 		prefix         string
 		producer       topic.Producer[*Event]
-		appendEvents   *redis.Script
-		appendIndexed  *redis.Script
+		appendScripts  map[luaAppendSpec]*redis.Script
 		getEvents      *redis.Script
 		putSnapshot    *redis.Script
 		getSnapshot    *redis.Script
@@ -55,8 +53,11 @@ const (
 	RedisConnectTimeout = 5 * time.Second
 
 	eventsSuffix = "events"
-	statusSuffix = "status"
-	labelsSuffix = "labels"
+
+	idxPrefix    = "idx"
+	statusSuffix = idxPrefix + ":status"
+	labelsSuffix = idxPrefix + ":labels"
+	labelSuffix  = idxPrefix + ":label"
 
 	defaultSnapshot   = "snapshot"
 	snapshotValSuffix = defaultSnapshot + ":val"
@@ -89,14 +90,10 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		return nil, err
 	}
 
-	appendEventsScript := luaAppendEvents
-	appendIndexedScript := luaAppendEventsIndexed
 	getEventsScript := luaGetEvents
 	putSnapshotScript := luaPutSnapshot
 	getSnapshotScript := luaGetSnapshot
 	if cfg.TrimEvents {
-		appendEventsScript = luaAppendEventsTrim
-		appendIndexedScript = luaAppendEventsTrimIndexed
 		getEventsScript = luaGetEventsTrim
 		putSnapshotScript = luaPutSnapshotTrim
 		getSnapshotScript = luaGetSnapshotTrim
@@ -114,8 +111,7 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		client:         client,
 		prefix:         cfg.Prefix,
 		producer:       tb.hub.newProducer(),
-		appendEvents:   redis.NewScript(appendEventsScript),
-		appendIndexed:  redis.NewScript(appendIndexedScript),
+		appendScripts:  makeLuaAppendScripts(),
 		getEvents:      redis.NewScript(getEventsScript),
 		putSnapshot:    redis.NewScript(putSnapshotScript),
 		getSnapshot:    redis.NewScript(getSnapshotScript),
@@ -171,60 +167,12 @@ func (s *Store) AppendEvents(
 		statusAt = fmt.Sprintf("%d", evs[len(evs)-1].Timestamp.UnixMilli())
 	}
 
-	eventsKey := s.buildKey(id, eventsSuffix)
-	keys := []string{eventsKey}
-	script := s.appendEvents
-	aggID := id.Join(":")
-	lblVals := make([]string, 0, len(lbls))
-	lblKeys := make([]string, 0, len(lbls)*2)
-	for label, value := range lbls {
-		if value == "" {
-			continue
-		}
-		lblVals = append(lblVals, label+"\x00"+value)
-	}
-	sort.Strings(lblVals)
-	for _, lv := range lblVals {
-		label, value, _ := strings.Cut(lv, "\x00")
-		lblKeys = append(lblKeys, s.buildLabelValuesKey(label))
-		lblKeys = append(lblKeys, s.buildLabelIndexKey(label, value))
-	}
-	indexed := status != nil || len(lblKeys) > 0
-	if indexed {
-		statusKey := s.buildGlobalKey(statusSuffix)
-		keys = append(keys, statusKey)
-		script = s.appendIndexed
-	}
-	if s.config.TrimEvents {
-		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
-		keys = append(keys, snapSeqKey)
-	}
-	keys = append(keys, lblKeys...)
-
-	args := []any{atSeq, len(evs), aggID, "", statusAt}
-	if indexed {
-		setStatus := 0
-		statusVal := ""
-		if status != nil {
-			setStatus = 1
-			statusVal = *status
-		}
-		lblCount := len(lblKeys) / 2
-		args = []any{
-			atSeq, len(evs), aggID, setStatus, statusVal, statusAt,
-			lblCount,
-		}
-		for _, lv := range lblVals {
-			_, value, _ := strings.Cut(lv, "\x00")
-			args = append(args, value)
-		}
-	}
-
 	var re struct {
 		Timestamp time.Time       `json:"timestamp"`
 		Type      EventType       `json:"type"`
 		Data      json.RawMessage `json:"data"`
 	}
+	data := make([]string, 0, len(evs))
 	for _, ev := range evs {
 		re.Timestamp = ev.Timestamp
 		re.Type = ev.Type
@@ -233,10 +181,21 @@ func (s *Store) AppendEvents(
 		if err != nil {
 			return err
 		}
-		args = append(args, string(reData))
+		data = append(data, string(reData))
 	}
 
-	result, err := script.Run(ctx, s.client, keys, args...).Result()
+	call := buildLuaAppendCall(s, luaAppendInput{
+		id:       id,
+		atSeq:    atSeq,
+		status:   status,
+		statusAt: statusAt,
+		labels:   lbls,
+		events:   data,
+	})
+
+	result, err := s.appendScripts[call.spec].Run(
+		ctx, s.client, call.keys, call.args...,
+	).Result()
 	if err != nil {
 		return err
 	}
@@ -433,19 +392,26 @@ func (s *Store) buildGlobalKey(suffix string) string {
 	return fmt.Sprintf("%s:%s", s.prefix, suffix)
 }
 
+func (s *Store) buildLabelStateKey(id AggregateID) string {
+	return s.buildGlobalKey(
+		fmt.Sprintf("%s:%s", labelsSuffix, s.config.JoinKey(id)),
+	)
+}
+
+func (s *Store) buildLabelRootKey() string {
+	return s.buildGlobalKey(labelSuffix)
+}
+
 func (s *Store) buildLabelValuesKey(label string) string {
 	return s.buildGlobalKey(
-		fmt.Sprintf("%s:%s:values", labelsSuffix, escapeKeyPart(label)),
+		fmt.Sprintf("%s:%s", labelSuffix, escapeKeyPart(label)),
 	)
 }
 
 func (s *Store) buildLabelIndexKey(label, value string) string {
 	return s.buildGlobalKey(
-		fmt.Sprintf(
-			"%s:%s:%s",
-			labelsSuffix,
-			escapeKeyPart(label),
-			escapeKeyPart(value),
+		fmt.Sprintf("%s:%s:%s",
+			labelSuffix, escapeKeyPart(label), escapeKeyPart(value),
 		),
 	)
 }
@@ -530,4 +496,38 @@ func escapeKeyPart(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, "%", `\%`)
 	return strings.ReplaceAll(s, ":", `%`)
+}
+
+func unescapeKeyPart(s string) string {
+	i := 0
+	for i < len(s) && s[i] != '\\' && s[i] != '%' {
+		i++
+	}
+	if i == len(s) {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	b.WriteString(s[:i])
+
+	for i < len(s) {
+		switch s[i] {
+		case '%':
+			b.WriteByte(':')
+			i++
+		case '\\':
+			i++
+			if i >= len(s) {
+				b.WriteByte('\\')
+				break
+			}
+			b.WriteByte(s[i])
+			i++
+		default:
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return b.String()
 }

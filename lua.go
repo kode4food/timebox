@@ -1,207 +1,6 @@
 package timebox
 
 const (
-	_appendChunked_ = `
-		local chunkSize = 128
-		local eventStartIdx = 6
-		local eventCount = tonumber(ARGV[2])
-		local startIdx = eventStartIdx
-		local lastEventIdx = eventStartIdx + eventCount - 1
-
-		while startIdx <= lastEventIdx do
-			local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
-			local chunk = {}
-			for i = startIdx, endIdx do
-				table.insert(chunk, ARGV[i])
-			end
-			redis.call('RPUSH', KEYS[1], unpack(chunk))
-			startIdx = endIdx + 1
-		end
-		`
-
-	_appendChunkedLabels_ = `
-		local chunkSize = 128
-		local eventStartIdx = 8 + tonumber(ARGV[7])
-		local eventCount = tonumber(ARGV[2])
-		local startIdx = eventStartIdx
-		local lastEventIdx = eventStartIdx + eventCount - 1
-
-		while startIdx <= lastEventIdx do
-			local endIdx = math.min(startIdx + chunkSize - 1, lastEventIdx)
-			local chunk = {}
-			for i = startIdx, endIdx do
-				table.insert(chunk, ARGV[i])
-			end
-			redis.call('RPUSH', KEYS[1], unpack(chunk))
-			startIdx = endIdx + 1
-		end
-		`
-
-	_projectStatus_ = `
-		local aggID = ARGV[3]
-		local statusPresent = tonumber(ARGV[4]) or 0
-		if statusPresent == 1 then
-			local newStatus = ARGV[5]
-			local newStatusAt = ARGV[6]
-		local statusSetPrefix = KEYS[2] .. ":"
-		local oldStatus = redis.call('HGET', KEYS[2], aggID) or ""
-		if oldStatus ~= "" and oldStatus ~= newStatus then
-			redis.call('ZREM', statusSetPrefix .. oldStatus, aggID)
-		end
-		if newStatus ~= "" then
-			redis.call('HSET', KEYS[2], aggID, newStatus)
-			if oldStatus ~= newStatus then
-				redis.call(
-					'ZADD', statusSetPrefix .. newStatus, newStatusAt, aggID
-				)
-			end
-		else
-			redis.call('HDEL', KEYS[2], aggID)
-		end
-		end
-		`
-
-	_projectLabels_ = `
-		local labelCount = tonumber(ARGV[7]) or 0
-		for i = 0, labelCount - 1 do
-			local value = ARGV[8 + i]
-			local valueKey = KEYS[labelKeyStart + (i * 2)]
-			local memberKey = KEYS[labelKeyStart + (i * 2) + 1]
-			redis.call('SADD', valueKey, value)
-			redis.call('SADD', memberKey, aggID)
-		end
-		`
-
-	_appendSequenceCheck_ = `
-		if expected ~= currentSeq then
-			if expected < currentSeq then
-				local startIndex = expected - offset
-				if startIndex < 0 then
-					return {0, currentSeq, {}}
-				end
-				local newEvents = redis.call('LRANGE', KEYS[1], startIndex, -1)
-				return {0, currentSeq, newEvents}
-			end
-			return {0, currentSeq, {}}
-		end
-		`
-
-	luaAppendEvents = `
-		-- Atomically append events to list with sequence consistency check
-		-- KEYS[1] = event list key
-		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2] = event count
-		-- ARGV[3] = aggregate ID (unused)
-		-- ARGV[4] = status (unused)
-		-- ARGV[5] = status_at (unused)
-		-- ARGV[6..N] = event data (JSON)
-		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
-
-		local currentLen = redis.call('LLEN', KEYS[1])
-		local expected = tonumber(ARGV[1])
-		local offset = 0
-		local currentSeq = currentLen
-
-		` + _appendSequenceCheck_ + `
-
-		` + _appendChunked_ + `
-
-		return {1, offset + redis.call('LLEN', KEYS[1])}
-		`
-
-	luaAppendEventsIndexed = `
-		-- Atomically append events to list with sequence consistency check
-		-- KEYS[1] = event list key
-		-- KEYS[2] = status hash key
-		-- KEYS[3..N] = label values and membership keys
-		-- ARGV[1] = expected sequence (current list length)
-		-- ARGV[2] = event count
-		-- ARGV[3] = aggregate ID
-		-- ARGV[4] = status present flag
-		-- ARGV[5] = status
-		-- ARGV[6] = status_at
-		-- ARGV[7] = label key count
-		-- ARGV[8..M] = label values
-		-- ARGV[M+1..N] = event data (JSON)
-		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
-
-		local currentLen = redis.call('LLEN', KEYS[1])
-		local expected = tonumber(ARGV[1])
-		local offset = 0
-		local currentSeq = currentLen
-		local aggID = ARGV[3]
-		local labelKeyStart = 3
-
-		` + _appendSequenceCheck_ + `
-
-		` + _appendChunkedLabels_ + `
-
-		` + _projectStatus_ + `
-
-		` + _projectLabels_ + `
-
-		return {1, offset + redis.call('LLEN', KEYS[1])}
-		`
-
-	luaAppendEventsTrim = `
-		-- Atomically append events to list with sequence consistency check
-		-- KEYS[1] = event list key
-		-- KEYS[2] = snapshot sequence key
-		-- ARGV[1] = expected sequence (global)
-		-- ARGV[2] = event count
-		-- ARGV[3] = aggregate ID (unused)
-		-- ARGV[4] = status (unused)
-		-- ARGV[5] = status_at (unused)
-		-- ARGV[6..N] = event data (JSON)
-		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
-
-		local currentLen = redis.call('LLEN', KEYS[1])
-		local expected = tonumber(ARGV[1])
-		local offset = tonumber(redis.call('GET', KEYS[2]) or "0")
-		local currentSeq = offset + currentLen
-
-		` + _appendSequenceCheck_ + `
-
-		` + _appendChunked_ + `
-
-		return {1, offset + redis.call('LLEN', KEYS[1])}
-		`
-
-	luaAppendEventsTrimIndexed = `
-		-- Atomically append events to list with sequence consistency check
-		-- KEYS[1] = event list key
-		-- KEYS[2] = status hash key
-		-- KEYS[3] = snapshot sequence key
-		-- KEYS[4..N] = label values and membership keys
-		-- ARGV[1] = expected sequence (global)
-		-- ARGV[2] = event count
-		-- ARGV[3] = aggregate ID
-		-- ARGV[4] = status present flag
-		-- ARGV[5] = status
-		-- ARGV[6] = status_at
-		-- ARGV[7] = label key count
-		-- ARGV[8..M] = label values
-		-- ARGV[M+1..N] = event data (JSON)
-		-- Returns: {1, newLength} on success, or {0, currentLength, newEvents}
-
-		local currentLen = redis.call('LLEN', KEYS[1])
-		local expected = tonumber(ARGV[1])
-		local offset = tonumber(redis.call('GET', KEYS[3]) or "0")
-		local currentSeq = offset + currentLen
-		local aggID = ARGV[3]
-		local labelKeyStart = 4
-
-		` + _appendSequenceCheck_ + `
-
-		` + _appendChunkedLabels_ + `
-
-		` + _projectStatus_ + `
-
-		` + _projectLabels_ + `
-
-		return {1, offset + redis.call('LLEN', KEYS[1])}
-		`
-
 	luaGetEvents = `
 		-- Get events from list starting at a given sequence
 		-- KEYS[1] = event list key
@@ -309,14 +108,23 @@ const (
 		-- KEYS[2] = snapshot sequence key
 		-- KEYS[3] = event list key
 		-- KEYS[4] = stream key
+		-- KEYS[5] = status hash key
+		-- KEYS[6] = label state hash key
+		-- KEYS[7] = label root key
 		-- ARGV[1] = aggregate id string
 		-- Returns: {1, streamId} on success, {0} if nothing to move
 
 		local snapData = redis.call('GET', KEYS[1]) or ""
 		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
 		local allEvents = redis.call('LRANGE', KEYS[3], 0, -1)
+		local status = redis.call('HGET', KEYS[5], ARGV[1]) or ""
+		local labels = redis.call('HGETALL', KEYS[6])
 
-		if snapData == "" and #allEvents == 0 then
+		if snapData == ""
+			and #allEvents == 0
+			and status == ""
+			and #labels == 0
+		then
 			return {0}
 		end
 
@@ -328,7 +136,21 @@ const (
 		})
 
 		local streamId = redis.call('XADD', KEYS[4], '*', 'payload', payload)
-		redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+		if status ~= "" then
+			redis.call('ZREM', KEYS[5] .. ":" .. status, ARGV[1])
+			redis.call('HDEL', KEYS[5], ARGV[1])
+		end
+		for i = 1, #labels, 2 do
+			local label = labels[i]
+			local value = labels[i + 1]
+			local valuesKey = KEYS[7] .. ":" .. label
+			local memberKey = KEYS[7] .. ":" .. label .. ":" .. value
+			redis.call('SREM', memberKey, ARGV[1])
+			if redis.call('SCARD', memberKey) == 0 then
+				redis.call('SREM', valuesKey, value)
+			end
+		end
+		redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[6])
 		return {1, streamId}
 		`
 

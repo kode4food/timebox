@@ -41,8 +41,8 @@ type (
 		// nil means no status change, and "" clears any prior status
 		Status *string `json:"status,omitempty"`
 
-		// Labels adds append-only reverse-index memberships for the aggregate
-		// nil means no label changes, and empty values are ignored
+		// Labels updates current label values for the aggregate. nil means no
+		// label changes, and empty values remove the label
 		Labels map[string]string `json:"labels,omitempty"`
 	}
 

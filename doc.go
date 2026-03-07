@@ -7,7 +7,7 @@
 //   - Create a Timebox with configuration
 //   - Open a Store backed by Redis
 //   - Define Appliers that fold events into your aggregate state
-//   - Optionally define an Indexer to project status or label indexes
+//   - Optionally define an Indexer to project current status or label indexes
 //   - Use an Executor to run Commands that raise events on an Aggregator
 //   - Consume events from the EventHub or by querying the Store directly
 //
