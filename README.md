@@ -9,6 +9,7 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Complete event sourcing** with immutable event log and sequence-based versioning
 - **Optimistic concurrency** with automatic retries on conflicts
 - **Snapshots and caching** with background workers and LRU projection cache
+- **Indexing** through append-time projections for status and labels
 - **Distributed coordination** through a shared Redis/Valkey backend
 - **Archiving**: atomically move aggregate snapshots + events into a Redis stream
 - **Type-safe generics**: no interfaces to implement in your domain types
@@ -18,6 +19,7 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 
 - **Timebox**: Root object that owns configuration, lifecycle, and the EventHub.
 - **Store**: Redis-backed persistence for events and snapshots; publishes appended events to the hub.
+- **Indexer/Index**: Optional append-time projection hook that can update status and label indexes atomically with event persistence.
 - **Executor/Aggregator/Command**: Executor loads state (from cache/snapshot/log), runs your command, and persists events raised on the Aggregator with optimistic retries.
 - **Appliers**: Pure functions that fold an event into aggregate state. `MakeApplier` lets you work with strongly typed payloads.
 - **Handlers/Dispatchers**: Helpers for consuming events from the EventHub without manual JSON decoding.
@@ -36,6 +38,29 @@ Store behavior is configured via `StoreConfig` when creating a store.
 - `SaveTimeout`: snapshot persistence timeout.
 - `TrimEvents`: when true, snapshots trim events up to the latest snapshot sequence. Default is false.
 - `Archiving`: enable `Store.Archive`/`Store.ConsumeArchive` support. Default is false.
+- `Indexer`: optional function that derives index mutations from an appended event batch.
+
+## Indexing
+
+`StoreConfig.Indexer` lets you derive index mutations from an appended event
+batch. These mutations are persisted atomically with the event append.
+
+`Index` currently supports:
+
+- `Status`: tracks the aggregate's current status and when it entered that
+  status. Use `Store.ListAggregatesByStatus` and
+  `Store.RemoveAggregateFromStatus` to read or manage that index.
+- `Labels`: adds append-only label memberships. Empty values are ignored.
+
+Label indexing maintains two read paths:
+
+- `Store.ListLabelValues(ctx, label)`: returns the unique values seen for a
+  label.
+- `Store.ListAggregatesByLabel(ctx, label, value)`: returns the aggregate IDs
+  indexed under a label/value pair.
+
+Label memberships are append-only. If the same aggregate is later indexed under
+another value for the same label, the prior membership remains indexed.
 
 ## Archiving
 
