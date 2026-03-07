@@ -284,6 +284,85 @@ func TestGetEventsEmpty(t *testing.T) {
 	assert.Len(t, events, 0)
 }
 
+func TestStoreTrimmedPlainAppend(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	cfg := timebox.DefaultConfig()
+	storeCfg := cfg.Store
+	storeCfg.Addr = server.Addr()
+	storeCfg.Prefix = "trimmed-plain"
+	storeCfg.TrimEvents = true
+
+	tb, err := timebox.NewTimebox(cfg)
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("order", "1")
+	ev := &timebox.Event{
+		Timestamp: time.Now(),
+		Type:      EventIncremented,
+		Data:      json.RawMessage(`5`),
+	}
+
+	assert.NoError(t, store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}))
+
+	events, err := store.GetEvents(ctx, id, 0)
+	assert.NoError(t, err)
+	assert.Len(t, events, 1)
+	assert.Equal(t, EventIncremented, events[0].Type)
+}
+
+func TestStoreCombinedIndexing(t *testing.T) {
+	for _, trimEvents := range []bool{false, true} {
+		mode := "untrimmed"
+		if trimEvents {
+			mode = "trimmed"
+		}
+
+		t.Run(mode, func(t *testing.T) {
+			withIndexedStore(t,
+				trimEvents, "combined-index", combinedIndexer,
+				func(
+					ctx context.Context, store *timebox.Store,
+					_ *redis.Client,
+				) {
+					id := timebox.NewAggregateID("order", "1")
+
+					assert.NoError(t,
+						store.AppendEvents(ctx, id, 0, []*timebox.Event{
+							combinedEvent(id, "active", "prod"),
+						}),
+					)
+
+					statuses, err := store.ListAggregatesByStatus(
+						ctx, "active",
+					)
+					assert.NoError(t, err)
+					assert.Len(t, statuses, 1)
+					assert.Equal(t, id, statuses[0].ID)
+
+					values, err := store.ListLabelValues(ctx, "env")
+					assert.NoError(t, err)
+					assert.Equal(t, []string{"prod"}, values)
+
+					ids, err := store.ListAggregatesByLabel(
+						ctx, "env", "prod",
+					)
+					assert.NoError(t, err)
+					assert.Equal(t, []timebox.AggregateID{id}, ids)
+				},
+			)
+		})
+	}
+}
+
 func TestNewStorePingError(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
@@ -339,6 +418,46 @@ func withStatusStore(
 	fn func(context.Context, *timebox.Store, *redis.Client),
 ) {
 	withIndexedStore(t, trimEvents, prefix, statusIndexer, fn)
+}
+
+func combinedEvent(
+	id timebox.AggregateID, status string, env string,
+) *timebox.Event {
+	data, err := json.Marshal(map[string]string{
+		"status": status,
+		"env":    env,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return &timebox.Event{
+		Timestamp:   time.Now(),
+		Type:        EventIncremented,
+		AggregateID: id,
+		Data:        data,
+	}
+}
+
+func combinedIndexer(events []*timebox.Event) []*timebox.Index {
+	res := []*timebox.Index{}
+	for _, ev := range events {
+		data := map[string]string{}
+		if err := json.Unmarshal(ev.Data, &data); err != nil {
+			continue
+		}
+
+		status, ok := data["status"]
+		if !ok {
+			continue
+		}
+
+		res = append(res, &timebox.Index{
+			Status: &status,
+			Labels: map[string]string{"env": data["env"]},
+		})
+	}
+	return res
 }
 
 func eventListKey(prefix string, id timebox.AggregateID) string {

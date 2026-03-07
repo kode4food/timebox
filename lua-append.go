@@ -2,7 +2,6 @@ package timebox
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -342,19 +341,10 @@ func newLuaAppendOps(lbls map[string]string) []luaAppendOp {
 			op = "remove"
 		}
 		ops = append(ops, luaAppendOp{
-			label: escapeKeyPart(label),
 			op:    op,
+			label: escapeKeyPart(label),
 			value: escapeKeyPart(value),
 		})
 	}
-	sort.Slice(ops, func(i, j int) bool {
-		if ops[i].label == ops[j].label {
-			if ops[i].op == ops[j].op {
-				return ops[i].value < ops[j].value
-			}
-			return ops[i].op < ops[j].op
-		}
-		return ops[i].label < ops[j].label
-	})
 	return ops
 }
