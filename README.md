@@ -48,8 +48,7 @@ batch. These mutations are persisted atomically with the event append.
 `Index` currently supports:
 
 - `Status`: tracks the aggregate's current status and when it entered that
-  status. Use `Store.ListAggregatesByStatus` and
-  `Store.RemoveAggregateFromStatus` to read or manage that index.
+  status. Use `Store.ListAggregatesByStatus` to read that index.
 - `Labels`: tracks the aggregate's current label values. Empty values remove
   the label.
 
@@ -62,6 +61,8 @@ Label indexing maintains two read paths:
 
 Label updates overwrite prior values for the same aggregate and label. Setting a
 label value to `""` removes that label from the aggregate and updates the index.
+Indexes are derived state and are only updated implicitly during append and
+archive operations.
 
 The derived index keyspace lives under `idx:`:
 

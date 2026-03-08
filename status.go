@@ -4,17 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
-
-var removeAggregateFromStatusScript = redis.NewScript(`
-	local currentStatus = redis.call('HGET', KEYS[1], ARGV[2]) or ""
-	if currentStatus == ARGV[1] then
-		redis.call('HDEL', KEYS[1], ARGV[2])
-	end
-	return redis.call('ZREM', KEYS[2], ARGV[2])
-`)
 
 // ListAggregatesByStatus returns the aggregates currently indexed under the
 // provided status, including when they entered that status
@@ -35,23 +25,6 @@ func (s *Store) ListAggregatesByStatus(
 		})
 	}
 	return res, nil
-}
-
-// RemoveAggregateFromStatus manually removes an aggregate from the provided
-// status index. If the aggregate's current status still matches, that cached
-// status is cleared as well
-func (s *Store) RemoveAggregateFromStatus(
-	ctx context.Context, id AggregateID, status string,
-) error {
-	keys := []string{
-		s.buildStatusHashKey(),
-		s.buildStatusIndexKey(status),
-	}
-	args := []any{status, id.Join(":")}
-	_, err := removeAggregateFromStatusScript.Run(
-		ctx, s.client, keys, args...,
-	).Result()
-	return err
 }
 
 func (s *Store) buildStatusIndexKey(status string) string {

@@ -178,11 +178,11 @@ func ParseKey(str string) AggregateID {
 // same cluster slot
 func JoinKeySlotted(n int) JoinKeyFunc {
 	return func(id AggregateID) string {
-		slot := AggregateID(id[:min(n, len(id))]).Join(":")
+		slot := id[:min(n, len(id))].Join(":")
 		if n >= len(id) {
 			return "{" + slot + "}"
 		}
-		remaining := AggregateID(id[n:]).Join(":")
+		remaining := id[n:].Join(":")
 		return "{" + slot + "}:" + remaining
 	}
 }

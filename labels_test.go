@@ -218,7 +218,7 @@ func labelEvent(id timebox.AggregateID, lbls map[string]string) *timebox.Event {
 }
 
 func labelIndexer(events []*timebox.Event) []*timebox.Index {
-	res := []*timebox.Index{}
+	var res []*timebox.Index
 	for _, ev := range events {
 		lbls := map[string]string{}
 		if err := json.Unmarshal(ev.Data, &lbls); err == nil {

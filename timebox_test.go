@@ -447,10 +447,7 @@ func TestEventHubMultiplePrefixes(t *testing.T) {
 			t.Fatal("timeout waiting for event")
 		}
 	}
-	assert.ElementsMatch(t, []timebox.ID{
-		timebox.ID("flow"),
-		timebox.ID("engine"),
-	}, got)
+	assert.ElementsMatch(t, []timebox.ID{"flow", "engine"}, got)
 }
 
 func TestEventHubNoSubscribers(t *testing.T) {

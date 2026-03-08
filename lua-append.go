@@ -259,13 +259,13 @@ func (b *luaAppendBuilder) initArgLayout() {
 
 func (b *luaAppendBuilder) write(lines ...string) {
 	for _, line := range lines {
-		fmt.Fprintf(&b.out, "%s\n", line)
+		_, _ = fmt.Fprintf(&b.out, "%s\n", line)
 	}
 }
 
 func (b *luaAppendBuilder) writef(f string, args ...any) {
-	fmt.Fprintf(&b.out, f, args...)
-	fmt.Fprint(&b.out, "\n")
+	_, _ = fmt.Fprintf(&b.out, f, args...)
+	_, _ = fmt.Fprint(&b.out, "\n")
 }
 
 func buildAppendLua(spec luaAppendSpec) string {

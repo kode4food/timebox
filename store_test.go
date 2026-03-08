@@ -440,7 +440,7 @@ func combinedEvent(
 }
 
 func combinedIndexer(events []*timebox.Event) []*timebox.Index {
-	res := []*timebox.Index{}
+	var res []*timebox.Index
 	for _, ev := range events {
 		data := map[string]string{}
 		if err := json.Unmarshal(ev.Data, &data); err != nil {
