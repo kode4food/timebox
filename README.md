@@ -42,27 +42,19 @@ Store behavior is configured via `StoreConfig` when creating a store.
 
 ## Indexing
 
-`StoreConfig.Indexer` lets you derive index mutations from an appended event
-batch. These mutations are persisted atomically with the event append.
+`StoreConfig.Indexer` lets you derive index mutations from an appended event batch. These mutations are persisted atomically with the event append.
 
 `Index` currently supports:
 
-- `Status`: tracks the aggregate's current status and when it entered that
-  status. Use `Store.ListAggregatesByStatus` to read that index.
-- `Labels`: tracks the aggregate's current label values. Empty values remove
-  the label.
+- `Status`: tracks the aggregate's current status and when it entered that status. Use `Store.ListAggregatesByStatus` or `Store.GetAggregateStatus` to read that index.
+- `Labels`: tracks the aggregate's current label values. Empty values remove the label.
 
 Label indexing maintains two read paths:
 
-- `Store.ListLabelValues(ctx, label)`: returns the unique current values for a
-  label.
-- `Store.ListAggregatesByLabel(ctx, label, value)`: returns the aggregate IDs
-  indexed under a label/value pair.
+- `Store.ListLabelValues(ctx, label)`: returns the unique current values for a label.
+- `Store.ListAggregatesByLabel(ctx, label, value)`: returns the aggregate IDs indexed under a label/value pair.
 
-Label updates overwrite prior values for the same aggregate and label. Setting a
-label value to `""` removes that label from the aggregate and updates the index.
-Indexes are derived state and are only updated implicitly during append and
-archive operations.
+Label updates overwrite prior values for the same aggregate and label. Setting a label value to `""` removes that label from the aggregate and updates the index. Indexes are derived state and are only updated implicitly during append and archive operations.
 
 The derived index keyspace lives under `idx:`:
 
@@ -82,8 +74,7 @@ The derived index keyspace lives under `idx:`:
         └── members: <aggregate-id>
 ```
 
-`labels` stores per-aggregate current label state. `label` stores the reverse
-lookup indexes used by `ListLabelValues` and `ListAggregatesByLabel`.
+`labels` stores per-aggregate current label state. `label` stores the reverse lookup indexes used by `ListLabelValues` and `ListAggregatesByLabel`.
 
 ## Archiving
 

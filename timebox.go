@@ -34,26 +34,6 @@ type (
 
 	// EventType is the string identifier associated with an Event
 	EventType string
-
-	// Index stores optional projection metadata derived from an event
-	Index struct {
-		// Status represents the resultant aggregate status.
-		// nil means no status change, and "" clears any prior status
-		Status *string `json:"status,omitempty"`
-
-		// Labels updates current label values for the aggregate. nil means no
-		// label changes, and empty values remove the label
-		Labels map[string]string `json:"labels,omitempty"`
-	}
-
-	// Indexer derives projection metadata for an event batch
-	Indexer func([]*Event) []*Index
-
-	// StatusEntry holds an aggregate ID and the time it entered a status
-	StatusEntry struct {
-		ID        AggregateID
-		Timestamp time.Time
-	}
 )
 
 // NewTimebox creates a new Timebox instance with the given configuration and a
@@ -88,41 +68,47 @@ func (tb *Timebox) Close() error {
 	return nil
 }
 
-// getValue unmarshals the event data into the specified type. It uses a cache
-// to avoid repeated unmarshaling from raw JSON bytes. This is safe for
-// concurrent access and intended for use by MakeApplier
-func (e *Event) getValue(target any) error {
+// GetEventValue unmarshals the event data into the requested type. It reuses a
+// cached value when the requested type matches, and otherwise unmarshals
+// without replacing the cached type. This is safe for concurrent access
+func GetEventValue[T any](e *Event) (T, error) {
 	e.mu.RLock()
-	if e.value != nil {
+	if val, ok := e.value.(T); ok {
 		e.mu.RUnlock()
-		data, err := json.Marshal(e.value)
-		if err != nil {
-			return err
-		}
-		return json.Unmarshal(data, target)
+		return val, nil
 	}
 	e.mu.RUnlock()
+	return resolveEventValue[T](e)
+}
+
+func resolveEventValue[T any](e *Event) (T, error) {
+	e.mu.Lock()
+	val, ok := e.value.(T)
+	e.mu.Unlock()
+
+	if ok {
+		return val, nil
+	}
+
+	data, err := unmarshalEventValue[T](e.Data)
+	if err != nil {
+		return data, err
+	}
 
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if e.value != nil {
-		data, err := json.Marshal(e.value)
-		if err != nil {
-			return err
-		}
-		return json.Unmarshal(data, target)
+	if e.value == nil {
+		e.value = data
 	}
+	e.mu.Unlock()
 
-	var cache any
-	if err := json.Unmarshal(e.Data, &cache); err != nil {
-		return err
-	}
-	e.value = cache
+	return data, nil
+}
 
-	data, err := json.Marshal(cache)
-	if err != nil {
-		return err
+func unmarshalEventValue[T any](data json.RawMessage) (T, error) {
+	var res T
+	if err := json.Unmarshal(data, &res); err != nil {
+		var zero T
+		return zero, err
 	}
-	return json.Unmarshal(data, target)
+	return res, nil
 }

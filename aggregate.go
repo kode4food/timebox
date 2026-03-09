@@ -19,6 +19,12 @@ type (
 		success  []SuccessAction[T]
 	}
 
+	// Appliers is a map of EventType to Applier for a given aggregate
+	Appliers[T any] map[EventType]Applier[T]
+
+	// Applier applies an event to an aggregate state, returning the new state
+	Applier[T any] func(T, *Event) T
+
 	// Flusher persists enqueued events and returns an error if the write fails
 	Flusher func(int64, []*Event) error
 
@@ -171,37 +177,6 @@ func JoinKey(id AggregateID) string {
 // AggregateID
 func ParseKey(str string) AggregateID {
 	return ParseAggregateID(str, ":")
-}
-
-// JoinKeySlotted returns a JoinKeyFunc that wraps the first n ID parts in
-// Redis hash slot notation ({...}), ensuring related aggregates land on the
-// same cluster slot
-func JoinKeySlotted(n int) JoinKeyFunc {
-	return func(id AggregateID) string {
-		slot := id[:min(n, len(id))].Join(":")
-		if n >= len(id) {
-			return "{" + slot + "}"
-		}
-		remaining := id[n:].Join(":")
-		return "{" + slot + "}:" + remaining
-	}
-}
-
-// ParseKeySlotted returns a ParseKeyFunc that strips Redis hash slot notation
-// added by JoinKeySlotted before reconstructing the AggregateID. The index
-// parameter is accepted for symmetry with JoinKeySlotted but is not used.
-func ParseKeySlotted(_ int) ParseKeyFunc {
-	return func(str string) AggregateID {
-		if after, ok := strings.CutPrefix(str, "{"); ok {
-			slotKey, remaining, hasRemaining := strings.Cut(after, "}:")
-			if hasRemaining {
-				str = slotKey + ":" + remaining
-			} else {
-				str = strings.TrimSuffix(slotKey, "}")
-			}
-		}
-		return ParseAggregateID(str, ":")
-	}
 }
 
 // Raise marshals the value and enqueues a new event on the Aggregator

@@ -60,6 +60,33 @@ func TestContext(t *testing.T) {
 	assert.NotNil(t, ctx)
 }
 
+func TestGetEventValue(t *testing.T) {
+	type CachedData struct {
+		Name string `json:"name"`
+	}
+
+	event := &timebox.Event{
+		Type: "event.cached",
+		Data: []byte(`{"name":"cached"}`),
+	}
+
+	data, err := timebox.GetEventValue[CachedData](event)
+	assert.NoError(t, err)
+	assert.Equal(t, "cached", data.Name)
+
+	values, err := timebox.GetEventValue[map[string]any](event)
+	assert.NoError(t, err)
+	assert.Equal(t, "cached", values["name"])
+
+	event.Data = []byte("not json")
+	data, err = timebox.GetEventValue[CachedData](event)
+	assert.NoError(t, err)
+	assert.Equal(t, "cached", data.Name)
+
+	_, err = timebox.GetEventValue[map[string]any](event)
+	assert.Error(t, err)
+}
+
 func TestEventHubNotification(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)

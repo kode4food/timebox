@@ -402,20 +402,6 @@ func (s *Store) buildLabelRootKey() string {
 	return s.buildGlobalKey(labelSuffix)
 }
 
-func (s *Store) buildLabelValuesKey(label string) string {
-	return s.buildGlobalKey(
-		fmt.Sprintf("%s:%s", labelSuffix, escapeKeyPart(label)),
-	)
-}
-
-func (s *Store) buildLabelIndexKey(label, value string) string {
-	return s.buildGlobalKey(
-		fmt.Sprintf("%s:%s:%s",
-			labelSuffix, escapeKeyPart(label), escapeKeyPart(value),
-		),
-	)
-}
-
 func (s *Store) archiveStreamKey() string {
 	return s.buildGlobalKey(archiveStreamSuffix)
 }
