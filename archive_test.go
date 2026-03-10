@@ -19,16 +19,11 @@ func TestArchiveDisabled(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = false
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -43,24 +38,23 @@ func TestArchiveToStream(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.TrimEvents = true
-	storeCfg.Archiving = true
-	storeCfg.Indexer = func([]*timebox.Event) []*timebox.Index {
-		active := "active"
-		return []*timebox.Index{{
-			Status: &active,
-			Labels: map[string]string{"env": "prod"},
-		}}
-	}
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Snapshot.TrimEvents = true
+			cfg.Archiving = true
+			cfg.Indexer = func([]*timebox.Event) []*timebox.Index {
+				active := "active"
+				return []*timebox.Index{{
+					Status: &active,
+					Labels: map[string]string{"env": "prod"},
+				}}
+			}
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -102,7 +96,7 @@ func TestArchiveToStream(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	streamKey := storeCfg.Prefix + ":archive"
+	streamKey := timebox.DefaultRedisPrefix + ":archive"
 	entries, err := client.XRange(ctx, streamKey, "-", "+").Result()
 	assert.NoError(t, err)
 	assert.Len(t, entries, 1)
@@ -113,16 +107,15 @@ func TestConsumeArchive(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -155,7 +148,7 @@ func TestConsumeArchive(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	streamKey := storeCfg.Prefix + ":archive"
+	streamKey := timebox.DefaultRedisPrefix + ":archive"
 	entries, err := client.XRange(ctx, streamKey, "-", "+").Result()
 	assert.NoError(t, err)
 	assert.Len(t, entries, 0)
@@ -166,21 +159,20 @@ func TestConsumeArchiveNoHandler(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
 	err = store.ConsumeArchive(context.Background(), nil)
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
 }
 
 func TestConsumeArchiveMalformed(t *testing.T) {
@@ -188,23 +180,22 @@ func TestConsumeArchiveMalformed(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	streamKey := storeCfg.Prefix + ":archive"
+	streamKey := timebox.DefaultRedisPrefix + ":archive"
 	_, err = client.XAdd(context.Background(), &redis.XAddArgs{
 		Stream: streamKey,
 		Values: map[string]any{"bad": "data"},
@@ -224,16 +215,15 @@ func TestConsumeArchivePayloadBytes(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -241,7 +231,7 @@ func TestConsumeArchivePayloadBytes(t *testing.T) {
 	defer func() { _ = client.Close() }()
 
 	payload := []byte(`{"id":"order:bytes","snap":"","seq":0,"events":["{}"]}`)
-	streamKey := storeCfg.Prefix + ":archive"
+	streamKey := timebox.DefaultRedisPrefix + ":archive"
 	_, err = client.XAdd(context.Background(), &redis.XAddArgs{
 		Stream: streamKey,
 		Values: map[string]any{"payload": payload},
@@ -267,23 +257,22 @@ func TestConsumeArchiveInvalidPayloadJSON(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	streamKey := storeCfg.Prefix + ":archive"
+	streamKey := timebox.DefaultRedisPrefix + ":archive"
 	_, err = client.XAdd(context.Background(), &redis.XAddArgs{
 		Stream: streamKey,
 		Values: map[string]any{"payload": "{bad json"},
@@ -303,16 +292,15 @@ func TestConsumeArchiveNoMessages(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -332,16 +320,15 @@ func TestConsumeArchiveHandlerError(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -369,7 +356,7 @@ func TestConsumeArchiveHandlerError(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	streamKey := storeCfg.Prefix + ":archive"
+	streamKey := timebox.DefaultRedisPrefix + ":archive"
 	entries, err := client.XRange(ctx, streamKey, "-", "+").Result()
 	assert.NoError(t, err)
 	assert.Len(t, entries, 1)
@@ -380,16 +367,11 @@ func TestConsumeArchiveDisabled(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = false
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -406,16 +388,15 @@ func TestPollArchivePendingRecovery(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Archiving = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Archiving = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -435,8 +416,8 @@ func TestPollArchivePendingRecovery(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	streamKey := storeCfg.Prefix + ":archive"
-	group := storeCfg.Prefix + ":archive:group"
+	streamKey := timebox.DefaultRedisPrefix + ":archive"
+	group := timebox.DefaultRedisPrefix + ":archive:group"
 	assert.NoError(t,
 		client.XGroupCreateMkStream(ctx, streamKey, group, "0-0").Err(),
 	)

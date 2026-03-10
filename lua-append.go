@@ -279,7 +279,7 @@ func buildAppendLua(spec luaAppendSpec) string {
 func buildLuaAppendCall(s *Store, in luaAppendInput) luaAppendCall {
 	ops := newLuaAppendOps(in.labels)
 	spec := luaAppendSpec{
-		trim:   s.config.TrimEvents,
+		trim:   s.config.Snapshot.TrimEvents,
 		status: in.status != nil,
 		labels: len(ops) > 0,
 	}

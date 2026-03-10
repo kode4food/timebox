@@ -10,11 +10,10 @@ type (
 	// Executor orchestrates loading aggregate state, executing commands, and
 	// persisting resulting events with optimistic retries
 	Executor[T any] struct {
-		store      *Store
-		appliers   Appliers[T]
-		construct  constructor[T]
-		cache      *cache[*projection[T]]
-		maxRetries int
+		store     *Store
+		appliers  Appliers[T]
+		construct constructor[T]
+		cache     *cache[*projection[T]]
 	}
 
 	// Command is user code that inspects state and raises events on an
@@ -39,11 +38,10 @@ func NewExecutor[T any](
 	store *Store, cons constructor[T], apps Appliers[T],
 ) *Executor[T] {
 	return &Executor[T]{
-		store:      store,
-		appliers:   apps,
-		construct:  cons,
-		cache:      newCache[*projection[T]](store.tb.config.CacheSize),
-		maxRetries: store.tb.config.MaxRetries,
+		store:     store,
+		appliers:  apps,
+		construct: cons,
+		cache:     newCache[*projection[T]](store.config.CacheSize),
 	}
 }
 
@@ -64,7 +62,7 @@ func (e *Executor[T]) Exec(
 	ctx context.Context, id AggregateID, cmd Command[T],
 ) (T, error) {
 	var zero T
-	for range e.maxRetries {
+	for range e.store.config.MaxRetries {
 		proj, err := e.loadSnapshot(ctx, id)
 		if err != nil {
 			return zero, err
@@ -184,7 +182,9 @@ func (e *Executor[T]) loadFromStore(
 	return proj, nil
 }
 
-func (e *Executor[T]) applyEvents(st T, evs []*Event, startSeq int64) *projection[T] {
+func (e *Executor[T]) applyEvents(
+	st T, evs []*Event, startSeq int64,
+) *projection[T] {
 	for _, ev := range evs {
 		if apply, ok := e.appliers[ev.Type]; ok {
 			st = apply(st, ev)

@@ -30,15 +30,11 @@ func TestStore(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -66,16 +62,15 @@ func TestStoreDefaultKeys(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "noslot"
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "noslot"
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -100,21 +95,188 @@ func TestStoreDefaultKeys(t *testing.T) {
 	assert.NotContains(t, keys, "noslot:{order:1}:events")
 }
 
+func TestStoreShardKeys(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	tb, err := timebox.NewTimebox()
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Shard = "blue"
+		}),
+	)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("order", "1")
+	ev := &timebox.Event{
+		Type:      EventIncremented,
+		Timestamp: time.Now(),
+		Data:      json.RawMessage(`5`),
+	}
+	assert.NoError(t, store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}))
+	assert.NoError(t, store.PutSnapshot(ctx, id, map[string]int{"value": 1}, 1))
+
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = client.Close() }()
+
+	keys, err := client.Keys(ctx, "timebox:{blue}:*").Result()
+	assert.NoError(t, err)
+	assert.Contains(t, keys, "timebox:{blue}:order:1:events")
+	assert.Contains(t, keys, "timebox:{blue}:order:1:snapshot:val")
+	assert.Contains(t, keys, "timebox:{blue}:order:1:snapshot:seq")
+	assert.NotContains(t, keys, "{blue}:order:1:events")
+
+	events, err := store.GetEvents(ctx, id, 0)
+	assert.NoError(t, err)
+	assert.Len(t, events, 1)
+}
+
+func TestNewStoreInvalidConfig(t *testing.T) {
+	tb, err := timebox.NewTimebox()
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	tests := []struct {
+		name string
+		cfg  timebox.Config
+		err  error
+	}{
+		{
+			name: "Negative MaxRetries",
+			cfg: timebox.Config{
+				MaxRetries: -1,
+			},
+			err: timebox.ErrInvalidMaxRetries,
+		},
+		{
+			name: "Negative CacheSize",
+			cfg: timebox.Config{
+				CacheSize: -1,
+			},
+			err: timebox.ErrInvalidCacheSize,
+		},
+		{
+			name: "Negative WorkerCount",
+			cfg: timebox.Config{
+				Snapshot: timebox.SnapshotConfig{
+					WorkerCount: -1,
+				},
+			},
+			err: timebox.ErrInvalidWorkerCount,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := tb.NewStore(tc.cfg)
+			assert.ErrorIs(t, err, tc.err)
+			assert.Nil(t, store)
+		})
+	}
+}
+
+func TestConfigValidateRequiresKeyFuncs(t *testing.T) {
+	storeCfg := timebox.Config{
+		Redis: redisConfig(),
+	}
+	err := storeCfg.Validate()
+	assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
+
+	storeCfg = timebox.Config{
+		Redis:      redisConfig(),
+		MaxRetries: 1,
+	}
+	err = storeCfg.Validate()
+	assert.ErrorIs(t, err, timebox.ErrInvalidCacheSize)
+
+	storeCfg = timebox.Config{
+		Redis:      redisConfig(),
+		MaxRetries: 1,
+		CacheSize:  1,
+	}
+	err = storeCfg.Validate()
+	assert.ErrorIs(t, err, timebox.ErrInvalidWorkerCount)
+
+	storeCfg = timebox.Config{
+		Redis:      redisConfig(),
+		MaxRetries: 1,
+		CacheSize:  1,
+		Snapshot: timebox.SnapshotConfig{
+			WorkerCount:  1,
+			MaxQueueSize: 0,
+		},
+	}
+	err = storeCfg.Validate()
+	assert.ErrorIs(t, err, timebox.ErrInvalidMaxQueueSize)
+
+	storeCfg = timebox.Config{
+		Redis:      redisConfig(),
+		MaxRetries: 1,
+		CacheSize:  1,
+		Snapshot: timebox.SnapshotConfig{
+			WorkerCount:  1,
+			MaxQueueSize: 1,
+			SaveTimeout:  0,
+		},
+	}
+	err = storeCfg.Validate()
+	assert.ErrorIs(t, err, timebox.ErrInvalidSaveTimeout)
+
+	storeCfg = timebox.Config{
+		Redis: timebox.RedisConfig{
+			Addr:     timebox.DefaultRedisEndpoint,
+			Prefix:   timebox.DefaultRedisPrefix,
+			ParseKey: timebox.ParseKey,
+		},
+		MaxRetries: 1,
+		CacheSize:  1,
+		Snapshot: timebox.SnapshotConfig{
+			WorkerCount:  1,
+			MaxQueueSize: 1,
+			SaveTimeout:  time.Second,
+		},
+	}
+	err = storeCfg.Validate()
+	assert.ErrorIs(t, err, timebox.ErrJoinKeyRequired)
+
+	storeCfg = timebox.Config{
+		Redis: timebox.RedisConfig{
+			Addr:    timebox.DefaultRedisEndpoint,
+			Prefix:  timebox.DefaultRedisPrefix,
+			JoinKey: timebox.JoinKey,
+		},
+		MaxRetries: 1,
+		CacheSize:  1,
+		Snapshot: timebox.SnapshotConfig{
+			WorkerCount:  1,
+			MaxQueueSize: 1,
+			SaveTimeout:  time.Second,
+		},
+	}
+	err = storeCfg.Validate()
+	assert.ErrorIs(t, err, timebox.ErrParseKeyRequired)
+}
+
 func TestAppendConflict(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "conflict"
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "conflict"
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -135,16 +297,15 @@ func TestListAggregates(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "list"
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "list"
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -171,12 +332,11 @@ func TestCorruptEvents(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "corrupt"
+	storeCfg := testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+		cfg.Redis.Prefix = "corrupt"
+	})
 
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
@@ -186,7 +346,7 @@ func TestCorruptEvents(t *testing.T) {
 
 	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "1")
-	eventsKey := storeCfg.Prefix + ":" + id.Join(":") + ":events"
+	eventsKey := storeCfg.Redis.Prefix + ":" + id.Join(":") + ":events"
 
 	client := redis.NewClient(&redis.Options{
 		Addr: server.Addr(),
@@ -206,16 +366,15 @@ func TestGetEventsEmpty(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "empty-events"
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "empty-events"
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -231,17 +390,16 @@ func TestStoreTrimmedPlainAppend(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "trimmed-plain"
-	storeCfg.TrimEvents = true
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "trimmed-plain"
+			cfg.Snapshot.TrimEvents = true
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -311,15 +469,11 @@ func TestNewStorePingError(t *testing.T) {
 	addr := server.Addr()
 	server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = addr
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(addr, nil))
 	assert.Error(t, err)
 	assert.Nil(t, store)
 }
@@ -334,18 +488,17 @@ func withIndexedStore(
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = prefix
-	storeCfg.TrimEvents = trimEvents
-	storeCfg.Indexer = indexer
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = prefix
+			cfg.Snapshot.TrimEvents = trimEvents
+			cfg.Indexer = indexer
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 

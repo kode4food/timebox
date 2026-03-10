@@ -249,22 +249,102 @@ func TestConflictRetry(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestMaxRetriesOverride(t *testing.T) {
+	server, tb, store, executor := setupExecutorWithConfigs(
+		t,
+		timebox.Config{MaxRetries: 2},
+		testStoreConfig("", func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "retry-override"
+			cfg.MaxRetries = 1
+		}),
+	)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("counter", "retry-override")
+
+	injected := false
+	_, err := executor.Exec(ctx, id,
+		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+				return err
+			}
+			if injected {
+				return nil
+			}
+			injected = true
+			return store.AppendEvents(ctx, id, 0, []*timebox.Event{
+				{
+					Timestamp:   time.Now(),
+					Type:        EventIncremented,
+					AggregateID: id,
+					Data:        json.RawMessage(`1`),
+				},
+			})
+		},
+	)
+
+	assert.ErrorIs(t, err, timebox.ErrMaxRetriesExceeded)
+}
+
+func TestMaxRetriesInherited(t *testing.T) {
+	server, tb, store, executor := setupExecutorWithConfigs(
+		t,
+		timebox.Config{MaxRetries: 2},
+		testStoreConfig("", func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "retry-inherited"
+		}),
+	)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	id := timebox.NewAggregateID("counter", "retry-inherited")
+
+	injected := false
+	state, err := executor.Exec(ctx, id,
+		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+				return err
+			}
+			if injected {
+				return nil
+			}
+			injected = true
+			return store.AppendEvents(ctx, id, 0, []*timebox.Event{
+				{
+					Timestamp:   time.Now(),
+					Type:        EventIncremented,
+					AggregateID: id,
+					Data:        json.RawMessage(`1`),
+				},
+			})
+		},
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 2, state.Value)
+}
+
 func TestCacheEviction(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	cfg.CacheSize = 1
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "evict"
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox(timebox.Config{
+		CacheSize: 1,
+	})
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "evict"
+		}),
+	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -289,6 +369,37 @@ func TestCacheEviction(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, state.Value)
+}
+
+func TestCacheSizeOverride(t *testing.T) {
+	server, tb, store, executor, count := setupExecutorWithCacheConfigs(
+		t,
+		timebox.Config{CacheSize: 2},
+		testStoreConfig("", func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "cache-override"
+			cfg.CacheSize = 1
+		}),
+	)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	assertCacheEviction(t, executor, count)
+}
+
+func TestCacheSizeInherited(t *testing.T) {
+	server, tb, store, executor, count := setupExecutorWithCacheConfigs(
+		t,
+		timebox.Config{CacheSize: 1},
+		testStoreConfig("", func(cfg *timebox.Config) {
+			cfg.Redis.Prefix = "cache-inherited"
+		}),
+	)
+	defer server.Close()
+	defer func() { _ = tb.Close() }()
+	defer func() { _ = store.Close() }()
+
+	assertCacheEviction(t, executor, count)
 }
 
 func TestCommandError(t *testing.T) {
@@ -348,35 +459,8 @@ func TestRaiseError(t *testing.T) {
 }
 
 func TestZeroCacheSize(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer server.Close()
-
-	cfg := timebox.DefaultConfig()
-	cfg.CacheSize = 0
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "zero-cache"
-
-	tb, err := timebox.NewTimebox(cfg)
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(storeCfg)
-	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	state, err := executor.Exec(
-		context.Background(),
-		timebox.NewAggregateID("counter", "1"),
-		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
-			return nil
-		},
-	)
-
-	assert.NoError(t, err)
-	assert.Equal(t, 0, state.Value)
+	err := (timebox.Config{MaxRetries: 1}).Validate()
+	assert.ErrorIs(t, err, timebox.ErrInvalidCacheSize)
 }
 
 func TestOnSuccessCallbacks(t *testing.T) {
@@ -460,4 +544,101 @@ func TestOnSuccessNotCalledOnError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.False(t, called)
+}
+
+func assertCacheEviction(
+	t *testing.T,
+	executor *timebox.Executor[*CounterState],
+	count *int,
+) {
+	t.Helper()
+
+	ctx := context.Background()
+	id1 := timebox.NewAggregateID("counter", "1")
+	id2 := timebox.NewAggregateID("counter", "2")
+
+	_, err := executor.Exec(ctx, id1,
+		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
+			return nil
+		},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, *count)
+
+	_, err = executor.Exec(ctx, id2,
+		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
+			return nil
+		},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, 4, *count)
+
+	_, err = executor.Exec(ctx, id1,
+		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
+			return nil
+		},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, 6, *count)
+}
+
+func setupExecutorWithCacheConfigs(
+	t *testing.T,
+	tbCfg timebox.Config,
+	storeCfg timebox.Config,
+) (
+	*miniredis.Miniredis,
+	*timebox.Timebox,
+	*timebox.Store,
+	*timebox.Executor[*CounterState],
+	*int,
+) {
+	t.Helper()
+
+	server, tb, store := setupExecutorStore(t, tbCfg, storeCfg)
+	count := 0
+	executor := timebox.NewExecutor(store, func() *CounterState {
+		count++
+		return newCounterState()
+	}, appliers)
+	return server, tb, store, executor, &count
+}
+
+func setupExecutorWithConfigs(
+	t *testing.T,
+	tbCfg timebox.Config,
+	storeCfg timebox.Config,
+) (
+	*miniredis.Miniredis,
+	*timebox.Timebox,
+	*timebox.Store,
+	*timebox.Executor[*CounterState],
+) {
+	t.Helper()
+
+	server, tb, store := setupExecutorStore(t, tbCfg, storeCfg)
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	return server, tb, store, executor
+}
+
+func setupExecutorStore(
+	t *testing.T,
+	tbCfg timebox.Config,
+	storeCfg timebox.Config,
+) (*miniredis.Miniredis, *timebox.Timebox, *timebox.Store) {
+	t.Helper()
+
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+
+	tb, err := timebox.NewTimebox(tbCfg)
+	assert.NoError(t, err)
+
+	if storeCfg.Redis.Addr == "" {
+		storeCfg.Redis.Addr = server.Addr()
+	}
+	store, err := tb.NewStore(storeCfg)
+	assert.NoError(t, err)
+
+	return server, tb, store
 }

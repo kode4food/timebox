@@ -111,16 +111,16 @@ func main() {
 }
 
 func setupExample() *orderExample {
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Prefix = "example"
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(timebox.Config{
+		Redis: timebox.RedisConfig{
+			Prefix: "example",
+		},
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

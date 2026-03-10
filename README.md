@@ -25,24 +25,43 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Handlers/Dispatchers**: Helpers for consuming events from the EventHub without manual JSON decoding.
 - **Snapshots**: Created automatically as events grow; also available on demand with `SaveSnapshot`.
 
-## Store Configuration
+## Configuration
 
-Store behavior is configured via `StoreConfig` when creating a store.
+Timebox uses a single `Config` type.
+
+- `NewTimebox(cfgs...)` applies each config on top of the defaults in order.
+- `tb.NewStore(cfgs...)` applies each config on top of the timebox base config in order.
+
+`Config` fields:
+
+- `Redis`: Redis/Valkey-specific store settings.
+- `Snapshot`: snapshot worker and event trimming settings.
+- `MaxRetries`: optimistic concurrency retry limit. Must be greater than zero.
+- `CacheSize`: executor projection cache size. Must be greater than zero.
+- `Archiving`: enables `Store.Archive` and `Store.ConsumeArchive`.
+- `Indexer`: optional function that derives index mutations from an appended event batch.
+
+`RedisConfig` fields:
 
 - `Addr`: Redis/Valkey host:port.
 - `Password`: Redis/Valkey password (optional).
-- `DB`: Redis/Valkey database index.
 - `Prefix`: key prefix for all store data.
-- `WorkerCount`: number of background snapshot workers. Set to 0 to disable.
+- `Shard`: optional Redis hash-tag value. When set, keys are written as `<prefix>:{<shard>}:...` so all store keys land in the same cluster slot.
+- `DB`: Redis/Valkey database index.
+- `JoinKey`: function used to encode aggregate IDs into Redis keys.
+- `ParseKey`: function used to decode aggregate IDs from Redis keys.
+
+`SnapshotConfig` fields:
+
+- `Workers`: enables background snapshot workers.
+- `WorkerCount`: number of background snapshot workers.
 - `MaxQueueSize`: snapshot queue capacity.
 - `SaveTimeout`: snapshot persistence timeout.
-- `TrimEvents`: when true, snapshots trim events up to the latest snapshot sequence. Default is false.
-- `Archiving`: enable `Store.Archive`/`Store.ConsumeArchive` support. Default is false.
-- `Indexer`: optional function that derives index mutations from an appended event batch.
+- `TrimEvents`: trims events up to the latest snapshot sequence when enabled.
 
 ## Indexing
 
-`StoreConfig.Indexer` lets you derive index mutations from an appended event batch. These mutations are persisted atomically with the event append.
+`Config.Indexer` lets you derive index mutations from an appended event batch. These mutations are persisted atomically with the event append.
 
 `Index` currently supports:
 

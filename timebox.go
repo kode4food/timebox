@@ -10,8 +10,8 @@ import (
 )
 
 type (
-	// Timebox owns shared resources (configuration, context, and event hub)
-	// and is responsible for creating Stores that publish events
+	// Timebox owns shared resources (configuration template, context, and
+	// event hub) and is responsible for creating Stores that publish events
 	Timebox struct {
 		config Config
 		hub    *EventHub
@@ -36,9 +36,14 @@ type (
 	EventType string
 )
 
-// NewTimebox creates a new Timebox instance with the given configuration and a
-// fresh event hub. A Timebox owns the background context used by child Stores
-func NewTimebox(cfg Config) (*Timebox, error) {
+// NewTimebox creates a new Timebox with the given configuration templates. A
+// Timebox owns the background context and EventHub used by child Stores
+func NewTimebox(cfgs ...Config) (*Timebox, error) {
+	cfg := DefaultConfig().With(cfgs...)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	hub := caravan.NewTopic[*Event]()
 

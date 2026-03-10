@@ -37,6 +37,9 @@ var (
 
 	// ErrArchiveRecordMalformed indicates an archive record was malformed
 	ErrArchiveRecordMalformed = errors.New("archive record malformed")
+
+	// ErrArchiveHandlerMissing indicates a consume call is missing a handler
+	ErrArchiveHandlerMissing = errors.New("archive handler is required")
 )
 
 // DefaultMinIdle is the idle duration before pending archive work is reclaimed
@@ -92,7 +95,7 @@ func (s *Store) PollArchive(
 		return ErrArchivingDisabled
 	}
 	if handler == nil {
-		return errors.New("archive handler is required")
+		return ErrArchiveHandlerMissing
 	}
 
 	streamKey := s.archiveStreamKey()
@@ -194,7 +197,7 @@ func (s *Store) parseArchiveRecord(msg redis.XMessage) (*ArchiveRecord, error) {
 
 	record := &ArchiveRecord{
 		StreamID:         msg.ID,
-		AggregateID:      s.config.ParseKey(payload.AggregateID),
+		AggregateID:      s.config.Redis.ParseKey(payload.AggregateID),
 		SnapshotData:     json.RawMessage(payload.SnapshotData),
 		SnapshotSequence: payload.SnapshotSequence,
 		Events:           make([]json.RawMessage, 0, len(payload.Events)),

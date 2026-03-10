@@ -14,7 +14,6 @@ type (
 		ctx    context.Context
 		queue  chan snapshotRequest
 		cancel context.CancelFunc
-		config StoreConfig
 		wg     sync.WaitGroup
 	}
 
@@ -25,20 +24,18 @@ type (
 	}
 )
 
-// NewSnapshotWorker creates and starts workers that persist snapshots using
-// the provided StoreConfig
-func NewSnapshotWorker(store *Store, config StoreConfig) *SnapshotWorker {
+// NewSnapshotWorker creates and starts workers that persist snapshots
+func NewSnapshotWorker(store *Store) *SnapshotWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sw := &SnapshotWorker{
 		store:  store,
-		config: config,
-		queue:  make(chan snapshotRequest, config.MaxQueueSize),
+		queue:  make(chan snapshotRequest, store.config.Snapshot.MaxQueueSize),
 		ctx:    ctx,
 		cancel: cancel,
 	}
 
-	for i := 0; i < config.WorkerCount; i++ {
+	for i := 0; i < store.config.Snapshot.WorkerCount; i++ {
 		sw.wg.Add(1)
 		go sw.worker(i)
 	}
@@ -67,7 +64,9 @@ func (sw *SnapshotWorker) worker(id int) {
 }
 
 func (sw *SnapshotWorker) saveSnapshot(workerID int, req snapshotRequest) {
-	ctx, cancel := context.WithTimeout(sw.ctx, sw.config.SaveTimeout)
+	ctx, cancel := context.WithTimeout(
+		sw.ctx, sw.store.config.Snapshot.SaveTimeout,
+	)
 	defer cancel()
 
 	start := time.Now()

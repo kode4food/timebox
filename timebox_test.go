@@ -52,12 +52,100 @@ var appliers = timebox.Appliers[*CounterState]{
 // Integration tests
 
 func TestContext(t *testing.T) {
-	tb, err := timebox.NewTimebox(timebox.DefaultConfig())
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
 	ctx := tb.Context()
 	assert.NotNil(t, ctx)
+}
+
+func TestNewTimeboxInvalidConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  timebox.Config
+		err  error
+	}{
+		{
+			name: "Negative MaxRetries",
+			cfg: timebox.Config{
+				MaxRetries: -1,
+			},
+			err: timebox.ErrInvalidMaxRetries,
+		},
+		{
+			name: "Negative CacheSize",
+			cfg: timebox.Config{
+				CacheSize: -1,
+			},
+			err: timebox.ErrInvalidCacheSize,
+		},
+		{
+			name: "Negative WorkerCount",
+			cfg: timebox.Config{
+				Snapshot: timebox.SnapshotConfig{
+					WorkerCount: -1,
+				},
+			},
+			err: timebox.ErrInvalidWorkerCount,
+		},
+		{
+			name: "Negative MaxQueueSize",
+			cfg: timebox.Config{
+				Snapshot: timebox.SnapshotConfig{
+					MaxQueueSize: -1,
+				},
+			},
+			err: timebox.ErrInvalidMaxQueueSize,
+		},
+		{
+			name: "Negative SaveTimeout",
+			cfg: timebox.Config{
+				Snapshot: timebox.SnapshotConfig{
+					SaveTimeout: -time.Second,
+				},
+			},
+			err: timebox.ErrInvalidSaveTimeout,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tb, err := timebox.NewTimebox(tc.cfg)
+			assert.ErrorIs(t, err, tc.err)
+			assert.Nil(t, tb)
+		})
+	}
+}
+
+func TestSparseConfig(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer server.Close()
+
+	tb, err := timebox.NewTimebox()
+	assert.NoError(t, err)
+	defer func() { _ = tb.Close() }()
+
+	store, err := tb.NewStore(
+		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+			cfg.Redis.Shard = "blue"
+		}),
+	)
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	state, err := executor.Exec(
+		context.Background(),
+		timebox.NewAggregateID("counter", "1"),
+		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
+			return nil
+		},
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 0, state.Value)
 }
 
 func TestGetEventValue(t *testing.T) {
@@ -92,15 +180,11 @@ func TestEventHubNotification(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -132,15 +216,11 @@ func TestEventHubSequence(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -191,15 +271,11 @@ func TestEventHubAggregatePrefix(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -251,15 +327,11 @@ func TestEventHubTypeFilterWithPrefix(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -314,15 +386,11 @@ func TestEventHubTypeOnly(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -372,15 +440,11 @@ func TestEventHubUnsubscribe(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -428,15 +492,11 @@ func TestEventHubMultiplePrefixes(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -482,15 +542,11 @@ func TestEventHubNoSubscribers(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-
-	tb, err := timebox.NewTimebox(cfg)
+	tb, err := timebox.NewTimebox()
 	assert.NoError(t, err)
 	defer func() { _ = tb.Close() }()
 
-	store, err := tb.NewStore(storeCfg)
+	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -513,11 +569,11 @@ func TestStoreIndexer(t *testing.T) {
 		}
 
 		t.Run(mode, func(t *testing.T) {
-			server, tb, store, executor := setupTestExecutorWithStoreConfig(
+			server, tb, store, executor := setupTestExecutorWithConfig(
 				t,
-				func(cfg *timebox.StoreConfig) {
-					cfg.TrimEvents = trimEvents
-					cfg.Prefix = "store-indexer"
+				func(cfg *timebox.Config) {
+					cfg.Snapshot.TrimEvents = trimEvents
+					cfg.Redis.Prefix = "store-indexer"
 					cfg.Indexer = func(
 						events []*timebox.Event,
 					) []*timebox.Index {
@@ -559,11 +615,11 @@ func setupTestExecutor(t *testing.T) (
 	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
 	*timebox.Executor[*CounterState],
 ) {
-	return setupTestExecutorWithStoreConfig(t, nil)
+	return setupTestExecutorWithConfig(t, nil)
 }
 
-func setupTestExecutorWithStoreConfig(
-	t *testing.T, mutate func(*timebox.StoreConfig),
+func setupTestExecutorWithConfig(
+	t *testing.T, mutate func(*timebox.Config),
 ) (
 	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
 	*timebox.Executor[*CounterState],
@@ -571,20 +627,31 @@ func setupTestExecutorWithStoreConfig(
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 
-	cfg := timebox.DefaultConfig()
-	storeCfg := cfg.Store
-	storeCfg.Addr = server.Addr()
-	storeCfg.Prefix = "test"
+	tb, err := timebox.NewTimebox()
+	assert.NoError(t, err)
+
+	storeCfg := testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
+		cfg.Redis.Prefix = "test"
+	})
 	if mutate != nil {
 		mutate(&storeCfg)
 	}
-
-	tb, err := timebox.NewTimebox(cfg)
-	assert.NoError(t, err)
 
 	store, err := tb.NewStore(storeCfg)
 	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	return server, tb, store, executor
+}
+
+func testStoreConfig(addr string, mutate func(*timebox.Config)) timebox.Config {
+	cfg := timebox.Config{
+		Redis: timebox.RedisConfig{
+			Addr: addr,
+		},
+	}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	return cfg
 }

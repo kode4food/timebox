@@ -28,7 +28,7 @@ type (
 		publishArchive *redis.Script
 		consumeArchive *redis.Script
 		snapshotWorker *SnapshotWorker
-		config         StoreConfig
+		config         Config
 	}
 
 	// VersionConflictError is returned when AppendEvents encounters a sequence
@@ -76,11 +76,16 @@ var (
 
 // NewStore creates a new Store instance backed by Redis that publishes events
 // to the Timebox event hub
-func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
+func (tb *Timebox) NewStore(cfgs ...Config) (*Store, error) {
+	cfg := tb.config.With(cfgs...)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
 	})
 
 	pingCtx, cancel := context.WithTimeout(tb.ctx, RedisConnectTimeout)
@@ -93,23 +98,16 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 	getEventsScript := luaGetEvents
 	putSnapshotScript := luaPutSnapshot
 	getSnapshotScript := luaGetSnapshot
-	if cfg.TrimEvents {
+	if cfg.Snapshot.TrimEvents {
 		getEventsScript = luaGetEventsTrim
 		putSnapshotScript = luaPutSnapshotTrim
 		getSnapshotScript = luaGetSnapshotTrim
 	}
 
-	if cfg.JoinKey == nil {
-		cfg.JoinKey = JoinKey
-	}
-	if cfg.ParseKey == nil {
-		cfg.ParseKey = ParseKey
-	}
-
 	s := &Store{
 		tb:             tb,
 		client:         client,
-		prefix:         cfg.Prefix,
+		prefix:         buildStorePrefix(cfg),
 		producer:       tb.hub.newProducer(),
 		appendScripts:  makeLuaAppendScripts(),
 		getEvents:      redis.NewScript(getEventsScript),
@@ -120,8 +118,8 @@ func (tb *Timebox) NewStore(cfg StoreConfig) (*Store, error) {
 		config:         cfg,
 	}
 
-	if tb.config.Workers && cfg.WorkerCount > 0 {
-		s.snapshotWorker = NewSnapshotWorker(s, cfg)
+	if cfg.Snapshot.Workers {
+		s.snapshotWorker = NewSnapshotWorker(s)
 	}
 	return s, nil
 }
@@ -226,7 +224,7 @@ func (s *Store) GetEvents(
 ) ([]*Event, error) {
 	eventsKey := s.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
-	if s.config.TrimEvents {
+	if s.config.Snapshot.TrimEvents {
 		snapSeqKey := s.buildKey(id, snapshotSeqSuffix)
 		keys = []string{eventsKey, snapSeqKey}
 	}
@@ -237,7 +235,7 @@ func (s *Store) GetEvents(
 		return nil, err
 	}
 
-	if s.config.TrimEvents {
+	if s.config.Snapshot.TrimEvents {
 		res := result.([]any)
 		if len(res) < 2 {
 			return nil, ErrUnexpectedLuaResult
@@ -336,7 +334,7 @@ func (s *Store) PutSnapshot(
 	}
 
 	keys := []string{snapKey, snapSeqKey}
-	if s.config.TrimEvents {
+	if s.config.Snapshot.TrimEvents {
 		eventsKey := s.buildKey(id, eventsSuffix)
 		keys = []string{snapKey, snapSeqKey, eventsKey}
 	}
@@ -385,7 +383,7 @@ func (e *VersionConflictError) Error() string {
 }
 
 func (s *Store) buildKey(id AggregateID, suffix string) string {
-	return fmt.Sprintf("%s:%s:%s", s.prefix, s.config.JoinKey(id), suffix)
+	return fmt.Sprintf("%s:%s:%s", s.prefix, s.config.Redis.JoinKey(id), suffix)
 }
 
 func (s *Store) buildGlobalKey(suffix string) string {
@@ -394,7 +392,7 @@ func (s *Store) buildGlobalKey(suffix string) string {
 
 func (s *Store) buildLabelStateKey(id AggregateID) string {
 	return s.buildGlobalKey(
-		fmt.Sprintf("%s:%s", labelsSuffix, s.config.JoinKey(id)),
+		fmt.Sprintf("%s:%s", labelsSuffix, s.config.Redis.JoinKey(id)),
 	)
 }
 
@@ -463,7 +461,7 @@ func (s *Store) parseAggregateIDFromKey(key string) AggregateID {
 		}
 	}
 
-	return s.config.ParseKey(str)
+	return s.config.Redis.ParseKey(str)
 }
 
 func toRawMessages(data []any) ([]json.RawMessage, error) {
@@ -476,6 +474,16 @@ func toRawMessages(data []any) ([]json.RawMessage, error) {
 		messages = append(messages, json.RawMessage(str))
 	}
 	return messages, nil
+}
+
+func buildStorePrefix(cfg Config) string {
+	if cfg.Redis.Shard == "" {
+		return cfg.Redis.Prefix
+	}
+	if cfg.Redis.Prefix == "" {
+		return "{" + cfg.Redis.Shard + "}"
+	}
+	return fmt.Sprintf("%s:{%s}", cfg.Redis.Prefix, cfg.Redis.Shard)
 }
 
 func escapeKeyPart(s string) string {
