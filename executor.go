@@ -72,7 +72,7 @@ func (e *Executor[T]) Exec(
 			return zero, err
 		}
 
-		count, err := ag.Flush(func(expectedSeq int64, evs []*Event) error {
+		count, err := ag.flush(func(expectedSeq int64, evs []*Event) error {
 			return e.store.AppendEvents(ctx, id, expectedSeq, evs)
 		})
 		if err == nil {

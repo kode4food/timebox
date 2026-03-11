@@ -114,9 +114,14 @@ func TestSequenceHandling(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "seq-test")
 
 	// Test 1: Raise multiple events in one Exec - sequences should start at 0
-	var capturedEvents []*timebox.Event
 	_, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
+			ag.OnSuccess(func(_ *CounterState, events []*timebox.Event) {
+				assert.Len(t, events, 3)
+				assert.Equal(t, int64(0), events[0].Sequence)
+				assert.Equal(t, int64(1), events[1].Sequence)
+				assert.Equal(t, int64(2), events[2].Sequence)
+			})
 			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
@@ -126,17 +131,10 @@ func TestSequenceHandling(t *testing.T) {
 			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
-			capturedEvents = ag.Enqueued()
 			return nil
 		},
 	)
 	assert.NoError(t, err)
-
-	// Verify sequences on raised events
-	assert.Len(t, capturedEvents, 3)
-	assert.Equal(t, int64(0), capturedEvents[0].Sequence)
-	assert.Equal(t, int64(1), capturedEvents[1].Sequence)
-	assert.Equal(t, int64(2), capturedEvents[2].Sequence)
 
 	// Test 2: Read events from storage - sequences should be populated
 	events, err := store.GetEvents(ctx, id, 0)
@@ -150,21 +148,21 @@ func TestSequenceHandling(t *testing.T) {
 	_, err = executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, int64(3), ag.NextSequence())
+			ag.OnSuccess(func(_ *CounterState, events []*timebox.Event) {
+				assert.Len(t, events, 2)
+				assert.Equal(t, int64(3), events[0].Sequence)
+				assert.Equal(t, int64(4), events[1].Sequence)
+			})
 			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
 			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
 				return err
 			}
-			capturedEvents = ag.Enqueued()
 			return nil
 		},
 	)
 	assert.NoError(t, err)
-
-	assert.Len(t, capturedEvents, 2)
-	assert.Equal(t, int64(3), capturedEvents[0].Sequence)
-	assert.Equal(t, int64(4), capturedEvents[1].Sequence)
 
 	// Test 4: Read all events from storage
 	allEvents, err := store.GetEvents(ctx, id, 0)

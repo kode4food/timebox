@@ -10,8 +10,8 @@ import (
 )
 
 type (
-	// Aggregator maintains aggregate state and tracks events raised during a
-	// command. It is not safe for concurrent use
+	// Aggregator maintains aggregate state for a command and tracks events
+	// raised through Raise. It is not safe for concurrent use
 	Aggregator[T any] struct {
 		value    T
 		appliers Appliers[T]
@@ -31,8 +31,8 @@ type (
 	// Flusher persists enqueued events and returns an error if the write fails
 	Flusher func(int64, []*Event) error
 
-	// SuccessAction receives the Aggregator's final value upon Exec success
-	// as well as all of its successfully flushed Events
+	// SuccessAction receives the Aggregator's final value after Executor.Exec
+	// succeeds, as well as the Events persisted by that execution
 	SuccessAction[T any] func(T, []*Event)
 
 	// AggregateID identifies an aggregate as a set of parts ("order", "123")
@@ -104,26 +104,19 @@ func (a *Aggregator[_]) NextSequence() int64 {
 	return a.nextSeq
 }
 
-// Enqueued returns the events raised during the current command
-func (a *Aggregator[_]) Enqueued() []*Event {
-	return a.enqueued
-}
-
-// OnSuccess registers an action to run if the executor completes without error
+// OnSuccess registers an action to run after Executor.Exec persists the raised
+// events successfully
 func (a *Aggregator[T]) OnSuccess(fn SuccessAction[T]) {
 	a.success = append(a.success, fn)
 }
 
-// Apply updates the aggregate state using the applier for the event
-func (a *Aggregator[T]) Apply(ev *Event) {
+func (a *Aggregator[T]) apply(ev *Event) {
 	if apply, ok := a.appliers[ev.Type]; ok {
 		a.value = apply(a.value, ev)
 	}
 }
 
-// Flush writes enqueued events through the provided flusher and clears the
-// queue on success
-func (a *Aggregator[_]) Flush(f Flusher) (int, error) {
+func (a *Aggregator[_]) flush(f Flusher) (int, error) {
 	count := len(a.enqueued)
 	if count == 0 {
 		return 0, nil
@@ -157,7 +150,7 @@ func (a *Aggregator[T]) raise(typ EventType, value any) error {
 	}
 	a.enqueued = append(a.enqueued, ev)
 	a.nextSeq++
-	a.Apply(ev)
+	a.apply(ev)
 	return nil
 }
 
