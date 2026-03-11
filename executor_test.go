@@ -481,17 +481,37 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "on-success")
 
 	var called []int
+	var values []int
+	var eventTypes []timebox.EventType
+	var eventCounts []int
 	_, err := executor.Exec(ctx, id,
 		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.OnSuccess(func(*CounterState) {
+			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
 				called = append(called, 1)
+				values = append(values, state.Value)
+				eventCounts = append(eventCounts, len(evs))
+				if assert.Len(t, evs, 1) {
+					eventTypes = append(eventTypes, evs[0].Type)
+					assert.Equal(t, id, evs[0].AggregateID)
+					assert.Equal(t, int64(0), evs[0].Sequence)
+				}
 			})
-			ag.OnSuccess(func(*CounterState) {
+			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
 				called = append(called, 2)
+				values = append(values, state.Value)
+				eventCounts = append(eventCounts, len(evs))
+				if assert.Len(t, evs, 1) {
+					eventTypes = append(eventTypes, evs[0].Type)
+				}
 				panic("boom")
 			})
-			ag.OnSuccess(func(*CounterState) {
+			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
 				called = append(called, 3)
+				values = append(values, state.Value)
+				eventCounts = append(eventCounts, len(evs))
+				if assert.Len(t, evs, 1) {
+					eventTypes = append(eventTypes, evs[0].Type)
+				}
 			})
 			return timebox.Raise(ag, EventIncremented, 1)
 		},
@@ -499,6 +519,14 @@ func TestOnSuccessCallbacks(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, []int{1, 2, 3}, called)
+	assert.Equal(t, []int{1, 1, 1}, values)
+	assert.Equal(t, []int{1, 1, 1}, eventCounts)
+	assert.Equal(t,
+		[]timebox.EventType{
+			EventIncremented, EventIncremented, EventIncremented,
+		},
+		eventTypes,
+	)
 	assert.Contains(t, buf.String(), "OnSuccess action panicked")
 }
 
@@ -515,7 +543,11 @@ func TestOnSuccessNoOp(t *testing.T) {
 	state, err := executor.Exec(ctx, id,
 		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			assert.Equal(t, 0, s.Value)
-			ag.OnSuccess(func(*CounterState) { called = true })
+			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
+				called = true
+				assert.Equal(t, 0, state.Value)
+				assert.Empty(t, evs)
+			})
 			return nil
 		},
 	)
@@ -537,7 +569,9 @@ func TestOnSuccessNotCalledOnError(t *testing.T) {
 	called := false
 	_, err := executor.Exec(ctx, id,
 		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.OnSuccess(func(*CounterState) { called = true })
+			ag.OnSuccess(func(*CounterState, []*timebox.Event) {
+				called = true
+			})
 			return errors.New("nope")
 		},
 	)

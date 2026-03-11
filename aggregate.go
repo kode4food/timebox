@@ -2,6 +2,8 @@ package timebox
 
 import (
 	"encoding/json"
+	"log/slog"
+	"slices"
 	"strings"
 	"time"
 	"unsafe"
@@ -15,6 +17,7 @@ type (
 		appliers Appliers[T]
 		id       AggregateID
 		enqueued []*Event
+		flushed  []*Event
 		nextSeq  int64
 		success  []SuccessAction[T]
 	}
@@ -29,7 +32,8 @@ type (
 	Flusher func(int64, []*Event) error
 
 	// SuccessAction receives the Aggregator's final value upon Exec success
-	SuccessAction[T any] func(T)
+	// as well as all of its successfully flushed Events
+	SuccessAction[T any] func(T, []*Event)
 
 	// AggregateID identifies an aggregate as a set of parts ("order", "123")
 	AggregateID []ID
@@ -45,6 +49,32 @@ type (
 	// AggregateID
 	ParseKeyFunc func(string) AggregateID
 )
+
+func NewAggregateID(parts ...ID) AggregateID {
+	return parts
+}
+
+// ParseAggregateID splits a string by the separator into an AggregateID
+func ParseAggregateID(str, sep string) AggregateID {
+	s := strings.Split(str, sep)
+	return *(*AggregateID)(unsafe.Pointer(&s))
+}
+
+// JoinKey is the default JoinKeyFunc; it joins AggregateID parts with ":"
+func JoinKey(id AggregateID) string {
+	return id.Join(":")
+}
+
+// ParseKey is the default ParseKeyFunc; it splits on ":" to reconstruct an
+// AggregateID
+func ParseKey(str string) AggregateID {
+	return ParseAggregateID(str, ":")
+}
+
+// Raise marshals the value and enqueues a new event on the Aggregator
+func Raise[T, V any](ag *Aggregator[T], typ EventType, value V) error {
+	return ag.raise(typ, value)
+}
 
 func newAggregator[T any](
 	id AggregateID, appliers Appliers[T], initValue T, initSeq int64,
@@ -84,6 +114,33 @@ func (a *Aggregator[T]) OnSuccess(fn SuccessAction[T]) {
 	a.success = append(a.success, fn)
 }
 
+// Apply updates the aggregate state using the applier for the event
+func (a *Aggregator[T]) Apply(ev *Event) {
+	if apply, ok := a.appliers[ev.Type]; ok {
+		a.value = apply(a.value, ev)
+	}
+}
+
+// Flush writes enqueued events through the provided flusher and clears the
+// queue on success
+func (a *Aggregator[_]) Flush(f Flusher) (int, error) {
+	count := len(a.enqueued)
+	if count == 0 {
+		return 0, nil
+	}
+	expectedSeq := a.nextSeq - int64(count)
+	if err := f(expectedSeq, a.enqueued); err != nil {
+		return count, err
+	}
+	if len(a.flushed) == 0 {
+		a.flushed = a.enqueued
+	} else {
+		a.flushed = slices.Concat(a.flushed, a.enqueued)
+	}
+	a.enqueued = []*Event{}
+	return count, nil
+}
+
 func (a *Aggregator[T]) raise(typ EventType, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -104,36 +161,21 @@ func (a *Aggregator[T]) raise(typ EventType, value any) error {
 	return nil
 }
 
-// Apply updates the aggregate state using the applier for the event
-func (a *Aggregator[T]) Apply(ev *Event) {
-	if apply, ok := a.appliers[ev.Type]; ok {
-		a.value = apply(a.value, ev)
+func (a *Aggregator[T]) runOnSuccess() {
+	val := a.value
+	evs := a.flushed
+	for _, fn := range a.success {
+		func(cb SuccessAction[T]) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("OnSuccess action panicked",
+						slog.Any("aggregate_id", a.id),
+						slog.Any("panic", r))
+				}
+			}()
+			cb(val, evs)
+		}(fn)
 	}
-}
-
-// Flush writes enqueued events through the provided flusher and clears the
-// queue on success
-func (a *Aggregator[_]) Flush(f Flusher) (int, error) {
-	count := len(a.enqueued)
-	if count == 0 {
-		return 0, nil
-	}
-	expectedSeq := a.nextSeq - int64(count)
-	if err := f(expectedSeq, a.enqueued); err != nil {
-		return count, err
-	}
-	a.enqueued = []*Event{}
-	return count, nil
-}
-
-func NewAggregateID(parts ...ID) AggregateID {
-	return parts
-}
-
-// ParseAggregateID splits a string by the separator into an AggregateID
-func ParseAggregateID(str, sep string) AggregateID {
-	s := strings.Split(str, sep)
-	return *(*AggregateID)(unsafe.Pointer(&s))
 }
 
 // Join combines the AggregateID parts into a single string using a separator
@@ -166,20 +208,4 @@ func (id AggregateID) HasPrefix(prefix AggregateID) bool {
 		}
 	}
 	return true
-}
-
-// JoinKey is the default JoinKeyFunc; it joins AggregateID parts with ":"
-func JoinKey(id AggregateID) string {
-	return id.Join(":")
-}
-
-// ParseKey is the default ParseKeyFunc; it splits on ":" to reconstruct an
-// AggregateID
-func ParseKey(str string) AggregateID {
-	return ParseAggregateID(str, ":")
-}
-
-// Raise marshals the value and enqueues a new event on the Aggregator
-func Raise[T, V any](ag *Aggregator[T], typ EventType, value V) error {
-	return ag.raise(typ, value)
 }
