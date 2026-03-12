@@ -7,8 +7,7 @@ import (
 )
 
 type (
-	// Config configures Timebox store behavior and acts as the template for
-	// per-store overrides passed to NewStore
+	// Config configures Store behavior
 	Config struct {
 		Redis      RedisConfig
 		Snapshot   SnapshotConfig

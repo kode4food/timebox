@@ -19,11 +19,7 @@ func TestArchiveDisabled(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
+	store, err := timebox.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -38,11 +34,7 @@ func TestArchiveToStream(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Snapshot.TrimEvents = true
 			cfg.Archiving = true
@@ -107,11 +99,7 @@ func TestConsumeArchive(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),
@@ -159,11 +147,7 @@ func TestConsumeArchiveNoHandler(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),
@@ -180,11 +164,7 @@ func TestConsumeArchiveMalformed(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),
@@ -215,11 +195,7 @@ func TestConsumeArchivePayloadBytes(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),
@@ -257,11 +233,7 @@ func TestConsumeArchiveInvalidPayloadJSON(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),
@@ -292,11 +264,7 @@ func TestConsumeArchiveNoMessages(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),
@@ -320,11 +288,7 @@ func TestConsumeArchiveHandlerError(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),
@@ -367,11 +331,7 @@ func TestConsumeArchiveDisabled(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(testStoreConfig(server.Addr(), nil))
+	store, err := timebox.NewStore(testStoreConfig(server.Addr(), nil))
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -388,11 +348,7 @@ func TestPollArchivePendingRecovery(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Archiving = true
 		}),

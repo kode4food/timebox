@@ -18,13 +18,10 @@ func TestSnapshotWorkerSaveTimesOut(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox(timebox.Config{
-		Snapshot: timebox.SnapshotConfig{Workers: true},
-	})
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
+		timebox.Config{
+			Snapshot: timebox.SnapshotConfig{Workers: true},
+		},
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Redis.Prefix = "snapshot-timeout"
 			cfg.Snapshot.WorkerCount = 1
@@ -45,18 +42,15 @@ func TestStoreInheritsTimeboxWorkerConfig(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox(timebox.Config{
-		Snapshot: timebox.SnapshotConfig{
-			Workers:      true,
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-			SaveTimeout:  time.Nanosecond,
+	store, err := timebox.NewStore(
+		timebox.Config{
+			Snapshot: timebox.SnapshotConfig{
+				Workers:      true,
+				WorkerCount:  1,
+				MaxQueueSize: 1,
+				SaveTimeout:  time.Nanosecond,
+			},
 		},
-	})
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Redis.Prefix = "snapshot-timeout-inherited"
 		}),
@@ -70,9 +64,8 @@ func TestStoreInheritsTimeboxWorkerConfig(t *testing.T) {
 }
 
 func TestWithoutSnapshotWorker(t *testing.T) {
-	server, tb, store, executor := setupTestExecutorWithoutSnapshotWorker(t)
+	server, store, executor := setupTestExecutorWithoutSnapshotWorker(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -92,9 +85,8 @@ func TestWithoutSnapshotWorker(t *testing.T) {
 }
 
 func TestSequenceWithSnapshot(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -134,14 +126,13 @@ func TestSequenceWithSnapshot(t *testing.T) {
 }
 
 func TestSnapshotTrimsEvents(t *testing.T) {
-	server, tb, store, executor := setupTestExecutorWithConfig(
+	server, store, executor := setupTestExecutorWithConfig(
 		t,
 		func(cfg *timebox.Config) {
 			cfg.Snapshot.TrimEvents = true
 		},
 	)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -191,9 +182,8 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 }
 
 func TestLargeEventBatchWithSnapshot(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -258,13 +248,10 @@ func TestSnapshotWorker(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox(timebox.Config{
-		Snapshot: timebox.SnapshotConfig{Workers: true},
-	})
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
+		timebox.Config{
+			Snapshot: timebox.SnapshotConfig{Workers: true},
+		},
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Redis.Prefix = "snapshot-worker"
 			cfg.Snapshot.WorkerCount = 1
@@ -306,9 +293,8 @@ func TestSnapshotWorker(t *testing.T) {
 }
 
 func TestSaveSnapshotError(t *testing.T) {
-	server, tb, store, _ := setupTestExecutor(t)
+	server, store, _ := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	type BadState struct {
@@ -329,9 +315,8 @@ func TestSaveSnapshotError(t *testing.T) {
 }
 
 func TestSaveSnapshot(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -356,8 +341,7 @@ func TestSaveSnapshot(t *testing.T) {
 }
 
 func TestSaveSnapshotLoadError(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
-	defer func() { _ = tb.Close() }()
+	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -374,11 +358,7 @@ func TestGetSnapshotEmpty(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Redis.Prefix = "empty-snapshot"
 		}),
@@ -405,11 +385,7 @@ func TestGetSnapshotCorruptPayload(t *testing.T) {
 		cfg.Redis.Prefix = "corrupt-snapshot"
 	})
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(storeCfg)
+	store, err := timebox.NewStore(storeCfg)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -433,16 +409,13 @@ func TestGetSnapshotCorruptPayload(t *testing.T) {
 }
 
 func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
-	*miniredis.Miniredis, *timebox.Timebox, *timebox.Store,
+	*miniredis.Miniredis, *timebox.Store,
 	*timebox.Executor[*CounterState],
 ) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 
-	tb, err := timebox.NewTimebox()
-	assert.NoError(t, err)
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Redis.Prefix = "test"
 		}),
@@ -450,7 +423,7 @@ func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
 	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	return server, tb, store, executor
+	return server, store, executor
 }
 
 func assertSnapshotWorkerTimedOut(

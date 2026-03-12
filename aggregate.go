@@ -154,10 +154,10 @@ func (a *Aggregator[T]) raise(typ EventType, value any) error {
 	return nil
 }
 
-func (a *Aggregator[T]) runOnSuccess() {
+func (a *Aggregator[T]) runOnSuccess(defaults []SuccessAction[T]) {
 	val := a.value
 	evs := a.flushed
-	for _, fn := range a.success {
+	for _, fn := range combineSuccess(defaults, a.success) {
 		func(cb SuccessAction[T]) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -201,4 +201,15 @@ func (id AggregateID) HasPrefix(prefix AggregateID) bool {
 		}
 	}
 	return true
+}
+
+func combineSuccess[T any](def, agg []SuccessAction[T]) []SuccessAction[T] {
+	switch {
+	case len(def) == 0:
+		return agg
+	case len(agg) == 0:
+		return def
+	default:
+		return slices.Concat(def, agg)
+	}
 }

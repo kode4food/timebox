@@ -16,9 +16,8 @@ import (
 )
 
 func TestBasicIncrement(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -35,9 +34,8 @@ func TestBasicIncrement(t *testing.T) {
 }
 
 func TestMultipleOperations(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -78,9 +76,8 @@ func TestMultipleOperations(t *testing.T) {
 }
 
 func TestConcurrentWrites(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -105,9 +102,8 @@ func TestConcurrentWrites(t *testing.T) {
 }
 
 func TestSequenceHandling(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -182,9 +178,8 @@ func TestSequenceHandling(t *testing.T) {
 }
 
 func TestAppliesEvent(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	// Test with event types that have appliers
@@ -203,9 +198,8 @@ func TestAppliesEvent(t *testing.T) {
 }
 
 func TestConflictRetry(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	assert.Equal(t, store, executor.GetStore())
@@ -248,7 +242,7 @@ func TestConflictRetry(t *testing.T) {
 }
 
 func TestMaxRetriesOverride(t *testing.T) {
-	server, tb, store, executor := setupExecutorWithConfigs(
+	server, store, executor := setupExecutorWithConfigs(
 		t,
 		timebox.Config{MaxRetries: 2},
 		testStoreConfig("", func(cfg *timebox.Config) {
@@ -257,7 +251,6 @@ func TestMaxRetriesOverride(t *testing.T) {
 		}),
 	)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -288,7 +281,7 @@ func TestMaxRetriesOverride(t *testing.T) {
 }
 
 func TestMaxRetriesInherited(t *testing.T) {
-	server, tb, store, executor := setupExecutorWithConfigs(
+	server, store, executor := setupExecutorWithConfigs(
 		t,
 		timebox.Config{MaxRetries: 2},
 		testStoreConfig("", func(cfg *timebox.Config) {
@@ -296,7 +289,6 @@ func TestMaxRetriesInherited(t *testing.T) {
 		}),
 	)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -332,13 +324,8 @@ func TestCacheEviction(t *testing.T) {
 	assert.NoError(t, err)
 	defer server.Close()
 
-	tb, err := timebox.NewTimebox(timebox.Config{
-		CacheSize: 1,
-	})
-	assert.NoError(t, err)
-	defer func() { _ = tb.Close() }()
-
-	store, err := tb.NewStore(
+	store, err := timebox.NewStore(
+		timebox.Config{CacheSize: 1},
 		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
 			cfg.Redis.Prefix = "evict"
 		}),
@@ -370,7 +357,7 @@ func TestCacheEviction(t *testing.T) {
 }
 
 func TestCacheSizeOverride(t *testing.T) {
-	server, tb, store, executor, count := setupExecutorWithCacheConfigs(
+	server, store, executor, count := setupExecutorWithCacheConfigs(
 		t,
 		timebox.Config{CacheSize: 2},
 		testStoreConfig("", func(cfg *timebox.Config) {
@@ -379,14 +366,13 @@ func TestCacheSizeOverride(t *testing.T) {
 		}),
 	)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	assertCacheEviction(t, executor, count)
 }
 
 func TestCacheSizeInherited(t *testing.T) {
-	server, tb, store, executor, count := setupExecutorWithCacheConfigs(
+	server, store, executor, count := setupExecutorWithCacheConfigs(
 		t,
 		timebox.Config{CacheSize: 1},
 		testStoreConfig("", func(cfg *timebox.Config) {
@@ -394,16 +380,14 @@ func TestCacheSizeInherited(t *testing.T) {
 		}),
 	)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	assertCacheEviction(t, executor, count)
 }
 
 func TestCommandError(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -419,9 +403,8 @@ func TestCommandError(t *testing.T) {
 }
 
 func TestNoOpCommand(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -439,9 +422,8 @@ func TestNoOpCommand(t *testing.T) {
 }
 
 func TestRaiseError(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -462,9 +444,8 @@ func TestZeroCacheSize(t *testing.T) {
 }
 
 func TestOnSuccessCallbacks(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, _ := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	var buf bytes.Buffer
@@ -482,6 +463,21 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	var values []int
 	var eventTypes []timebox.EventType
 	var eventCounts []int
+	executor := timebox.NewExecutor(
+		store,
+		newCounterState,
+		appliers,
+		func(state *CounterState, evs []*timebox.Event) {
+			called = append(called, 0)
+			values = append(values, state.Value)
+			eventCounts = append(eventCounts, len(evs))
+			if assert.Len(t, evs, 1) {
+				eventTypes = append(eventTypes, evs[0].Type)
+				assert.Equal(t, id, evs[0].AggregateID)
+				assert.Equal(t, int64(0), evs[0].Sequence)
+			}
+		},
+	)
 	_, err := executor.Exec(ctx, id,
 		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
 			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
@@ -516,12 +512,15 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	)
 
 	assert.NoError(t, err)
-	assert.Equal(t, []int{1, 2, 3}, called)
-	assert.Equal(t, []int{1, 1, 1}, values)
-	assert.Equal(t, []int{1, 1, 1}, eventCounts)
+	assert.Equal(t, []int{0, 1, 2, 3}, called)
+	assert.Equal(t, []int{1, 1, 1, 1}, values)
+	assert.Equal(t, []int{1, 1, 1, 1}, eventCounts)
 	assert.Equal(t,
 		[]timebox.EventType{
-			EventIncremented, EventIncremented, EventIncremented,
+			EventIncremented,
+			EventIncremented,
+			EventIncremented,
+			EventIncremented,
 		},
 		eventTypes,
 	)
@@ -529,9 +528,8 @@ func TestOnSuccessCallbacks(t *testing.T) {
 }
 
 func TestOnSuccessNoOp(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -556,9 +554,8 @@ func TestOnSuccessNoOp(t *testing.T) {
 }
 
 func TestOnSuccessNotCalledOnError(t *testing.T) {
-	server, tb, store, executor := setupTestExecutor(t)
+	server, store, executor := setupTestExecutor(t)
 	defer server.Close()
-	defer func() { _ = tb.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -620,20 +617,19 @@ func setupExecutorWithCacheConfigs(
 	storeCfg timebox.Config,
 ) (
 	*miniredis.Miniredis,
-	*timebox.Timebox,
 	*timebox.Store,
 	*timebox.Executor[*CounterState],
 	*int,
 ) {
 	t.Helper()
 
-	server, tb, store := setupExecutorStore(t, tbCfg, storeCfg)
+	server, store := setupExecutorStore(t, tbCfg, storeCfg)
 	count := 0
 	executor := timebox.NewExecutor(store, func() *CounterState {
 		count++
 		return newCounterState()
 	}, appliers)
-	return server, tb, store, executor, &count
+	return server, store, executor, &count
 }
 
 func setupExecutorWithConfigs(
@@ -642,35 +638,31 @@ func setupExecutorWithConfigs(
 	storeCfg timebox.Config,
 ) (
 	*miniredis.Miniredis,
-	*timebox.Timebox,
 	*timebox.Store,
 	*timebox.Executor[*CounterState],
 ) {
 	t.Helper()
 
-	server, tb, store := setupExecutorStore(t, tbCfg, storeCfg)
+	server, store := setupExecutorStore(t, tbCfg, storeCfg)
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	return server, tb, store, executor
+	return server, store, executor
 }
 
 func setupExecutorStore(
 	t *testing.T,
 	tbCfg timebox.Config,
 	storeCfg timebox.Config,
-) (*miniredis.Miniredis, *timebox.Timebox, *timebox.Store) {
+) (*miniredis.Miniredis, *timebox.Store) {
 	t.Helper()
 
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 
-	tb, err := timebox.NewTimebox(tbCfg)
-	assert.NoError(t, err)
-
 	if storeCfg.Redis.Addr == "" {
 		storeCfg.Redis.Addr = server.Addr()
 	}
-	store, err := tb.NewStore(storeCfg)
+	store, err := timebox.NewStore(tbCfg, storeCfg)
 	assert.NoError(t, err)
 
-	return server, tb, store
+	return server, store
 }

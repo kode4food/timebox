@@ -9,18 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kode4food/caravan/topic"
 	"github.com/redis/go-redis/v9"
 )
 
 type (
-	// Store persists events and snapshots in Redis and publishes appended
-	// events to the Timebox EventHub
+	// Store persists events and snapshots in Redis
 	Store struct {
-		tb             *Timebox
 		client         *redis.Client
 		prefix         string
-		producer       topic.Producer[*Event]
 		appendScripts  map[luaAppendSpec]*redis.Script
 		getEvents      *redis.Script
 		putSnapshot    *redis.Script
@@ -74,10 +70,9 @@ var (
 	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
 )
 
-// NewStore creates a new Store instance backed by Redis that publishes events
-// to the Timebox event hub
-func (tb *Timebox) NewStore(cfgs ...Config) (*Store, error) {
-	cfg := tb.config.With(cfgs...)
+// NewStore creates a new Store instance backed by Redis
+func NewStore(cfgs ...Config) (*Store, error) {
+	cfg := DefaultConfig().With(cfgs...)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -88,7 +83,7 @@ func (tb *Timebox) NewStore(cfgs ...Config) (*Store, error) {
 		DB:       cfg.Redis.DB,
 	})
 
-	pingCtx, cancel := context.WithTimeout(tb.ctx, RedisConnectTimeout)
+	pingCtx, cancel := context.WithTimeout(context.Background(), RedisConnectTimeout)
 	defer cancel()
 
 	if err := client.Ping(pingCtx).Err(); err != nil {
@@ -105,10 +100,8 @@ func (tb *Timebox) NewStore(cfgs ...Config) (*Store, error) {
 	}
 
 	s := &Store{
-		tb:             tb,
 		client:         client,
 		prefix:         buildStorePrefix(cfg),
-		producer:       tb.hub.newProducer(),
 		appendScripts:  makeLuaAppendScripts(),
 		getEvents:      redis.NewScript(getEventsScript),
 		putSnapshot:    redis.NewScript(putSnapshotScript),
@@ -124,20 +117,16 @@ func (tb *Timebox) NewStore(cfgs ...Config) (*Store, error) {
 	return s, nil
 }
 
-// Close stops background workers, closes the event producer, and releases the
-// Redis client
+// Close stops background workers and releases the Redis client
 func (s *Store) Close() error {
 	if s.snapshotWorker != nil {
 		s.snapshotWorker.Stop()
-	}
-	if s.producer != nil {
-		s.producer.Close()
 	}
 	return s.client.Close()
 }
 
 // AppendEvents atomically appends events for an aggregate if the expected
-// sequence matches the current log sequence, publishing them to the EventHub
+// sequence matches the current log sequence
 func (s *Store) AppendEvents(
 	ctx context.Context, id AggregateID, atSeq int64, evs []*Event,
 ) error {
@@ -205,14 +194,6 @@ func (s *Store) AppendEvents(
 	if success == 0 {
 		newEvents := res[2].([]any)
 		return s.handleVersionConflict(id, newEvents, atSeq, seq)
-	}
-
-	if s.producer != nil {
-		for _, ev := range evs {
-			if s.tb.hub.hasSubscribers(ev.Type, ev.AggregateID) {
-				s.producer.Send() <- ev
-			}
-		}
 	}
 
 	return nil

@@ -13,6 +13,7 @@ type (
 		appliers  Appliers[T]
 		construct constructor[T]
 		cache     *cache[*projection[T]]
+		success   []SuccessAction[T]
 	}
 
 	// Command is user code that inspects state and raises events on an
@@ -35,12 +36,14 @@ var (
 // appliers and state constructor
 func NewExecutor[T any](
 	store *Store, cons constructor[T], apps Appliers[T],
+	onSuccess ...SuccessAction[T],
 ) *Executor[T] {
 	return &Executor[T]{
 		store:     store,
 		appliers:  apps,
 		construct: cons,
 		cache:     newCache[*projection[T]](store.config.CacheSize),
+		success:   onSuccess,
 	}
 }
 
@@ -77,7 +80,7 @@ func (e *Executor[T]) Exec(
 		})
 		if err == nil {
 			if count == 0 {
-				ag.runOnSuccess()
+				ag.runOnSuccess(e.success)
 				return proj.state, nil
 			}
 			val := ag.Value()
@@ -86,7 +89,7 @@ func (e *Executor[T]) Exec(
 				nextSeq: ag.nextSeq,
 			}
 			e.updateCache(id, final)
-			ag.runOnSuccess()
+			ag.runOnSuccess(e.success)
 			return final.state, nil
 		}
 

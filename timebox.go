@@ -1,24 +1,12 @@
 package timebox
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 	"time"
-
-	"github.com/kode4food/caravan"
 )
 
 type (
-	// Timebox owns shared resources (configuration template, context, and
-	// event hub) and is responsible for creating Stores that publish events
-	Timebox struct {
-		config Config
-		hub    *EventHub
-		ctx    context.Context
-		cancel context.CancelFunc
-	}
-
 	// Event represents a single immutable event in the log, including its
 	// sequence, timestamp, and serialized payload
 	Event struct {
@@ -35,43 +23,6 @@ type (
 	// EventType is the string identifier associated with an Event
 	EventType string
 )
-
-// NewTimebox creates a new Timebox with the given configuration templates. A
-// Timebox owns the background context and EventHub used by child Stores
-func NewTimebox(cfgs ...Config) (*Timebox, error) {
-	cfg := DefaultConfig().With(cfgs...)
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	hub := caravan.NewTopic[*Event]()
-
-	tb := &Timebox{
-		config: cfg,
-		hub:    NewEventHub(hub),
-		ctx:    ctx,
-		cancel: cancel,
-	}
-
-	return tb, nil
-}
-
-// GetHub returns the EventHub instance
-func (tb *Timebox) GetHub() *EventHub {
-	return tb.hub
-}
-
-// Context returns the Timebox's context for cancellation
-func (tb *Timebox) Context() context.Context {
-	return tb.ctx
-}
-
-// Close gracefully shuts down the Timebox
-func (tb *Timebox) Close() error {
-	tb.cancel()
-	return nil
-}
 
 // GetEventValue unmarshals the event data into the requested type. It reuses a
 // cached value when the requested type matches, and otherwise unmarshals

@@ -2,7 +2,7 @@
 
 ![Build Status](https://github.com/kode4food/timebox/actions/workflows/build.yml/badge.svg) [![Code Coverage](https://qlty.sh/gh/kode4food/projects/timebox/coverage.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![Maintainability](https://qlty.sh/gh/kode4food/projects/timebox/maintainability.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![GitHub](https://img.shields.io/github/license/kode4food/timebox)](https://github.com/kode4food/timebox/blob/main/LICENSE.md)
 
-Timebox is a small, opinionated event sourcing library for Go backed by Redis or Valkey. It provides an append-only event log, optimistic concurrency, snapshotting, and an in-process event hub so multiple instances can coordinate through the same store.
+Timebox is a small, opinionated event sourcing library for Go backed by Redis or Valkey. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
 
 ## Features
 
@@ -13,24 +13,19 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Distributed coordination** through a shared Redis/Valkey backend
 - **Archiving**: atomically move aggregate snapshots + events into a Redis stream
 - **Type-safe generics**: no interfaces to implement in your domain types
-- **EventHub**: push events to in-process consumers while persisting to Redis
-
 ## Core Concepts
 
-- **Timebox**: Root object that owns configuration, lifecycle, and the EventHub.
-- **Store**: Redis-backed persistence for events and snapshots; publishes appended events to the hub.
+- **Store**: Redis-backed persistence for events and snapshots.
 - **Indexer/Index**: Optional append-time projection hook that can update status and label indexes atomically with event persistence.
 - **Executor/Aggregator/Command**: Executor loads state (from cache/snapshot/log), runs your command, and persists events raised on the Aggregator with optimistic retries.
 - **Appliers**: Pure functions that fold an event into aggregate state. `MakeApplier` lets you work with strongly typed payloads.
-- **Handlers/Dispatchers**: Helpers for consuming events from the EventHub without manual JSON decoding.
 - **Snapshots**: Created automatically as events grow; also available on demand with `SaveSnapshot`.
 
 ## Configuration
 
 Timebox uses a single `Config` type.
 
-- `NewTimebox(cfgs...)` applies each config on top of the defaults in order.
-- `tb.NewStore(cfgs...)` applies each config on top of the timebox base config in order.
+- `NewStore(cfgs...)` applies each config on top of the defaults in order.
 
 `Config` fields:
 
@@ -111,7 +106,7 @@ Stream, group, and consumer names are derived from the store prefix:
 
 ## Examples
 
-- `examples/order.go` is a runnable order lifecycle that shows how appliers, commands, and event consumption fit together.
+- `examples/order.go` is a runnable order lifecycle that shows how appliers and commands fit together.
 
 ## Status
 
