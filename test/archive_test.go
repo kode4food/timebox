@@ -207,7 +207,7 @@ func TestArchivePendingRecovery(t *testing.T) {
 	assert.Len(t, reads, 1)
 	assert.Len(t, reads[0].Messages, 1)
 
-	server.SetTime(now.Add(timebox.DefaultMinIdle + time.Second))
+	server.SetTime(now.Add(tbredis.DefaultMinIdle + time.Second))
 
 	var handled *timebox.ArchiveRecord
 	err = store.PollArchive(ctx, 50*time.Millisecond, func(

@@ -15,11 +15,6 @@ type (
 		Indexer    Indexer
 	}
 
-	// With is a generic overlay contract used by Configure
-	With[T any] interface {
-		With(T) T
-	}
-
 	// SnapshotConfig configures snapshot workers and event trimming
 	SnapshotConfig struct {
 		Workers      bool
@@ -27,6 +22,11 @@ type (
 		MaxQueueSize int
 		SaveTimeout  time.Duration
 		TrimEvents   bool
+	}
+
+	// With is a generic overlay contract used by Configure
+	With[T any] interface {
+		With(T) T
 	}
 )
 

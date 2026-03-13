@@ -3,8 +3,8 @@ package timebox
 // Handler processes a single Event
 type Handler func(*Event) error
 
-// MakeHandler decodes event data into the provided type before invoking fn. It
-// reuses the Event's cached value when available
+// MakeHandler decodes event data into the provided type before invoking fn.
+// It reuses the Event's cached value when available
 func MakeHandler[T any](fn func(ev *Event, data T) error) Handler {
 	return func(ev *Event) error {
 		data, err := GetEventValue[T](ev)

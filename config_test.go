@@ -17,7 +17,10 @@ func TestDefaultConfig(t *testing.T) {
 	assert.False(t, cfg.Snapshot.Workers)
 	assert.Equal(t, timebox.DefaultSnapshotWorkers, cfg.Snapshot.WorkerCount)
 	assert.Equal(t, timebox.DefaultSnapshotQueueSize, cfg.Snapshot.MaxQueueSize)
-	assert.Equal(t, timebox.DefaultSnapshotSaveTimeout, cfg.Snapshot.SaveTimeout)
+	assert.Equal(t,
+		timebox.DefaultSnapshotSaveTimeout,
+		cfg.Snapshot.SaveTimeout,
+	)
 	assert.Equal(t, timebox.DefaultTrimEvents, cfg.Snapshot.TrimEvents)
 }
 

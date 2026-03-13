@@ -127,7 +127,9 @@ func setupExample() *orderExample {
 
 func (ex *orderExample) createOrder() {
 	fmt.Println("Creating order...")
-	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+	state, err := ex.executor.Exec(ex.orderID, func(
+		s *OrderState, ag *OrderAggregator,
+	) error {
 		// Create order
 		if err := timebox.Raise(ag, OrderCreated, OrderCreatedData{
 			CustomerName:  "John Doe",
@@ -166,7 +168,9 @@ func (ex *orderExample) createOrder() {
 
 func (ex *orderExample) addShippingAddress() {
 	fmt.Println("\nAdding shipping address...")
-	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+	state, err := ex.executor.Exec(ex.orderID, func(
+		s *OrderState, ag *OrderAggregator,
+	) error {
 		return timebox.Raise(ag, OrderShippingChanged, AddressChangedData{
 			Address: Address{
 				Street:  "123 Main St",
@@ -190,7 +194,9 @@ func (ex *orderExample) addShippingAddress() {
 
 func (ex *orderExample) confirmOrder() {
 	fmt.Println("\nConfirming order...")
-	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+	state, err := ex.executor.Exec(ex.orderID, func(
+		s *OrderState, ag *OrderAggregator,
+	) error {
 		return timebox.Raise(ag, OrderConfirmed, struct{}{})
 	})
 	if err != nil {
@@ -202,7 +208,9 @@ func (ex *orderExample) confirmOrder() {
 
 func (ex *orderExample) shipOrder() {
 	fmt.Println("\nShipping order...")
-	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+	state, err := ex.executor.Exec(ex.orderID, func(
+		s *OrderState, ag *OrderAggregator,
+	) error {
 		return timebox.Raise(ag, OrderShipped, struct{}{})
 	})
 	if err != nil {
@@ -214,7 +222,9 @@ func (ex *orderExample) shipOrder() {
 
 func (ex *orderExample) deliverOrder() {
 	fmt.Println("\nDelivering order...")
-	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+	state, err := ex.executor.Exec(ex.orderID, func(
+		s *OrderState, ag *OrderAggregator,
+	) error {
 		return timebox.Raise(ag, OrderDelivered, struct{}{})
 	})
 	if err != nil {

@@ -19,6 +19,9 @@ type archivePayload struct {
 	Events           []string `json:"events"`
 }
 
+// DefaultMinIdle is the idle duration before pending archive work is reclaimed
+const DefaultMinIdle = 30 * time.Second
+
 func (p *Persistence) Archive(id timebox.AggregateID) error {
 	if !p.config.Timebox.Archiving {
 		return timebox.ErrArchivingDisabled
@@ -47,7 +50,9 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 
 	res := result.([]any)
 	if len(res) == 0 {
-		return timebox.ErrUnexpectedLuaResult
+		return errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
 	}
 	return nil
 }
@@ -114,7 +119,7 @@ func (p *Persistence) recoverArchive(
 		Stream:   stream,
 		Group:    group,
 		Consumer: consumer,
-		MinIdle:  timebox.DefaultMinIdle,
+		MinIdle:  DefaultMinIdle,
 		Start:    "0-0",
 		Count:    1,
 	}

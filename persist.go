@@ -57,7 +57,7 @@ type (
 		) error
 	}
 
-	// AppendRequest contains the primitive inputs required for an atomic append
+	// AppendRequest contains primitive inputs required for an atomic append
 	AppendRequest struct {
 		ID               AggregateID
 		ExpectedSequence int64
@@ -87,13 +87,53 @@ type (
 		Sequence int64
 		Events   []json.RawMessage
 	}
+
+	// Index stores optional projection metadata derived from an event
+	Index struct {
+		// Status represents the resultant aggregate status. nil means no
+		// status change, and "" clears any prior status
+		Status *string `json:"status,omitempty"`
+
+		// Labels updates current label values for the aggregate. nil means no
+		// label changes, and empty values remove the label
+		Labels map[string]string `json:"labels,omitempty"`
+	}
+
+	// Indexer derives projection metadata for an event batch
+	Indexer func([]*Event) []*Index
+
+	// StatusEntry holds an aggregate ID and the time it entered a status
+	StatusEntry struct {
+		ID        AggregateID
+		Timestamp time.Time
+	}
+
+	// ArchiveRecord stores stream metadata and aggregate artifacts
+	ArchiveRecord struct {
+		StreamID         string
+		AggregateID      AggregateID
+		SnapshotData     json.RawMessage
+		SnapshotSequence int64
+		Events           []json.RawMessage
+	}
+
+	// ArchiveHandler handles a single archive record
+	ArchiveHandler func(context.Context, *ArchiveRecord) error
 )
 
 var (
 	// ErrPersistenceRequired indicates a Store requires a Persistence
 	ErrPersistenceRequired = errors.New("persistence is required")
 
-	// ErrUnexpectedLuaResult indicates a Lua script returned data in an
-	// unexpected shape
-	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
+	// ErrUnexpectedResult indicates data returned in an unexpected shape
+	ErrUnexpectedResult = errors.New("unexpected result")
+
+	// ErrArchivingDisabled indicates archiving is not enabled
+	ErrArchivingDisabled = errors.New("archiving not enabled for this store")
+
+	// ErrArchiveRecordMalformed indicates an archive record was malformed
+	ErrArchiveRecordMalformed = errors.New("archive record malformed")
+
+	// ErrArchiveHandlerMissing indicates a consume call is missing a handler
+	ErrArchiveHandlerMissing = errors.New("archive handler is required")
 )

@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -43,6 +44,10 @@ const (
 	archiveGroupSuffix    = archiveStreamSuffix + ":group"
 	archiveConsumerSuffix = archiveStreamSuffix + ":consumer"
 )
+
+// ErrUnexpectedLuaResult indicates a Redis Lua script returned data in an
+// unexpected shape
+var ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
 
 // NewStore creates a Store backed by Redis persistence
 func NewStore(cfgs ...Config) (*timebox.Store, error) {
@@ -165,12 +170,16 @@ func (p *Persistence) LoadEvents(
 	if p.config.Timebox.Snapshot.TrimEvents {
 		res := result.([]any)
 		if len(res) < 2 {
-			return nil, timebox.ErrUnexpectedLuaResult
+			return nil, errors.Join(
+				timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+			)
 		}
 
 		offset, ok := res[0].(int64)
 		if !ok {
-			return nil, timebox.ErrUnexpectedLuaResult
+			return nil, errors.Join(
+				timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+			)
 		}
 
 		rawMessages, err := toRawMessages(res[1].([]any))
@@ -211,17 +220,23 @@ func (p *Persistence) LoadSnapshot(
 
 	resultSlice := result.([]any)
 	if len(resultSlice) < 3 {
-		return nil, timebox.ErrUnexpectedLuaResult
+		return nil, errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
 	}
 
 	snapData, ok := resultSlice[0].(string)
 	if !ok {
-		return nil, timebox.ErrUnexpectedLuaResult
+		return nil, errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
 	}
 
 	snapSeq, ok := resultSlice[1].(int64)
 	if !ok {
-		return nil, timebox.ErrUnexpectedLuaResult
+		return nil, errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
 	}
 
 	newMessages, err := toRawMessages(resultSlice[2].([]any))
@@ -337,7 +352,9 @@ func toRawMessages(data []any) ([]json.RawMessage, error) {
 	for _, item := range data {
 		str, ok := item.(string)
 		if !ok {
-			return nil, timebox.ErrUnexpectedLuaResult
+			return nil, errors.Join(
+				timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+			)
 		}
 		messages = append(messages, json.RawMessage(str))
 	}

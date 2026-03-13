@@ -370,7 +370,7 @@ func TestCommandError(t *testing.T) {
 	_, err := executor.Exec(id, func(
 		*CounterState, *timebox.Aggregator[*CounterState],
 	) error {
-		return timebox.ErrUnexpectedLuaResult
+		return timebox.ErrUnexpectedResult
 	})
 
 	assert.Error(t, err)

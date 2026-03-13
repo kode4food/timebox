@@ -97,7 +97,10 @@ func (p *Persistence) Append(
 
 	seq := max(a.baseSeq+int64(len(a.events)), a.snapshotSeq)
 	if req.ExpectedSequence != seq {
-		start := min(max(req.ExpectedSequence-a.baseSeq, 0), int64(len(a.events)))
+		start := min(
+			max(req.ExpectedSequence-a.baseSeq, 0),
+			int64(len(a.events)),
+		)
 		return &timebox.AppendResult{
 			ActualSequence: seq,
 			NewEvents:      cloneMessages(a.events[start:]),
@@ -236,7 +239,9 @@ func (p *Persistence) ListAggregates(
 }
 
 // GetAggregateStatus gets the current status for an aggregate
-func (p *Persistence) GetAggregateStatus(id timebox.AggregateID) (string, error) {
+func (p *Persistence) GetAggregateStatus(
+	id timebox.AggregateID,
+) (string, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
