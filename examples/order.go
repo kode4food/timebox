@@ -8,6 +8,7 @@ import (
 	"maps"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/redis"
 )
 
 type (
@@ -109,10 +110,8 @@ func main() {
 }
 
 func setupExample() *orderExample {
-	store, err := timebox.NewStore(timebox.Config{
-		Redis: timebox.RedisConfig{
-			Prefix: "example",
-		},
+	store, err := redis.NewStore(redis.Config{
+		Prefix: "example",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -128,34 +127,32 @@ func setupExample() *orderExample {
 
 func (ex *orderExample) createOrder() {
 	fmt.Println("Creating order...")
-	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
-		func(s *OrderState, ag *OrderAggregator) error {
-			// Create order
-			if err := timebox.Raise(ag, OrderCreated, OrderCreatedData{
-				CustomerName:  "John Doe",
-				CustomerEmail: "john@example.com",
-			}); err != nil {
-				return err
-			}
+	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+		// Create order
+		if err := timebox.Raise(ag, OrderCreated, OrderCreatedData{
+			CustomerName:  "John Doe",
+			CustomerEmail: "john@example.com",
+		}); err != nil {
+			return err
+		}
 
-			// Add items to order
-			if err := timebox.Raise(ag, OrderItemAdded, ItemAddedData{
-				ProductID: "LAPTOP-PRO",
-				Name:      "Professional Laptop",
-				Quantity:  1,
-				Price:     1299.99,
-			}); err != nil {
-				return err
-			}
+		// Add items to order
+		if err := timebox.Raise(ag, OrderItemAdded, ItemAddedData{
+			ProductID: "LAPTOP-PRO",
+			Name:      "Professional Laptop",
+			Quantity:  1,
+			Price:     1299.99,
+		}); err != nil {
+			return err
+		}
 
-			return timebox.Raise(ag, OrderItemAdded, ItemAddedData{
-				ProductID: "MOUSE-WIRELESS",
-				Name:      "Wireless Mouse",
-				Quantity:  2,
-				Price:     29.99,
-			})
-		},
-	)
+		return timebox.Raise(ag, OrderItemAdded, ItemAddedData{
+			ProductID: "MOUSE-WIRELESS",
+			Name:      "Wireless Mouse",
+			Quantity:  2,
+			Price:     29.99,
+		})
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -169,19 +166,17 @@ func (ex *orderExample) createOrder() {
 
 func (ex *orderExample) addShippingAddress() {
 	fmt.Println("\nAdding shipping address...")
-	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
-		func(s *OrderState, ag *OrderAggregator) error {
-			return timebox.Raise(ag, OrderShippingChanged, AddressChangedData{
-				Address: Address{
-					Street:  "123 Main St",
-					City:    "San Francisco",
-					State:   "CA",
-					ZipCode: "94102",
-					Country: "USA",
-				},
-			})
-		},
-	)
+	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+		return timebox.Raise(ag, OrderShippingChanged, AddressChangedData{
+			Address: Address{
+				Street:  "123 Main St",
+				City:    "San Francisco",
+				State:   "CA",
+				ZipCode: "94102",
+				Country: "USA",
+			},
+		})
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -195,11 +190,9 @@ func (ex *orderExample) addShippingAddress() {
 
 func (ex *orderExample) confirmOrder() {
 	fmt.Println("\nConfirming order...")
-	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
-		func(s *OrderState, ag *OrderAggregator) error {
-			return timebox.Raise(ag, OrderConfirmed, struct{}{})
-		},
-	)
+	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+		return timebox.Raise(ag, OrderConfirmed, struct{}{})
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -209,11 +202,9 @@ func (ex *orderExample) confirmOrder() {
 
 func (ex *orderExample) shipOrder() {
 	fmt.Println("\nShipping order...")
-	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
-		func(s *OrderState, ag *OrderAggregator) error {
-			return timebox.Raise(ag, OrderShipped, struct{}{})
-		},
-	)
+	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+		return timebox.Raise(ag, OrderShipped, struct{}{})
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -223,11 +214,9 @@ func (ex *orderExample) shipOrder() {
 
 func (ex *orderExample) deliverOrder() {
 	fmt.Println("\nDelivering order...")
-	state, err := ex.executor.Exec(ex.ctx, ex.orderID,
-		func(s *OrderState, ag *OrderAggregator) error {
-			return timebox.Raise(ag, OrderDelivered, struct{}{})
-		},
-	)
+	state, err := ex.executor.Exec(ex.orderID, func(s *OrderState, ag *OrderAggregator) error {
+		return timebox.Raise(ag, OrderDelivered, struct{}{})
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,0 +1,254 @@
+package memory
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/kode4food/timebox"
+)
+
+func TestNewStore(t *testing.T) {
+	store, err := NewStore(timebox.Config{})
+	assert.NoError(t, err)
+	assert.NotNil(t, store)
+	assert.NoError(t, store.Close())
+}
+
+func TestAppendAndLoadEvents(t *testing.T) {
+	p := NewPersistence()
+	id := timebox.NewAggregateID("order", "1")
+
+	res, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []string{`{"type":"created"}`, `{"type":"updated"}`},
+	})
+	assert.NoError(t, err)
+	assert.Nil(t, res)
+
+	got, err := p.LoadEvents(id, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), got.StartSequence)
+	assert.Equal(t, []json.RawMessage{
+		json.RawMessage(`{"type":"created"}`),
+		json.RawMessage(`{"type":"updated"}`),
+	}, got.Events)
+}
+
+func TestAppendConflictTrailing(t *testing.T) {
+	p := NewPersistence()
+	id := timebox.NewAggregateID("order", "1")
+
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []string{`{"type":"created"}`, `{"type":"updated"}`},
+	})
+	assert.NoError(t, err)
+
+	res, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 1,
+		Events:           []string{`{"type":"stale"}`},
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, res)
+	assert.Equal(t, int64(2), res.ActualSequence)
+	assert.Equal(t, []json.RawMessage{
+		json.RawMessage(`{"type":"updated"}`),
+	}, res.NewEvents)
+}
+
+func TestSaveSnapshotTrimsEvents(t *testing.T) {
+	p := NewPersistence(timebox.Config{
+		Snapshot: timebox.SnapshotConfig{TrimEvents: true},
+	})
+	id := timebox.NewAggregateID("order", "1")
+
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []string{`{"type":"one"}`, `{"type":"two"}`},
+	})
+	assert.NoError(t, err)
+
+	err = p.SaveSnapshot(context.Background(), id, []byte(`{"value":1}`), 1)
+	assert.NoError(t, err)
+
+	snap, err := p.LoadSnapshot(id)
+	assert.NoError(t, err)
+	assert.Equal(t, json.RawMessage(`{"value":1}`), snap.Data)
+	assert.Equal(t, int64(1), snap.Sequence)
+	assert.Equal(t, []json.RawMessage{
+		json.RawMessage(`{"type":"two"}`),
+	}, snap.Events)
+
+	evs, err := p.LoadEvents(id, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), evs.StartSequence)
+	assert.Equal(t, []json.RawMessage{
+		json.RawMessage(`{"type":"two"}`),
+	}, evs.Events)
+}
+
+func TestSaveSnapshotCanceled(t *testing.T) {
+	p := NewPersistence()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := p.SaveSnapshot(ctx,
+		timebox.NewAggregateID("order", "1"), []byte(`{"value":1}`), 1,
+	)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestAggregateQueries(t *testing.T) {
+	p := NewPersistence()
+	status := "active"
+	ts := time.Unix(1700000000, 0).UTC()
+	first := timebox.NewAggregateID("order", "1")
+	second := timebox.NewAggregateID("order", "2")
+
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               first,
+		ExpectedSequence: 0,
+		Status:           &status,
+		StatusAt:         "1700000000000",
+		Labels: map[string]string{
+			"env":    "prod",
+			"region": "eu",
+		},
+		Events: []string{`{"type":"created"}`},
+	})
+	assert.NoError(t, err)
+
+	_, err = p.Append(timebox.AppendRequest{
+		ID:               second,
+		ExpectedSequence: 0,
+		Labels:           map[string]string{"env": "stage"},
+		Events:           []string{`{"type":"created"}`},
+	})
+	assert.NoError(t, err)
+
+	aggs, err := p.ListAggregates(timebox.NewAggregateID("order"))
+	assert.NoError(t, err)
+	assert.Equal(t, []timebox.AggregateID{first, second}, aggs)
+
+	gotStatus, err := p.GetAggregateStatus(first)
+	assert.NoError(t, err)
+	assert.Equal(t, status, gotStatus)
+
+	statuses, err := p.ListAggregatesByStatus(status)
+	assert.NoError(t, err)
+	assert.Equal(t, []timebox.StatusEntry{{
+		ID:        first,
+		Timestamp: ts,
+	}}, statuses)
+
+	ids, err := p.ListAggregatesByLabel("env", "prod")
+	assert.NoError(t, err)
+	assert.Equal(t, []timebox.AggregateID{first}, ids)
+
+	vals, err := p.ListLabelValues("env")
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"prod", "stage"}, vals)
+}
+
+func TestArchiveLifecycle(t *testing.T) {
+	p := NewPersistence(timebox.Config{Archiving: true})
+	id := timebox.NewAggregateID("order", "1")
+
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []string{`{"type":"created"}`},
+	})
+	assert.NoError(t, err)
+	assert.NoError(t, p.SaveSnapshot(
+		context.Background(), id, []byte(`{"value":1}`), 1,
+	))
+	assert.NoError(t, p.Archive(id))
+
+	var got *timebox.ArchiveRecord
+	err = p.PollArchive(context.Background(), time.Millisecond, func(
+		_ context.Context, rec *timebox.ArchiveRecord,
+	) error {
+		got = rec
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Equal(t, id, got.AggregateID)
+	assert.Equal(t, json.RawMessage(`{"value":1}`), got.SnapshotData)
+	assert.Equal(t, int64(1), got.SnapshotSequence)
+	assert.Equal(t, []json.RawMessage{
+		json.RawMessage(`{"type":"created"}`),
+	}, got.Events)
+
+	aggs, err := p.ListAggregates(timebox.NewAggregateID("order"))
+	assert.NoError(t, err)
+	assert.Empty(t, aggs)
+}
+
+func TestArchiveErrors(t *testing.T) {
+	p := NewPersistence()
+	err := p.Archive(timebox.NewAggregateID("order", "1"))
+	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
+
+	p = NewPersistence(timebox.Config{Archiving: true})
+	err = p.PollArchive(context.Background(), 0, nil)
+	assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
+}
+
+func TestArchiveHandlerErrorKeeps(t *testing.T) {
+	p := NewPersistence(timebox.Config{Archiving: true})
+	id := timebox.NewAggregateID("order", "1")
+
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []string{`{"type":"created"}`},
+	})
+	assert.NoError(t, err)
+	assert.NoError(t, p.Archive(id))
+
+	handlerErr := errors.New("handler failed")
+	err = p.ConsumeArchive(context.Background(), func(
+		_ context.Context, rec *timebox.ArchiveRecord,
+	) error {
+		assert.Equal(t, id, rec.AggregateID)
+		return handlerErr
+	})
+	assert.ErrorIs(t, err, handlerErr)
+
+	var got *timebox.ArchiveRecord
+	err = p.PollArchive(context.Background(), time.Millisecond, func(
+		_ context.Context, rec *timebox.ArchiveRecord,
+	) error {
+		got = rec
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Equal(t, id, got.AggregateID)
+}
+
+func TestClose(t *testing.T) {
+	p := NewPersistence(timebox.Config{Archiving: true})
+	assert.NoError(t, p.Close())
+
+	_, err := p.LoadEvents(timebox.NewAggregateID("order", "1"), 0)
+	assert.ErrorIs(t, err, ErrClosed)
+
+	err = p.PollArchive(context.Background(), time.Millisecond, func(
+		_ context.Context, _ *timebox.ArchiveRecord,
+	) error {
+		return nil
+	})
+	assert.ErrorIs(t, err, ErrClosed)
+}

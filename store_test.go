@@ -6,12 +6,85 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/memory"
 )
+
+type fakePersistence struct{}
+
+func (f *fakePersistence) Close() error {
+	return nil
+}
+
+func (f *fakePersistence) Append(
+	timebox.AppendRequest,
+) (*timebox.AppendResult, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) LoadEvents(
+	timebox.AggregateID, int64,
+) (*timebox.EventsResult, error) {
+	return &timebox.EventsResult{}, nil
+}
+
+func (f *fakePersistence) LoadSnapshot(
+	timebox.AggregateID,
+) (*timebox.SnapshotRecord, error) {
+	return &timebox.SnapshotRecord{}, nil
+}
+
+func (f *fakePersistence) SaveSnapshot(
+	context.Context, timebox.AggregateID, []byte, int64,
+) error {
+	return nil
+}
+
+func (f *fakePersistence) ListAggregates(
+	timebox.AggregateID,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) GetAggregateStatus(
+	timebox.AggregateID,
+) (string, error) {
+	return "", nil
+}
+
+func (f *fakePersistence) ListAggregatesByStatus(
+	string,
+) ([]timebox.StatusEntry, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) ListAggregatesByLabel(
+	string, string,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) ListLabelValues(string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) Archive(timebox.AggregateID) error {
+	return nil
+}
+
+func (f *fakePersistence) ConsumeArchive(
+	context.Context, timebox.ArchiveHandler,
+) error {
+	return nil
+}
+
+func (f *fakePersistence) PollArchive(
+	context.Context, time.Duration, timebox.ArchiveHandler,
+) error {
+	return nil
+}
 
 func TestVersionConflictError(t *testing.T) {
 	err := &timebox.VersionConflictError{
@@ -25,16 +98,52 @@ func TestVersionConflictError(t *testing.T) {
 	assert.Contains(t, err.Error(), "but at 5")
 }
 
-func TestStore(t *testing.T) {
-	server, err := miniredis.Run()
+func TestNewStoreNoRedisValidate(t *testing.T) {
+	store, err := timebox.NewStore(&fakePersistence{}, timebox.Config{})
 	assert.NoError(t, err)
-	defer server.Close()
+	assert.NotNil(t, store)
+	assert.NoError(t, store.Close())
+}
 
-	store, err := timebox.NewStore(testStoreConfig(server.Addr(), nil))
+func TestStoreConfigAndStatus(t *testing.T) {
+	cfg := timebox.Config{
+		MaxRetries: 3,
+		CacheSize:  5,
+		Snapshot: timebox.SnapshotConfig{
+			WorkerCount:  1,
+			MaxQueueSize: 1,
+			SaveTimeout:  time.Second,
+		},
+	}
+	p := memory.NewPersistence(cfg)
+	store, err := timebox.NewStore(p, cfg)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
+	assert.Equal(t, 3, store.Config().MaxRetries)
+
+	id := timebox.NewAggregateID("order", "1")
+	status := "active"
+	_, err = p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Status:           &status,
+		StatusAt:         "1700000000000",
+		Events:           []string{`{"type":"created"}`},
+	})
+	assert.NoError(t, err)
+
+	got, err := store.GetAggregateStatus(id)
+	assert.NoError(t, err)
+	assert.Equal(t, status, got)
+}
+
+func TestStore(t *testing.T) {
+	server, store, err := newMemoryStore(timebox.Config{})
+	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
 	id := timebox.NewAggregateID("test", "1")
 
 	ev := &timebox.Event{
@@ -44,85 +153,13 @@ func TestStore(t *testing.T) {
 		Data:        json.RawMessage(`5`),
 	}
 
-	err = store.AppendEvents(ctx, id, 0, []*timebox.Event{ev})
+	err = store.AppendEvents(id, 0, []*timebox.Event{ev})
 	assert.NoError(t, err)
 
-	events, err := store.GetEvents(ctx, id, 0)
+	events, err := store.GetEvents(id, 0)
 	assert.NoError(t, err)
 	assert.Len(t, events, 1)
 	assert.Equal(t, EventIncremented, events[0].Type)
-}
-
-func TestStoreDefaultKeys(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "noslot"
-		}),
-	)
-	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("order", "1")
-	ev := &timebox.Event{
-		Type:      EventIncremented,
-		Timestamp: time.Now(),
-		Data:      json.RawMessage(`5`),
-	}
-	assert.NoError(t, store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}))
-	assert.NoError(t, store.PutSnapshot(ctx, id, map[string]int{"value": 1}, 1))
-
-	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-	defer func() { _ = client.Close() }()
-
-	keys, err := client.Keys(ctx, "noslot:*").Result()
-	assert.NoError(t, err)
-	assert.Contains(t, keys, "noslot:order:1:events")
-	assert.Contains(t, keys, "noslot:order:1:snapshot:val")
-	assert.Contains(t, keys, "noslot:order:1:snapshot:seq")
-	assert.NotContains(t, keys, "noslot:{order:1}:events")
-}
-
-func TestStoreShardKeys(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Shard = "blue"
-		}),
-	)
-	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("order", "1")
-	ev := &timebox.Event{
-		Type:      EventIncremented,
-		Timestamp: time.Now(),
-		Data:      json.RawMessage(`5`),
-	}
-	assert.NoError(t, store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}))
-	assert.NoError(t, store.PutSnapshot(ctx, id, map[string]int{"value": 1}, 1))
-
-	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-	defer func() { _ = client.Close() }()
-
-	keys, err := client.Keys(ctx, "timebox:{blue}:*").Result()
-	assert.NoError(t, err)
-	assert.Contains(t, keys, "timebox:{blue}:order:1:events")
-	assert.Contains(t, keys, "timebox:{blue}:order:1:snapshot:val")
-	assert.Contains(t, keys, "timebox:{blue}:order:1:snapshot:seq")
-	assert.NotContains(t, keys, "{blue}:order:1:events")
-
-	events, err := store.GetEvents(ctx, id, 0)
-	assert.NoError(t, err)
-	assert.Len(t, events, 1)
 }
 
 func TestNewStoreInvalidConfig(t *testing.T) {
@@ -158,109 +195,19 @@ func TestNewStoreInvalidConfig(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			store, err := timebox.NewStore(tc.cfg)
+			store, err := timebox.NewStore(&fakePersistence{}, tc.cfg)
 			assert.ErrorIs(t, err, tc.err)
 			assert.Nil(t, store)
 		})
 	}
 }
 
-func TestConfigValidateRequiresKeyFuncs(t *testing.T) {
-	storeCfg := timebox.Config{
-		Redis: redisConfig(),
-	}
-	err := storeCfg.Validate()
-	assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
-
-	storeCfg = timebox.Config{
-		Redis:      redisConfig(),
-		MaxRetries: 1,
-	}
-	err = storeCfg.Validate()
-	assert.ErrorIs(t, err, timebox.ErrInvalidCacheSize)
-
-	storeCfg = timebox.Config{
-		Redis:      redisConfig(),
-		MaxRetries: 1,
-		CacheSize:  1,
-	}
-	err = storeCfg.Validate()
-	assert.ErrorIs(t, err, timebox.ErrInvalidWorkerCount)
-
-	storeCfg = timebox.Config{
-		Redis:      redisConfig(),
-		MaxRetries: 1,
-		CacheSize:  1,
-		Snapshot: timebox.SnapshotConfig{
-			WorkerCount:  1,
-			MaxQueueSize: 0,
-		},
-	}
-	err = storeCfg.Validate()
-	assert.ErrorIs(t, err, timebox.ErrInvalidMaxQueueSize)
-
-	storeCfg = timebox.Config{
-		Redis:      redisConfig(),
-		MaxRetries: 1,
-		CacheSize:  1,
-		Snapshot: timebox.SnapshotConfig{
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-			SaveTimeout:  0,
-		},
-	}
-	err = storeCfg.Validate()
-	assert.ErrorIs(t, err, timebox.ErrInvalidSaveTimeout)
-
-	storeCfg = timebox.Config{
-		Redis: timebox.RedisConfig{
-			Addr:     timebox.DefaultRedisEndpoint,
-			Prefix:   timebox.DefaultRedisPrefix,
-			ParseKey: timebox.ParseKey,
-		},
-		MaxRetries: 1,
-		CacheSize:  1,
-		Snapshot: timebox.SnapshotConfig{
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-			SaveTimeout:  time.Second,
-		},
-	}
-	err = storeCfg.Validate()
-	assert.ErrorIs(t, err, timebox.ErrJoinKeyRequired)
-
-	storeCfg = timebox.Config{
-		Redis: timebox.RedisConfig{
-			Addr:    timebox.DefaultRedisEndpoint,
-			Prefix:  timebox.DefaultRedisPrefix,
-			JoinKey: timebox.JoinKey,
-		},
-		MaxRetries: 1,
-		CacheSize:  1,
-		Snapshot: timebox.SnapshotConfig{
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-			SaveTimeout:  time.Second,
-		},
-	}
-	err = storeCfg.Validate()
-	assert.ErrorIs(t, err, timebox.ErrParseKeyRequired)
-}
-
 func TestAppendConflict(t *testing.T) {
-	server, err := miniredis.Run()
+	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "conflict"
-		}),
-	)
-	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "1")
 
 	ev := &timebox.Event{
@@ -268,24 +215,16 @@ func TestAppendConflict(t *testing.T) {
 		Type:      "event.test",
 		Data:      json.RawMessage(`{"value":1}`),
 	}
-	err = store.AppendEvents(ctx, id, 1, []*timebox.Event{ev})
+	err = store.AppendEvents(id, 1, []*timebox.Event{ev})
 	assert.Error(t, err)
 }
 
 func TestListAggregates(t *testing.T) {
-	server, err := miniredis.Run()
+	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "list"
-		}),
-	)
-	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id1 := timebox.NewAggregateID("order", "1")
 	id2 := timebox.NewAggregateID("order", "2")
 
@@ -294,80 +233,34 @@ func TestListAggregates(t *testing.T) {
 		Type:      "event.test",
 		Data:      json.RawMessage(`{"value":1}`),
 	}
-	assert.NoError(t, store.AppendEvents(ctx, id1, 0, []*timebox.Event{ev}))
-	assert.NoError(t, store.AppendEvents(ctx, id2, 0, []*timebox.Event{ev}))
+	assert.NoError(t, store.AppendEvents(id1, 0, []*timebox.Event{ev}))
+	assert.NoError(t, store.AppendEvents(id2, 0, []*timebox.Event{ev}))
 
-	ids, err := store.ListAggregates(ctx, id1)
+	ids, err := store.ListAggregates(id1)
 	assert.NoError(t, err)
 	assert.Len(t, ids, 1)
 	assert.Equal(t, id1, ids[0])
 }
 
-func TestCorruptEvents(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer server.Close()
-
-	storeCfg := testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-		cfg.Redis.Prefix = "corrupt"
-	})
-
-	store, err := timebox.NewStore(storeCfg)
-	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	ctx := context.Background()
-	id := timebox.NewAggregateID("order", "1")
-	eventsKey := storeCfg.Redis.Prefix + ":" + id.Join(":") + ":events"
-
-	client := redis.NewClient(&redis.Options{
-		Addr: server.Addr(),
-	})
-	defer func() { _ = client.Close() }()
-
-	err = client.RPush(ctx, eventsKey, "not-json").Err()
-	assert.NoError(t, err)
-
-	events, err := store.GetEvents(ctx, id, 0)
-	assert.Error(t, err)
-	assert.Nil(t, events)
-}
-
 func TestGetEventsEmpty(t *testing.T) {
-	server, err := miniredis.Run()
+	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "empty-events"
-		}),
-	)
-	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	events, err := store.GetEvents(
-		context.Background(), timebox.NewAggregateID("counter", "1"), 0,
-	)
+	events, err := store.GetEvents(timebox.NewAggregateID("counter", "1"), 0)
 	assert.NoError(t, err)
 	assert.Len(t, events, 0)
 }
 
 func TestStoreTrimmedPlainAppend(t *testing.T) {
-	server, err := miniredis.Run()
+	server, store, err := newMemoryStore(timebox.Config{
+		Snapshot: timebox.SnapshotConfig{TrimEvents: true},
+	})
 	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "trimmed-plain"
-			cfg.Snapshot.TrimEvents = true
-		}),
-	)
-	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "1")
 	ev := &timebox.Event{
 		Timestamp: time.Now(),
@@ -375,9 +268,9 @@ func TestStoreTrimmedPlainAppend(t *testing.T) {
 		Data:      json.RawMessage(`5`),
 	}
 
-	assert.NoError(t, store.AppendEvents(ctx, id, 0, []*timebox.Event{ev}))
+	assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 
-	events, err := store.GetEvents(ctx, id, 0)
+	events, err := store.GetEvents(id, 0)
 	assert.NoError(t, err)
 	assert.Len(t, events, 1)
 	assert.Equal(t, EventIncremented, events[0].Type)
@@ -391,84 +284,49 @@ func TestStoreCombinedIndexing(t *testing.T) {
 		}
 
 		t.Run(mode, func(t *testing.T) {
-			withIndexedStore(t,
-				trimEvents, "combined-index", combinedIndexer,
-				func(
-					ctx context.Context, store *timebox.Store,
-					_ *redis.Client,
-				) {
-					id := timebox.NewAggregateID("order", "1")
+			withIndexedMemoryStore(t, trimEvents, combinedIndexer, func(
+				ctx context.Context, store *timebox.Store,
+			) {
+				id := timebox.NewAggregateID("order", "1")
 
-					assert.NoError(t,
-						store.AppendEvents(ctx, id, 0, []*timebox.Event{
-							combinedEvent(id, "active", "prod"),
-						}),
-					)
+				assert.NoError(t,
+					store.AppendEvents(id, 0, []*timebox.Event{
+						combinedEvent(id, "active", "prod"),
+					}),
+				)
 
-					statuses, err := store.ListAggregatesByStatus(
-						ctx, "active",
-					)
-					assert.NoError(t, err)
-					assert.Len(t, statuses, 1)
-					assert.Equal(t, id, statuses[0].ID)
+				statuses, err := store.ListAggregatesByStatus("active")
+				assert.NoError(t, err)
+				assert.Len(t, statuses, 1)
+				assert.Equal(t, id, statuses[0].ID)
 
-					values, err := store.ListLabelValues(ctx, "env")
-					assert.NoError(t, err)
-					assert.Equal(t, []string{"prod"}, values)
+				values, err := store.ListLabelValues("env")
+				assert.NoError(t, err)
+				assert.Equal(t, []string{"prod"}, values)
 
-					ids, err := store.ListAggregatesByLabel(
-						ctx, "env", "prod",
-					)
-					assert.NoError(t, err)
-					assert.Equal(t, []timebox.AggregateID{id}, ids)
-				},
-			)
+				ids, err := store.ListAggregatesByLabel("env", "prod")
+				assert.NoError(t, err)
+				assert.Equal(t, []timebox.AggregateID{id}, ids)
+			})
 		})
 	}
 }
 
-func TestNewStorePingError(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	addr := server.Addr()
-	server.Close()
-
-	store, err := timebox.NewStore(testStoreConfig(addr, nil))
-	assert.Error(t, err)
-	assert.Nil(t, store)
-}
-
-func withIndexedStore(
-	t *testing.T, trimEvents bool, prefix string, indexer timebox.Indexer,
-	fn func(context.Context, *timebox.Store, *redis.Client),
+func withIndexedMemoryStore(
+	t *testing.T, trimEvents bool, indexer timebox.Indexer,
+	fn func(context.Context, *timebox.Store),
 ) {
 	t.Helper()
 
-	server, err := miniredis.Run()
+	server, store, err := newMemoryStore(timebox.Config{
+		Snapshot: timebox.SnapshotConfig{TrimEvents: trimEvents},
+		Indexer:  indexer,
+	})
 	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = prefix
-			cfg.Snapshot.TrimEvents = trimEvents
-			cfg.Indexer = indexer
-		}),
-	)
-	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-	defer func() { _ = client.Close() }()
-
-	fn(context.Background(), store, client)
-}
-
-func withStatusStore(
-	t *testing.T, trimEvents bool, prefix string,
-	fn func(context.Context, *timebox.Store, *redis.Client),
-) {
-	withIndexedStore(t, trimEvents, prefix, statusIndexer, fn)
+	fn(context.Background(), store)
 }
 
 func combinedEvent(
@@ -509,8 +367,4 @@ func combinedIndexer(events []*timebox.Event) []*timebox.Index {
 		})
 	}
 	return res
-}
-
-func eventListKey(prefix string, id timebox.AggregateID) string {
-	return prefix + ":" + id.Join(":") + ":events"
 }

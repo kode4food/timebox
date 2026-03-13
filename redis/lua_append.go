@@ -1,10 +1,12 @@
-package timebox
+package redis
 
 import (
 	"fmt"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/kode4food/timebox"
 )
 
 type (
@@ -29,7 +31,7 @@ type (
 	}
 
 	luaAppendInput struct {
-		id       AggregateID
+		id       timebox.AggregateID
 		atSeq    int64
 		status   *string
 		statusAt string
@@ -276,43 +278,43 @@ func buildAppendLua(spec luaAppendSpec) string {
 	return b.out.String()
 }
 
-func buildLuaAppendCall(s *Store, in luaAppendInput) luaAppendCall {
+func buildLuaAppendCall(p *Persistence, in luaAppendInput) luaAppendCall {
 	ops := newLuaAppendOps(in.labels)
 	spec := luaAppendSpec{
-		trim:   s.config.Snapshot.TrimEvents,
+		trim:   p.config.Timebox.Snapshot.TrimEvents,
 		status: in.status != nil,
 		labels: len(ops) > 0,
 	}
 	return luaAppendCall{
 		spec: spec,
-		keys: buildLuaAppendKeys(s, in.id, spec),
-		args: buildLuaAppendArgs(in, ops, spec),
+		keys: buildLuaAppendKeys(p, in.id, spec),
+		args: buildLuaAppendArgs(p.config.JoinKey(in.id), in, ops, spec),
 	}
 }
 
 func buildLuaAppendKeys(
-	s *Store, id AggregateID, spec luaAppendSpec,
+	p *Persistence, id timebox.AggregateID, spec luaAppendSpec,
 ) []string {
-	keys := []string{s.buildKey(id, eventsSuffix)}
+	keys := []string{p.buildKey(id, eventsSuffix)}
 	if spec.status {
-		keys = append(keys, s.buildStatusHashKey())
+		keys = append(keys, p.buildStatusHashKey())
 	}
 	if spec.labels {
-		keys = append(keys, s.buildLabelStateKey(id))
-		keys = append(keys, s.buildLabelRootKey())
+		keys = append(keys, p.buildLabelStateKey(id))
+		keys = append(keys, p.buildLabelRootKey())
 	}
 	if spec.trim {
-		keys = append(keys, s.buildKey(id, snapshotSeqSuffix))
+		keys = append(keys, p.buildKey(id, snapshotSeqSuffix))
 	}
 	return keys
 }
 
 func buildLuaAppendArgs(
-	in luaAppendInput, ops []luaAppendOp, spec luaAppendSpec,
+	joinedID string, in luaAppendInput, ops []luaAppendOp, spec luaAppendSpec,
 ) []any {
 	args := []any{in.atSeq, len(in.events)}
 	if spec.status || spec.labels {
-		args = append(args, in.id.Join(":"))
+		args = append(args, joinedID)
 	}
 	if spec.status {
 		status := ""

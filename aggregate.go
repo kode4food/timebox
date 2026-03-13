@@ -40,16 +40,9 @@ type (
 
 	// ID is a single component of an AggregateID
 	ID string
-
-	// JoinKeyFunc joins the parts of an AggregateID into a string for use as
-	// the identity portion of a Redis key
-	JoinKeyFunc func(AggregateID) string
-
-	// ParseKeyFunc parses the identity portion of a Redis key back into an
-	// AggregateID
-	ParseKeyFunc func(string) AggregateID
 )
 
+// NewAggregateID builds an AggregateID from its parts
 func NewAggregateID(parts ...ID) AggregateID {
 	return parts
 }
@@ -58,17 +51,6 @@ func NewAggregateID(parts ...ID) AggregateID {
 func ParseAggregateID(str, sep string) AggregateID {
 	s := strings.Split(str, sep)
 	return *(*AggregateID)(unsafe.Pointer(&s))
-}
-
-// JoinKey is the default JoinKeyFunc; it joins AggregateID parts with ":"
-func JoinKey(id AggregateID) string {
-	return id.Join(":")
-}
-
-// ParseKey is the default ParseKeyFunc; it splits on ":" to reconstruct an
-// AggregateID
-func ParseKey(str string) AggregateID {
-	return ParseAggregateID(str, ":")
 }
 
 // Raise marshals the value and enqueues a new event on the Aggregator

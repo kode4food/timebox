@@ -1,9 +1,6 @@
 package timebox
 
-import (
-	"context"
-	"errors"
-)
+import "errors"
 
 type (
 	// Executor orchestrates loading aggregate state, executing commands, and
@@ -32,8 +29,8 @@ var (
 	ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 )
 
-// NewExecutor constructs an Executor bound to a Store with the given
-// appliers and state constructor
+// NewExecutor constructs an Executor bound to a Store with the given appliers
+// and state constructor
 func NewExecutor[T any](
 	store *Store, cons constructor[T], apps Appliers[T],
 	onSuccess ...SuccessAction[T],
@@ -60,12 +57,10 @@ func (e *Executor[T]) AppliesEvent(ev *Event) bool {
 
 // Exec loads the aggregate state, executes the command, and persists raised
 // events. It retries on version conflicts up to MaxRetries
-func (e *Executor[T]) Exec(
-	ctx context.Context, id AggregateID, cmd Command[T],
-) (T, error) {
+func (e *Executor[T]) Exec(id AggregateID, cmd Command[T]) (T, error) {
 	var zero T
 	for range e.store.config.MaxRetries {
-		proj, err := e.loadSnapshot(ctx, id)
+		proj, err := e.loadSnapshot(id)
 		if err != nil {
 			return zero, err
 		}
@@ -76,7 +71,7 @@ func (e *Executor[T]) Exec(
 		}
 
 		count, err := ag.flush(func(expectedSeq int64, evs []*Event) error {
-			return e.store.AppendEvents(ctx, id, expectedSeq, evs)
+			return e.store.AppendEvents(id, expectedSeq, evs)
 		})
 		if err == nil {
 			if count == 0 {
@@ -102,12 +97,12 @@ func (e *Executor[T]) Exec(
 }
 
 // SaveSnapshot forces an immediate snapshot save for the given Aggregate
-func (e *Executor[T]) SaveSnapshot(ctx context.Context, id AggregateID) error {
-	proj, err := e.loadSnapshot(ctx, id)
+func (e *Executor[T]) SaveSnapshot(id AggregateID) error {
+	proj, err := e.loadSnapshot(id)
 	if err != nil {
 		return err
 	}
-	return e.store.PutSnapshot(ctx, id, proj.state, proj.nextSeq)
+	return e.store.PutSnapshot(id, proj.state, proj.nextSeq)
 }
 
 func (e *Executor[T]) handleVersionConflict(
@@ -125,9 +120,7 @@ func (e *Executor[T]) handleVersionConflict(
 	return true
 }
 
-func (e *Executor[T]) loadSnapshot(
-	ctx context.Context, id AggregateID,
-) (*projection[T], error) {
+func (e *Executor[T]) loadSnapshot(id AggregateID) (*projection[T], error) {
 	key := id.Join(":")
 	entry := e.cache.Get(key, func() *projection[T] {
 		return &projection[T]{state: e.construct(), nextSeq: 0}
@@ -139,15 +132,15 @@ func (e *Executor[T]) loadSnapshot(
 		return entry.value, nil
 	}
 
-	return e.loadFromStore(ctx, id, entry)
+	return e.loadFromStore(id, entry)
 }
 
 func (e *Executor[T]) loadFromStore(
-	ctx context.Context, id AggregateID, entry *cacheEntry[*projection[T]],
+	id AggregateID, entry *cacheEntry[*projection[T]],
 ) (*projection[T], error) {
 	state := e.construct()
 
-	snap, err := e.store.GetSnapshot(ctx, id, &state)
+	snap, err := e.store.GetSnapshot(id, &state)
 	if err != nil {
 		return nil, err
 	}

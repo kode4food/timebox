@@ -24,8 +24,7 @@ type (
 	}
 )
 
-// NewSnapshotWorker creates and starts workers that persist snapshots
-func NewSnapshotWorker(store *Store) *SnapshotWorker {
+func newSnapshotWorker(store *Store) *SnapshotWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sw := &SnapshotWorker{
@@ -70,7 +69,7 @@ func (sw *SnapshotWorker) saveSnapshot(workerID int, req snapshotRequest) {
 	defer cancel()
 
 	start := time.Now()
-	err := sw.store.PutSnapshot(ctx, req.id, req.value, req.sequence)
+	err := sw.store.writeSnapshot(ctx, req.id, req.value, req.sequence)
 	duration := time.Since(start)
 
 	if err != nil {

@@ -1,14 +1,14 @@
 package timebox_test
 
 import (
-	"context"
 	"encoding/json"
+	"io"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/memory"
 )
 
 // Simple counter state for testing
@@ -46,34 +46,6 @@ var appliers = timebox.Appliers[*CounterState]{
 		res.Value = 0
 		return &res
 	},
-}
-
-// Integration tests
-
-func TestSparseConfig(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Shard = "blue"
-		}),
-	)
-	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	state, err := executor.Exec(
-		context.Background(),
-		timebox.NewAggregateID("counter", "1"),
-		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
-			return nil
-		},
-	)
-
-	assert.NoError(t, err)
-	assert.Equal(t, 0, state.Value)
 }
 
 func TestGetEventValue(t *testing.T) {
@@ -115,7 +87,6 @@ func TestStoreIndexer(t *testing.T) {
 				t,
 				func(cfg *timebox.Config) {
 					cfg.Snapshot.TrimEvents = trimEvents
-					cfg.Redis.Prefix = "store-indexer"
 					cfg.Indexer = func(
 						events []*timebox.Event,
 					) []*timebox.Index {
@@ -124,24 +95,20 @@ func TestStoreIndexer(t *testing.T) {
 					}
 				},
 			)
-			defer server.Close()
+			defer func() { _ = server.Close() }()
 			defer func() { _ = store.Close() }()
 
 			id := timebox.NewAggregateID("counter", "indexed")
 
-			state, err := executor.Exec(
-				context.Background(),
-				id,
-				func(
-					s *CounterState, ag *timebox.Aggregator[*CounterState],
-				) error {
-					return timebox.Raise(ag, EventIncremented, 2)
-				},
-			)
+			state, err := executor.Exec(id, func(
+				s *CounterState, ag *timebox.Aggregator[*CounterState],
+			) error {
+				return timebox.Raise(ag, EventIncremented, 2)
+			})
 			assert.NoError(t, err)
 			assert.Equal(t, 2, state.Value)
 
-			events, err := store.GetEvents(context.Background(), id, 0)
+			events, err := store.GetEvents(id, 0)
 			assert.NoError(t, err)
 			assert.Len(t, events, 1)
 		})
@@ -153,43 +120,36 @@ func newCounterState() *CounterState {
 }
 
 func setupTestExecutor(t *testing.T) (
-	*miniredis.Miniredis, *timebox.Store,
+	io.Closer, *timebox.Store,
 	*timebox.Executor[*CounterState],
 ) {
 	return setupTestExecutorWithConfig(t, nil)
 }
 
+func newMemoryStore(cfg timebox.Config) (io.Closer, *timebox.Store, error) {
+	p := memory.NewPersistence(cfg)
+	s, err := timebox.NewStore(p, cfg)
+	if err != nil {
+		_ = p.Close()
+		return nil, nil, err
+	}
+	return p, s, nil
+}
+
 func setupTestExecutorWithConfig(
 	t *testing.T, mutate func(*timebox.Config),
 ) (
-	*miniredis.Miniredis, *timebox.Store,
+	io.Closer, *timebox.Store,
 	*timebox.Executor[*CounterState],
 ) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-
-	storeCfg := testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-		cfg.Redis.Prefix = "test"
-	})
+	storeCfg := timebox.Config{}
 	if mutate != nil {
 		mutate(&storeCfg)
 	}
 
-	store, err := timebox.NewStore(storeCfg)
+	p, store, err := newMemoryStore(storeCfg)
 	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	return server, store, executor
-}
-
-func testStoreConfig(addr string, mutate func(*timebox.Config)) timebox.Config {
-	cfg := timebox.Config{
-		Redis: timebox.RedisConfig{
-			Addr: addr,
-		},
-	}
-	if mutate != nil {
-		mutate(&cfg)
-	}
-	return cfg
+	return p, store, executor
 }

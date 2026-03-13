@@ -2,32 +2,31 @@ package timebox_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/memory"
 )
 
 func TestBasicIncrement(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "1")
 
-	state, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 5)
-		},
-	)
+	state, err := executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 5)
+	})
 
 	assert.NoError(t, err)
 	assert.Equal(t, 5, state.Value)
@@ -35,105 +34,102 @@ func TestBasicIncrement(t *testing.T) {
 
 func TestMultipleOperations(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "1")
 
-	state, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 10)
-		},
-	)
+	state, err := executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 10)
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 10, state.Value)
 
-	state, err = executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			assert.Equal(t, 10, s.Value) // Previous state is loaded
-			return timebox.Raise(ag, EventIncremented, 5)
-		},
-	)
+	state, err = executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		assert.Equal(t, 10, s.Value) // Previous state is loaded
+		return timebox.Raise(ag, EventIncremented, 5)
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 15, state.Value)
 
-	state, err = executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return timebox.Raise(ag, EventDecremented, 3)
-		},
-	)
+	state, err = executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventDecremented, 3)
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 12, state.Value)
 
-	state, err = executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return timebox.Raise(ag, EventReset, struct{}{})
-		},
-	)
+	state, err = executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventReset, struct{}{})
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 0, state.Value)
 }
 
 func TestConcurrentWrites(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "concurrent")
 
 	for range 10 {
-		_, err := executor.Exec(ctx, id,
-			func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-				return timebox.Raise(ag, EventIncremented, 1)
-			},
-		)
+		_, err := executor.Exec(id, func(
+			s *CounterState, ag *timebox.Aggregator[*CounterState],
+		) error {
+			return timebox.Raise(ag, EventIncremented, 1)
+		})
 		assert.NoError(t, err)
 	}
 
-	finalState, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return nil
-		},
-	)
+	finalState, err := executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 10, finalState.Value)
 }
 
 func TestSequenceHandling(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "seq-test")
 
 	// Test 1: Raise multiple events in one Exec - sequences should start at 0
-	_, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.OnSuccess(func(_ *CounterState, events []*timebox.Event) {
-				assert.Len(t, events, 3)
-				assert.Equal(t, int64(0), events[0].Sequence)
-				assert.Equal(t, int64(1), events[1].Sequence)
-				assert.Equal(t, int64(2), events[2].Sequence)
-			})
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
-			}
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
-			}
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
-			}
-			return nil
-		},
-	)
+	_, err := executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		ag.OnSuccess(func(_ *CounterState, events []*timebox.Event) {
+			assert.Len(t, events, 3)
+			assert.Equal(t, int64(0), events[0].Sequence)
+			assert.Equal(t, int64(1), events[1].Sequence)
+			assert.Equal(t, int64(2), events[2].Sequence)
+		})
+		if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			return err
+		}
+		if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			return err
+		}
+		if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			return err
+		}
+		return nil
+	})
 	assert.NoError(t, err)
 
 	// Test 2: Read events from storage - sequences should be populated
-	events, err := store.GetEvents(ctx, id, 0)
+	events, err := store.GetEvents(id, 0)
 	assert.NoError(t, err)
 	assert.Len(t, events, 3)
 	assert.Equal(t, int64(0), events[0].Sequence)
@@ -141,27 +137,27 @@ func TestSequenceHandling(t *testing.T) {
 	assert.Equal(t, int64(2), events[2].Sequence)
 
 	// Test 3: Raise more events - sequences should continue from 3
-	_, err = executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			assert.Equal(t, int64(3), ag.NextSequence())
-			ag.OnSuccess(func(_ *CounterState, events []*timebox.Event) {
-				assert.Len(t, events, 2)
-				assert.Equal(t, int64(3), events[0].Sequence)
-				assert.Equal(t, int64(4), events[1].Sequence)
-			})
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
-			}
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
-			}
-			return nil
-		},
-	)
+	_, err = executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		assert.Equal(t, int64(3), ag.NextSequence())
+		ag.OnSuccess(func(_ *CounterState, events []*timebox.Event) {
+			assert.Len(t, events, 2)
+			assert.Equal(t, int64(3), events[0].Sequence)
+			assert.Equal(t, int64(4), events[1].Sequence)
+		})
+		if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			return err
+		}
+		if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			return err
+		}
+		return nil
+	})
 	assert.NoError(t, err)
 
 	// Test 4: Read all events from storage
-	allEvents, err := store.GetEvents(ctx, id, 0)
+	allEvents, err := store.GetEvents(id, 0)
 	assert.NoError(t, err)
 	assert.Len(t, allEvents, 5)
 	for i := range 5 {
@@ -169,7 +165,7 @@ func TestSequenceHandling(t *testing.T) {
 	}
 
 	// Test 5: Read events from offset - sequences should still be correct
-	partialEvents, err := store.GetEvents(ctx, id, 2)
+	partialEvents, err := store.GetEvents(id, 2)
 	assert.NoError(t, err)
 	assert.Len(t, partialEvents, 3)
 	assert.Equal(t, int64(2), partialEvents[0].Sequence)
@@ -179,7 +175,7 @@ func TestSequenceHandling(t *testing.T) {
 
 func TestAppliesEvent(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	// Test with event types that have appliers
@@ -199,45 +195,44 @@ func TestAppliesEvent(t *testing.T) {
 
 func TestConflictRetry(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	assert.Equal(t, store, executor.GetStore())
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "conflict")
 
 	injected := false
-	state, err := executor.Exec(ctx, id,
-		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			err := timebox.Raise(ag, EventIncremented, 1)
-			if err != nil {
-				return err
-			}
-			if injected {
-				return nil
-			}
+	state, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		err := timebox.Raise(ag, EventIncremented, 1)
+		if err != nil {
+			return err
+		}
+		if injected {
+			return nil
+		}
 
-			injected = true
-			ev := &timebox.Event{
-				Timestamp:   time.Now(),
-				Type:        EventIncremented,
-				AggregateID: id,
-				Data:        json.RawMessage(`1`),
-			}
-			return store.AppendEvents(ctx, id, 0, []*timebox.Event{ev})
-		},
-	)
+		injected = true
+		ev := &timebox.Event{
+			Timestamp:   time.Now(),
+			Type:        EventIncremented,
+			AggregateID: id,
+			Data:        json.RawMessage(`1`),
+		}
+		return store.AppendEvents(id, 0, []*timebox.Event{ev})
+	})
 
 	assert.NoError(t, err)
 	assert.Equal(t, 2, state.Value)
 
-	_, err = executor.Exec(ctx, id,
-		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			assert.Equal(t, id, ag.ID())
-			return nil
-		},
-	)
+	_, err = executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		assert.Equal(t, id, ag.ID())
+		return nil
+	})
 	assert.NoError(t, err)
 }
 
@@ -245,37 +240,33 @@ func TestMaxRetriesOverride(t *testing.T) {
 	server, store, executor := setupExecutorWithConfigs(
 		t,
 		timebox.Config{MaxRetries: 2},
-		testStoreConfig("", func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "retry-override"
-			cfg.MaxRetries = 1
-		}),
+		timebox.Config{MaxRetries: 1},
 	)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "retry-override")
 
 	injected := false
-	_, err := executor.Exec(ctx, id,
-		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
-			}
-			if injected {
-				return nil
-			}
-			injected = true
-			return store.AppendEvents(ctx, id, 0, []*timebox.Event{
-				{
-					Timestamp:   time.Now(),
-					Type:        EventIncremented,
-					AggregateID: id,
-					Data:        json.RawMessage(`1`),
-				},
-			})
-		},
-	)
+	_, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			return err
+		}
+		if injected {
+			return nil
+		}
+		injected = true
+		return store.AppendEvents(id, 0, []*timebox.Event{
+			{
+				Timestamp:   time.Now(),
+				Type:        EventIncremented,
+				AggregateID: id,
+				Data:        json.RawMessage(`1`),
+			},
+		})
+	})
 
 	assert.ErrorIs(t, err, timebox.ErrMaxRetriesExceeded)
 }
@@ -284,74 +275,63 @@ func TestMaxRetriesInherited(t *testing.T) {
 	server, store, executor := setupExecutorWithConfigs(
 		t,
 		timebox.Config{MaxRetries: 2},
-		testStoreConfig("", func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "retry-inherited"
-		}),
+		timebox.Config{},
 	)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "retry-inherited")
 
 	injected := false
-	state, err := executor.Exec(ctx, id,
-		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
-			}
-			if injected {
-				return nil
-			}
-			injected = true
-			return store.AppendEvents(ctx, id, 0, []*timebox.Event{
-				{
-					Timestamp:   time.Now(),
-					Type:        EventIncremented,
-					AggregateID: id,
-					Data:        json.RawMessage(`1`),
-				},
-			})
-		},
-	)
+	state, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			return err
+		}
+		if injected {
+			return nil
+		}
+		injected = true
+		return store.AppendEvents(id, 0, []*timebox.Event{
+			{
+				Timestamp:   time.Now(),
+				Type:        EventIncremented,
+				AggregateID: id,
+				Data:        json.RawMessage(`1`),
+			},
+		})
+	})
 
 	assert.NoError(t, err)
 	assert.Equal(t, 2, state.Value)
 }
 
 func TestCacheEviction(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer server.Close()
-
-	store, err := timebox.NewStore(
-		timebox.Config{CacheSize: 1},
-		testStoreConfig(server.Addr(), func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "evict"
-		}),
+	server, store := setupExecutorStore(
+		t, timebox.Config{CacheSize: 1}, timebox.Config{},
 	)
-	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	ctx := context.Background()
 
 	id1 := timebox.NewAggregateID("counter", "1")
 	id2 := timebox.NewAggregateID("counter", "2")
 
-	state, err := executor.Exec(ctx, id1,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 1)
-		},
-	)
+	state, err := executor.Exec(id1, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 1)
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, state.Value)
 
-	state, err = executor.Exec(ctx, id2,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 2)
-		},
-	)
+	state, err = executor.Exec(id2, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 2)
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, state.Value)
 }
@@ -360,12 +340,9 @@ func TestCacheSizeOverride(t *testing.T) {
 	server, store, executor, count := setupExecutorWithCacheConfigs(
 		t,
 		timebox.Config{CacheSize: 2},
-		testStoreConfig("", func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "cache-override"
-			cfg.CacheSize = 1
-		}),
+		timebox.Config{CacheSize: 1},
 	)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	assertCacheEviction(t, executor, count)
@@ -375,11 +352,9 @@ func TestCacheSizeInherited(t *testing.T) {
 	server, store, executor, count := setupExecutorWithCacheConfigs(
 		t,
 		timebox.Config{CacheSize: 1},
-		testStoreConfig("", func(cfg *timebox.Config) {
-			cfg.Redis.Prefix = "cache-inherited"
-		}),
+		timebox.Config{},
 	)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	assertCacheEviction(t, executor, count)
@@ -387,35 +362,33 @@ func TestCacheSizeInherited(t *testing.T) {
 
 func TestCommandError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "err")
 
-	_, err := executor.Exec(ctx, id,
-		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
-			return timebox.ErrUnexpectedLuaResult
-		},
-	)
+	_, err := executor.Exec(id, func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.ErrUnexpectedLuaResult
+	})
 
 	assert.Error(t, err)
 }
 
 func TestNoOpCommand(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "noop")
 
-	state, err := executor.Exec(ctx, id,
-		func(s *CounterState, _ *timebox.Aggregator[*CounterState]) error {
-			assert.Equal(t, 0, s.Value)
-			return nil
-		},
-	)
+	state, err := executor.Exec(id, func(
+		s *CounterState, _ *timebox.Aggregator[*CounterState],
+	) error {
+		assert.Equal(t, 0, s.Value)
+		return nil
+	})
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, state.Value)
@@ -423,12 +396,11 @@ func TestNoOpCommand(t *testing.T) {
 
 func TestRaiseError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.AggregateID{"raise", "error"}
-	_, err := executor.Exec(ctx, id, func(
+	_, err := executor.Exec(id, func(
 		_ *CounterState, ag *timebox.Aggregator[*CounterState],
 	) error {
 		ch := make(chan int)
@@ -445,7 +417,7 @@ func TestZeroCacheSize(t *testing.T) {
 
 func TestOnSuccessCallbacks(t *testing.T) {
 	server, store, _ := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	var buf bytes.Buffer
@@ -456,7 +428,6 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	slog.SetDefault(logger)
 	defer slog.SetDefault(prev)
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "on-success")
 
 	var called []int
@@ -478,38 +449,38 @@ func TestOnSuccessCallbacks(t *testing.T) {
 			}
 		},
 	)
-	_, err := executor.Exec(ctx, id,
-		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
-				called = append(called, 1)
-				values = append(values, state.Value)
-				eventCounts = append(eventCounts, len(evs))
-				if assert.Len(t, evs, 1) {
-					eventTypes = append(eventTypes, evs[0].Type)
-					assert.Equal(t, id, evs[0].AggregateID)
-					assert.Equal(t, int64(0), evs[0].Sequence)
-				}
-			})
-			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
-				called = append(called, 2)
-				values = append(values, state.Value)
-				eventCounts = append(eventCounts, len(evs))
-				if assert.Len(t, evs, 1) {
-					eventTypes = append(eventTypes, evs[0].Type)
-				}
-				panic("boom")
-			})
-			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
-				called = append(called, 3)
-				values = append(values, state.Value)
-				eventCounts = append(eventCounts, len(evs))
-				if assert.Len(t, evs, 1) {
-					eventTypes = append(eventTypes, evs[0].Type)
-				}
-			})
-			return timebox.Raise(ag, EventIncremented, 1)
-		},
-	)
+	_, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
+			called = append(called, 1)
+			values = append(values, state.Value)
+			eventCounts = append(eventCounts, len(evs))
+			if assert.Len(t, evs, 1) {
+				eventTypes = append(eventTypes, evs[0].Type)
+				assert.Equal(t, id, evs[0].AggregateID)
+				assert.Equal(t, int64(0), evs[0].Sequence)
+			}
+		})
+		ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
+			called = append(called, 2)
+			values = append(values, state.Value)
+			eventCounts = append(eventCounts, len(evs))
+			if assert.Len(t, evs, 1) {
+				eventTypes = append(eventTypes, evs[0].Type)
+			}
+			panic("boom")
+		})
+		ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
+			called = append(called, 3)
+			values = append(values, state.Value)
+			eventCounts = append(eventCounts, len(evs))
+			if assert.Len(t, evs, 1) {
+				eventTypes = append(eventTypes, evs[0].Type)
+			}
+		})
+		return timebox.Raise(ag, EventIncremented, 1)
+	})
 
 	assert.NoError(t, err)
 	assert.Equal(t, []int{0, 1, 2, 3}, called)
@@ -529,97 +500,87 @@ func TestOnSuccessCallbacks(t *testing.T) {
 
 func TestOnSuccessNoOp(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "on-success-noop")
 
 	called := false
-	state, err := executor.Exec(ctx, id,
-		func(s *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			assert.Equal(t, 0, s.Value)
-			ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
-				called = true
-				assert.Equal(t, 0, state.Value)
-				assert.Empty(t, evs)
-			})
-			return nil
-		},
-	)
+	state, err := executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		assert.Equal(t, 0, s.Value)
+		ag.OnSuccess(func(state *CounterState, evs []*timebox.Event) {
+			called = true
+			assert.Equal(t, 0, state.Value)
+			assert.Empty(t, evs)
+		})
+		return nil
+	})
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, state.Value)
 	assert.True(t, called)
 }
 
-func TestOnSuccessNotCalledOnError(t *testing.T) {
+func TestOnSuccessError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	ctx := context.Background()
 	id := timebox.NewAggregateID("counter", "on-success-error")
 
 	called := false
-	_, err := executor.Exec(ctx, id,
-		func(_ *CounterState, ag *timebox.Aggregator[*CounterState]) error {
-			ag.OnSuccess(func(*CounterState, []*timebox.Event) {
-				called = true
-			})
-			return errors.New("nope")
-		},
-	)
+	_, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		ag.OnSuccess(func(*CounterState, []*timebox.Event) {
+			called = true
+		})
+		return errors.New("nope")
+	})
 
 	assert.Error(t, err)
 	assert.False(t, called)
 }
 
 func assertCacheEviction(
-	t *testing.T,
-	executor *timebox.Executor[*CounterState],
-	count *int,
+	t *testing.T, executor *timebox.Executor[*CounterState], count *int,
 ) {
 	t.Helper()
 
-	ctx := context.Background()
 	id1 := timebox.NewAggregateID("counter", "1")
 	id2 := timebox.NewAggregateID("counter", "2")
 
-	_, err := executor.Exec(ctx, id1,
-		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
-			return nil
-		},
-	)
+	_, err := executor.Exec(id1, func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, *count)
 
-	_, err = executor.Exec(ctx, id2,
-		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
-			return nil
-		},
-	)
+	_, err = executor.Exec(id2, func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 4, *count)
 
-	_, err = executor.Exec(ctx, id1,
-		func(*CounterState, *timebox.Aggregator[*CounterState]) error {
-			return nil
-		},
-	)
+	_, err = executor.Exec(id1, func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, 6, *count)
 }
 
 func setupExecutorWithCacheConfigs(
-	t *testing.T,
-	tbCfg timebox.Config,
-	storeCfg timebox.Config,
+	t *testing.T, tbCfg, storeCfg timebox.Config,
 ) (
-	*miniredis.Miniredis,
-	*timebox.Store,
-	*timebox.Executor[*CounterState],
-	*int,
+	io.Closer, *timebox.Store, *timebox.Executor[*CounterState], *int,
 ) {
 	t.Helper()
 
@@ -633,13 +594,9 @@ func setupExecutorWithCacheConfigs(
 }
 
 func setupExecutorWithConfigs(
-	t *testing.T,
-	tbCfg timebox.Config,
-	storeCfg timebox.Config,
+	t *testing.T, tbCfg, storeCfg timebox.Config,
 ) (
-	*miniredis.Miniredis,
-	*timebox.Store,
-	*timebox.Executor[*CounterState],
+	io.Closer, *timebox.Store, *timebox.Executor[*CounterState],
 ) {
 	t.Helper()
 
@@ -649,20 +606,14 @@ func setupExecutorWithConfigs(
 }
 
 func setupExecutorStore(
-	t *testing.T,
-	tbCfg timebox.Config,
-	storeCfg timebox.Config,
-) (*miniredis.Miniredis, *timebox.Store) {
+	t *testing.T, tbCfg, storeCfg timebox.Config,
+) (io.Closer, *timebox.Store) {
 	t.Helper()
 
-	server, err := miniredis.Run()
+	cfg := timebox.Configure(tbCfg, storeCfg)
+	p := memory.NewPersistence(cfg)
+	store, err := timebox.NewStore(p, cfg)
 	assert.NoError(t, err)
 
-	if storeCfg.Redis.Addr == "" {
-		storeCfg.Redis.Addr = server.Addr()
-	}
-	store, err := timebox.NewStore(tbCfg, storeCfg)
-	assert.NoError(t, err)
-
-	return server, store
+	return p, store
 }

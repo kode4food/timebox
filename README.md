@@ -13,9 +13,10 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Distributed coordination** through a shared Redis/Valkey backend
 - **Archiving**: atomically move aggregate snapshots + events into a Redis stream
 - **Type-safe generics**: no interfaces to implement in your domain types
+
 ## Core Concepts
 
-- **Store**: Redis-backed persistence for events and snapshots.
+- **Store**: Concrete event store semantics over a pluggable persistence layer.
 - **Indexer/Index**: Optional append-time projection hook that can update status and label indexes atomically with event persistence.
 - **Executor/Aggregator/Command**: Executor loads state (from cache/snapshot/log), runs your command, and persists events raised on the Aggregator with optimistic retries.
 - **Appliers**: Pure functions that fold an event into aggregate state. `MakeApplier` lets you work with strongly typed payloads.
@@ -23,20 +24,24 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 
 ## Configuration
 
-Timebox uses a single `Config` type.
+Timebox uses `timebox.Config` for store behavior and `redis.Config` for the
+Redis-backed transport.
 
-- `NewStore(cfgs...)` applies each config on top of the defaults in order.
+- `redis.NewStore(cfgs...)` applies each `redis.Config` on top of the defaults
+  in order.
+- `timebox.NewStore(p, cfg)` builds a store over a supplied `Persistence`.
 
-`Config` fields:
+`timebox.Config` fields:
 
-- `Redis`: Redis/Valkey-specific store settings.
 - `Snapshot`: snapshot worker and event trimming settings.
 - `MaxRetries`: optimistic concurrency retry limit. Must be greater than zero.
 - `CacheSize`: executor projection cache size. Must be greater than zero.
 - `Archiving`: enables `Store.Archive` and `Store.ConsumeArchive`.
 - `Indexer`: optional function that derives index mutations from an appended event batch.
 
-`RedisConfig` fields:
+`redis.Config` fields:
+
+- `Timebox`: embedded `timebox.Config` used to configure the store layer.
 
 - `Addr`: Redis/Valkey host:port.
 - `Password`: Redis/Valkey password (optional).
@@ -65,8 +70,8 @@ Timebox uses a single `Config` type.
 
 Label indexing maintains two read paths:
 
-- `Store.ListLabelValues(ctx, label)`: returns the unique current values for a label.
-- `Store.ListAggregatesByLabel(ctx, label, value)`: returns the aggregate IDs indexed under a label/value pair.
+- `Store.ListLabelValues(label)`: returns the unique current values for a label.
+- `Store.ListAggregatesByLabel(label, value)`: returns the aggregate IDs indexed under a label/value pair.
 
 Label updates overwrite prior values for the same aggregate and label. Setting a label value to `""` removes that label from the aggregate and updates the index. Indexes are derived state and are only updated implicitly during append and archive operations.
 
@@ -94,7 +99,7 @@ The derived index keyspace lives under `idx:`:
 
 Archiving atomically moves an aggregate's snapshot and full event log into a Redis stream and clears the original keys. It is a one-way operation (no restore API).
 
-Enable it per store with `Archiving`, then call `Store.Archive(ctx, id)`.
+Enable it per store with `Archiving`, then call `Store.Archive(id)`.
 
 To consume archived records, call `Store.ConsumeArchive(ctx, handler)`, which blocks until work is available and processes a single record per call. For a timed wait, call `Store.PollArchive(ctx, timeout, handler)`. Processing is at-least-once, so handlers must be idempotent. Successful handling acknowledges and deletes the stream entry.
 

@@ -224,7 +224,7 @@ func TestMakeDispatcher(t *testing.T) {
 	})
 }
 
-func TestMakeHandlerWithDispatcher(t *testing.T) {
+func TestHandlerDispatcher(t *testing.T) {
 	t.Run("integration: typed handlers in dispatcher", func(t *testing.T) {
 		type UserCreated struct {
 			UserID string `json:"user_id"`
@@ -316,7 +316,7 @@ func TestHandlerCache(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestHandlerCacheKeepsOriginalType(t *testing.T) {
+func TestHandlerCacheType(t *testing.T) {
 	type CachedData struct {
 		Name string `json:"name"`
 	}

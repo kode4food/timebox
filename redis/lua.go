@@ -1,4 +1,4 @@
-package timebox
+package redis
 
 const (
 	luaGetEvents = `
