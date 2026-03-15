@@ -1,8 +1,10 @@
 package timebox_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +12,85 @@ import (
 
 	"github.com/kode4food/timebox"
 )
+
+type snapshotGatePersistence struct {
+	canSave bool
+	saveCh  chan struct{}
+	mu      sync.Mutex
+}
+
+func (p *snapshotGatePersistence) Close() error {
+	return nil
+}
+
+func (p *snapshotGatePersistence) Ready() <-chan struct{} {
+	return timebox.ReadyNow()
+}
+
+func (p *snapshotGatePersistence) Append(
+	timebox.AppendRequest,
+) (*timebox.AppendResult, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) LoadEvents(
+	timebox.AggregateID, int64,
+) (*timebox.EventsResult, error) {
+	return &timebox.EventsResult{}, nil
+}
+
+func (p *snapshotGatePersistence) LoadSnapshot(
+	timebox.AggregateID,
+) (*timebox.SnapshotRecord, error) {
+	return &timebox.SnapshotRecord{
+		Events: []json.RawMessage{snapshotGateEvent(1)},
+	}, nil
+}
+
+func (p *snapshotGatePersistence) SaveSnapshot(
+	context.Context, timebox.AggregateID, []byte, int64,
+) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	select {
+	case p.saveCh <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (p *snapshotGatePersistence) ListAggregates(
+	timebox.AggregateID,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) GetAggregateStatus(
+	timebox.AggregateID,
+) (string, error) {
+	return "", nil
+}
+
+func (p *snapshotGatePersistence) ListAggregatesByStatus(
+	string,
+) ([]timebox.StatusEntry, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) ListAggregatesByLabel(
+	string, string,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) ListLabelValues(string) ([]string, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) CanSaveSnapshot() bool {
+	return p.canSave
+}
 
 func TestSnapshotSaveTimeout(t *testing.T) {
 	server, store, err := newMemoryStore(timebox.Config{
@@ -308,6 +389,73 @@ func TestSaveSnapshot(t *testing.T) {
 	assert.Equal(t, 2, state.Value)
 }
 
+func TestSnapshotWorkerSkipsPersistenceThatCannotSave(t *testing.T) {
+	p := &snapshotGatePersistence{
+		saveCh: make(chan struct{}, 1),
+	}
+	store, err := timebox.NewStore(p, timebox.Config{
+		Snapshot: timebox.SnapshotConfig{
+			Workers:      true,
+			WorkerCount:  1,
+			MaxQueueSize: 1,
+			SaveTimeout:  time.Second,
+		},
+	})
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	_, err = executor.Exec(timebox.NewAggregateID("counter", "no-auto"), func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
+	assert.NoError(t, err)
+
+	assert.Never(t, func() bool {
+		select {
+		case <-p.saveCh:
+			return true
+		default:
+			return false
+		}
+	}, 100*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestSnapshotWorkerRunsWhenPersistenceCanSave(t *testing.T) {
+	p := &snapshotGatePersistence{
+		canSave: true,
+		saveCh:  make(chan struct{}, 1),
+	}
+	store, err := timebox.NewStore(p, timebox.Config{
+		Snapshot: timebox.SnapshotConfig{
+			Workers:      true,
+			WorkerCount:  1,
+			MaxQueueSize: 1,
+			SaveTimeout:  time.Second,
+		},
+	})
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	_, err = executor.Exec(timebox.NewAggregateID("counter", "auto"), func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
+	assert.NoError(t, err)
+
+	assert.Eventually(t, func() bool {
+		select {
+		case <-p.saveCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestSaveSnapshotLoadError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
@@ -373,4 +521,13 @@ func assertSnapshotWorkerTimedOut(
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, int64(0), result.NextSequence)
+}
+
+func snapshotGateEvent(delta int) json.RawMessage {
+	data, _ := json.Marshal(map[string]any{
+		"timestamp": time.Now().UTC(),
+		"type":      EventIncremented,
+		"data":      delta,
+	})
+	return data
 }

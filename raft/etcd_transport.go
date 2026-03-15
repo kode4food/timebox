@@ -1,0 +1,273 @@
+package raft
+
+import (
+	"bufio"
+	"encoding/binary"
+	"errors"
+	"io"
+	"net"
+	"sync"
+	"time"
+
+	"go.etcd.io/raft/v3/raftpb"
+)
+
+type (
+	raftTransport struct {
+		advertise ServerAddress
+		listener  *net.TCPListener
+		mu        sync.Mutex
+		peers     map[ServerAddress]*raftPeerConn
+		conns     map[net.Conn]struct{}
+		closed    bool
+	}
+
+	raftPeerConn struct {
+		conn net.Conn
+		wr   *bufio.Writer
+		mu   sync.Mutex
+	}
+)
+
+const (
+	defaultNetworkDialTimeout  = 10 * time.Second
+	defaultNetworkWriteTimeout = 200 * time.Millisecond
+)
+
+var ErrTransportClosed = errors.New("transport closed")
+
+func (t *raftTransport) Accept() (net.Conn, error) {
+	conn, err := t.listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	t.trackConn(conn)
+	return conn, nil
+}
+
+func (t *raftTransport) Close() error {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return nil
+	}
+	t.closed = true
+	peers := make([]*raftPeerConn, 0, len(t.peers))
+	for _, peer := range t.peers {
+		peers = append(peers, peer)
+	}
+	t.peers = nil
+	conns := make([]net.Conn, 0, len(t.conns))
+	for conn := range t.conns {
+		conns = append(conns, conn)
+	}
+	t.conns = nil
+	ln := t.listener
+	t.mu.Unlock()
+
+	var errs []error
+	errs = append(errs, ln.Close())
+	for _, peer := range peers {
+		errs = append(errs, peer.Close())
+	}
+	for _, conn := range conns {
+		errs = append(errs, conn.Close())
+	}
+	return errors.Join(errs...)
+}
+
+func (t *raftTransport) ServerAddress() ServerAddress {
+	if t.advertise != "" {
+		return t.advertise
+	}
+	return ServerAddress(t.listener.Addr().String())
+}
+
+func (t *raftTransport) Send(addr ServerAddress, msgs ...raftpb.Message) error {
+	peer, err := t.peer(addr)
+	if err != nil {
+		return err
+	}
+
+	if err := peer.Send(msgs...); err == nil {
+		return nil
+	}
+	t.dropPeer(addr, peer)
+
+	peer, err = t.peer(addr)
+	if err != nil {
+		return err
+	}
+	if err := peer.Send(msgs...); err != nil {
+		t.dropPeer(addr, peer)
+		return err
+	}
+	return nil
+}
+
+func (t *raftTransport) releaseConn(conn net.Conn) {
+	t.mu.Lock()
+	delete(t.conns, conn)
+	t.mu.Unlock()
+}
+
+func (t *raftTransport) trackConn(conn net.Conn) {
+	t.mu.Lock()
+	t.conns[conn] = struct{}{}
+	t.mu.Unlock()
+}
+
+func (t *raftTransport) peer(addr ServerAddress) (*raftPeerConn, error) {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return nil, ErrTransportClosed
+	}
+	if peer, ok := t.peers[addr]; ok {
+		t.mu.Unlock()
+		return peer, nil
+	}
+	t.mu.Unlock()
+
+	peer, err := newRaftPeerConn(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		_ = peer.Close()
+		return nil, ErrTransportClosed
+	}
+	if current, ok := t.peers[addr]; ok {
+		_ = peer.Close()
+		return current, nil
+	}
+	t.peers[addr] = peer
+	return peer, nil
+}
+
+func (t *raftTransport) dropPeer(addr ServerAddress, peer *raftPeerConn) {
+	t.mu.Lock()
+	if current, ok := t.peers[addr]; ok && current == peer {
+		delete(t.peers, addr)
+	}
+	t.mu.Unlock()
+	_ = peer.Close()
+}
+
+func (p *raftPeerConn) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.conn == nil {
+		return nil
+	}
+	err := p.conn.Close()
+	p.conn = nil
+	p.wr = nil
+	return err
+}
+
+func (p *raftPeerConn) Send(msgs ...raftpb.Message) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.conn == nil || p.wr == nil {
+		return ErrTransportClosed
+	}
+	_ = p.conn.SetDeadline(time.Now().Add(defaultNetworkWriteTimeout))
+	for _, msg := range msgs {
+		data, err := msg.Marshal()
+		if err != nil {
+			return err
+		}
+		if err := writeFrame(p.wr, data); err != nil {
+			return err
+		}
+	}
+	return p.wr.Flush()
+}
+
+func newRaftTransport(cfg Config) (*raftTransport, error) {
+	ln, err := net.Listen("tcp", cfg.BindAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	t := &raftTransport{
+		advertise: ServerAddress(cfg.ServerAddress()),
+		listener:  ln.(*net.TCPListener),
+		peers:     map[ServerAddress]*raftPeerConn{},
+		conns:     map[net.Conn]struct{}{},
+	}
+
+	if t.advertise == "" {
+		t.advertise = ServerAddress(t.listener.Addr().String())
+	}
+	return t, nil
+}
+
+func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
+	conn, err := net.DialTimeout(
+		"tcp", string(addr), defaultNetworkDialTimeout,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetNoDelay(true)
+	}
+	return &raftPeerConn{
+		conn: conn,
+		wr:   bufio.NewWriter(conn),
+	}, nil
+}
+
+func readTransportMessage(r *bufio.Reader) (raftpb.Message, error) {
+	data, err := readFrame(r)
+	if err != nil {
+		return raftpb.Message{}, err
+	}
+	var msg raftpb.Message
+	if err := msg.Unmarshal(data); err != nil {
+		return raftpb.Message{}, err
+	}
+	return msg, nil
+}
+
+func writeFrame(w *bufio.Writer, data []byte) error {
+	size := uint32(len(data))
+	if err := binary.Write(w, binary.BigEndian, size); err != nil {
+		return err
+	}
+	if size == 0 {
+		return nil
+	}
+	_, err := w.Write(data)
+	return err
+}
+
+func readFrame(r *bufio.Reader) ([]byte, error) {
+	var size uint32
+	if err := binary.Read(r, binary.BigEndian, &size); err != nil {
+		return nil, err
+	}
+	if size == 0 {
+		return nil, nil
+	}
+
+	data := make([]byte, size)
+	_, err := io.ReadFull(r, data)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func isClosedConn(err error) bool {
+	return errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF)
+}

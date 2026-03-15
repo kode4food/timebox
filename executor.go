@@ -154,7 +154,9 @@ func (e *Executor[T]) loadFromStore(
 		proj = e.applyEvents(state, snap.AdditionalEvents, snap.NextSequence)
 	}
 
-	if snap.ShouldSnapshot && e.store.snapshotWorker != nil {
+	if snap.ShouldSnapshot &&
+		e.store.snapshotWorker != nil &&
+		e.store.canSaveSnapshot() {
 		e.store.snapshotWorker.enqueue(id, proj.state, proj.nextSeq)
 	}
 

@@ -14,6 +14,9 @@ type (
 	Persistence interface {
 		io.Closer
 
+		// Ready reports when the persistence backend can serve requests
+		Ready() <-chan struct{}
+
 		// Append atomically appends events if the expected sequence still
 		// matches
 		Append(AppendRequest) (*AppendResult, error)
@@ -44,7 +47,10 @@ type (
 
 		// ListLabelValues lists the distinct indexed values for a label
 		ListLabelValues(label string) ([]string, error)
+	}
 
+	// Archiver provides optional archive lifecycle support for Store
+	Archiver interface {
 		// Archive moves an aggregate's persisted artifacts into archive storage
 		Archive(id AggregateID) error
 
@@ -122,9 +128,6 @@ type (
 )
 
 var (
-	// ErrPersistenceRequired indicates a Store requires a Persistence
-	ErrPersistenceRequired = errors.New("persistence is required")
-
 	// ErrUnexpectedResult indicates data returned in an unexpected shape
 	ErrUnexpectedResult = errors.New("unexpected result")
 

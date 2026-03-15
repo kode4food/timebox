@@ -14,8 +14,17 @@ import (
 
 type fakePersistence struct{}
 
+type fakeReadyPersistence struct {
+	fakePersistence
+	readyCh chan struct{}
+}
+
 func (f *fakePersistence) Close() error {
 	return nil
+}
+
+func (f *fakePersistence) Ready() <-chan struct{} {
+	return timebox.ReadyNow()
 }
 
 func (f *fakePersistence) Append(
@@ -70,20 +79,8 @@ func (f *fakePersistence) ListLabelValues(string) ([]string, error) {
 	return nil, nil
 }
 
-func (f *fakePersistence) Archive(timebox.AggregateID) error {
-	return nil
-}
-
-func (f *fakePersistence) ConsumeArchive(
-	context.Context, timebox.ArchiveHandler,
-) error {
-	return nil
-}
-
-func (f *fakePersistence) PollArchive(
-	context.Context, time.Duration, timebox.ArchiveHandler,
-) error {
-	return nil
+func (f *fakeReadyPersistence) Ready() <-chan struct{} {
+	return f.readyCh
 }
 
 func TestVersionConflictError(t *testing.T) {
@@ -98,11 +95,42 @@ func TestVersionConflictError(t *testing.T) {
 	assert.Contains(t, err.Error(), "but at 5")
 }
 
-func TestNewStoreNoRedisValidate(t *testing.T) {
+func TestNewStoreValidate(t *testing.T) {
 	store, err := timebox.NewStore(&fakePersistence{}, timebox.Config{})
 	assert.NoError(t, err)
 	assert.NotNil(t, store)
 	assert.NoError(t, store.Close())
+}
+
+func TestStoreReadyDefault(t *testing.T) {
+	store, err := timebox.NewStore(&fakePersistence{}, timebox.Config{})
+	assert.NoError(t, err)
+	assert.NotNil(t, store)
+	defer func() { _ = store.Close() }()
+
+	select {
+	case <-store.Ready():
+	default:
+		t.Fatal("expected default store readiness to be immediate")
+	}
+}
+
+func TestStoreWaitReady(t *testing.T) {
+	p := &fakeReadyPersistence{readyCh: make(chan struct{})}
+	store, err := timebox.NewStore(p, timebox.Config{})
+	assert.NoError(t, err)
+	assert.NotNil(t, store)
+	defer func() { _ = store.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	assert.ErrorIs(t, store.WaitReady(ctx), context.DeadlineExceeded)
+
+	close(p.readyCh)
+
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	assert.NoError(t, store.WaitReady(ctx))
 }
 
 func TestStoreConfigAndStatus(t *testing.T) {
@@ -217,6 +245,32 @@ func TestAppendConflict(t *testing.T) {
 	}
 	err = store.AppendEvents(id, 1, []*timebox.Event{ev})
 	assert.Error(t, err)
+}
+
+func TestArchiveUnsupported(t *testing.T) {
+	store, err := timebox.NewStore(&fakePersistence{}, timebox.Config{})
+	assert.NoError(t, err)
+	assert.NotNil(t, store)
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("order", "1")
+
+	err = store.Archive(id)
+	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
+
+	err = store.ConsumeArchive(context.Background(), func(
+		context.Context, *timebox.ArchiveRecord,
+	) error {
+		return nil
+	})
+	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
+
+	err = store.PollArchive(context.Background(), 0, func(
+		context.Context, *timebox.ArchiveRecord,
+	) error {
+		return nil
+	})
+	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
 }
 
 func TestListAggregates(t *testing.T) {

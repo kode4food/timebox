@@ -31,14 +31,14 @@ type (
 		NextSequence     int64
 		ShouldSnapshot   bool
 	}
+
+	snapshotSaver interface {
+		CanSaveSnapshot() bool
+	}
 )
 
 // NewStore creates a Store using a supplied Persistence
 func NewStore(p Persistence, cfg Config) (*Store, error) {
-	if p == nil {
-		return nil, ErrPersistenceRequired
-	}
-
 	cfg = Configure(DefaultConfig(), cfg)
 	if err := cfg.validateStore(); err != nil {
 		return nil, err
@@ -60,6 +60,21 @@ func newStore(cfg Config, p Persistence) *Store {
 // Config returns the Store configuration
 func (s *Store) Config() Config {
 	return s.config
+}
+
+// Ready reports when the underlying persistence can serve requests
+func (s *Store) Ready() <-chan struct{} {
+	return s.persistence.Ready()
+}
+
+// WaitReady blocks until the underlying persistence can serve requests
+func (s *Store) WaitReady(ctx context.Context) error {
+	select {
+	case <-s.Ready():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Close stops background workers and closes the underlying persistence
@@ -196,6 +211,13 @@ func (s *Store) writeSnapshot(
 	return s.persistence.SaveSnapshot(ctx, id, data, sequence)
 }
 
+func (s *Store) canSaveSnapshot() bool {
+	if p, ok := s.persistence.(snapshotSaver); ok {
+		return p.CanSaveSnapshot()
+	}
+	return true
+}
+
 // ListAggregates lists aggregate IDs that share the prefix of the provided id
 func (s *Store) ListAggregates(id AggregateID) ([]AggregateID, error) {
 	return s.persistence.ListAggregates(id)
@@ -227,21 +249,33 @@ func (s *Store) ListLabelValues(label string) ([]string, error) {
 
 // Archive moves aggregate artifacts to persistent archive storage
 func (s *Store) Archive(id AggregateID) error {
-	return s.persistence.Archive(id)
+	archiver, ok := s.persistence.(Archiver)
+	if !ok {
+		return ErrArchivingDisabled
+	}
+	return archiver.Archive(id)
 }
 
 // ConsumeArchive reads one archive record and invokes handler
 func (s *Store) ConsumeArchive(
 	ctx context.Context, handler ArchiveHandler,
 ) error {
-	return s.persistence.ConsumeArchive(ctx, handler)
+	archiver, ok := s.persistence.(Archiver)
+	if !ok {
+		return ErrArchivingDisabled
+	}
+	return archiver.ConsumeArchive(ctx, handler)
 }
 
 // PollArchive reads one archive record using the provided timeout
 func (s *Store) PollArchive(
 	ctx context.Context, timeout time.Duration, handler ArchiveHandler,
 ) error {
-	return s.persistence.PollArchive(ctx, timeout, handler)
+	archiver, ok := s.persistence.(Archiver)
+	if !ok {
+		return ErrArchivingDisabled
+	}
+	return archiver.PollArchive(ctx, timeout, handler)
 }
 
 func (e *VersionConflictError) Error() string {

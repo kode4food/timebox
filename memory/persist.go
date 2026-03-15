@@ -73,6 +73,11 @@ func (p *Persistence) Close() error {
 	return nil
 }
 
+// Ready reports that in-memory persistence can serve requests immediately
+func (p *Persistence) Ready() <-chan struct{} {
+	return timebox.ReadyNow()
+}
+
 // Append appends events if the expected sequence matches
 func (p *Persistence) Append(
 	req timebox.AppendRequest,
@@ -455,9 +460,6 @@ func (p *Persistence) checkClosed() error {
 }
 
 func cloneArchive(r *timebox.ArchiveRecord) *timebox.ArchiveRecord {
-	if r == nil {
-		return nil
-	}
 	return &timebox.ArchiveRecord{
 		StreamID:         r.StreamID,
 		AggregateID:      slices.Clone(r.AggregateID),

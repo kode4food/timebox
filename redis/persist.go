@@ -111,6 +111,11 @@ func (p *Persistence) Close() error {
 	return p.client.Close()
 }
 
+// Ready reports that Redis persistence can serve requests immediately
+func (p *Persistence) Ready() <-chan struct{} {
+	return timebox.ReadyNow()
+}
+
 // Append appends events if the expected sequence matches
 func (p *Persistence) Append(
 	req timebox.AppendRequest,

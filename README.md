@@ -2,7 +2,7 @@
 
 ![Build Status](https://github.com/kode4food/timebox/actions/workflows/build.yml/badge.svg) [![Code Coverage](https://qlty.sh/gh/kode4food/projects/timebox/coverage.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![Maintainability](https://qlty.sh/gh/kode4food/projects/timebox/maintainability.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![GitHub](https://img.shields.io/github/license/kode4food/timebox)](https://github.com/kode4food/timebox/blob/main/LICENSE.md)
 
-Timebox is a small, opinionated event sourcing library for Go backed by Redis or Valkey. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
+Timebox is a small, opinionated event sourcing library for Go with pluggable persistence backends including Redis/Valkey and etcd Raft + bbolt. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
 
 ## Features
 
@@ -10,8 +10,8 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 - **Optimistic concurrency** with automatic retries on conflicts
 - **Snapshots and caching** with background workers and LRU projection cache
 - **Indexing** through append-time projections for status and labels
-- **Distributed coordination** through a shared Redis/Valkey backend
-- **Archiving**: atomically move aggregate snapshots + events into a Redis stream
+- **Distributed coordination** through shared Redis/Valkey or etcd Raft backends
+- **Archiving**: atomically move aggregate snapshots + events into a Redis stream when using the Redis backend
 - **Type-safe generics**: no interfaces to implement in your domain types
 
 ## Core Concepts
@@ -24,10 +24,12 @@ Timebox is a small, opinionated event sourcing library for Go backed by Redis or
 
 ## Configuration
 
-Timebox uses `timebox.Config` for store behavior and `redis.Config` for the
-Redis-backed transport.
+Timebox uses `timebox.Config` for store behavior plus backend-specific config
+such as `redis.Config` or `raft.Config`.
 
 - `redis.NewStore(cfgs...)` applies each `redis.Config` on top of the defaults
+  in order.
+- `raft.NewStore(cfgs...)` applies each `raft.Config` on top of the defaults
   in order.
 - `timebox.NewStore(p, cfg)` builds a store over a supplied `Persistence`.
 
@@ -50,6 +52,19 @@ Redis-backed transport.
 - `DB`: Redis/Valkey database index.
 - `JoinKey`: function used to encode aggregate IDs into Redis keys.
 - `ParseKey`: function used to decode aggregate IDs from Redis keys.
+
+`raft.Config` fields:
+
+- `Timebox`: embedded `timebox.Config` used to configure the store layer.
+- `LocalID`: stable local Raft node ID.
+- `BindAddress`: local Raft listener address.
+- `AdvertiseAddress`: peer-visible Raft address.
+- `ForwardBindAddress`: local follower-forward listener.
+- `ForwardAdvertiseAddress`: peer-visible follower-forward address.
+- `DataDir`: durable local state directory.
+- `Servers`: bootstrap voter set.
+- `ApplyTimeout`: per-write replication timeout.
+- `SnapshotRetain`: retained Raft snapshot count for the durable etcd snapshot store.
 
 `SnapshotConfig` fields:
 
@@ -97,7 +112,7 @@ The derived index keyspace lives under `idx:`:
 
 ## Archiving
 
-Archiving atomically moves an aggregate's snapshot and full event log into a Redis stream and clears the original keys. It is a one-way operation (no restore API).
+Redis-backed archiving atomically moves an aggregate's snapshot and full event log into a Redis stream and clears the original keys. It is a one-way operation (no restore API). The Raft backend currently returns `timebox.ErrArchivingDisabled` for archive APIs.
 
 Enable it per store with `Archiving`, then call `Store.Archive(id)`.
 
