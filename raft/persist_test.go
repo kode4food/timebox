@@ -1,6 +1,7 @@
 package raft_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.etcd.io/bbolt"
 
 	"github.com/kode4food/timebox"
 	"github.com/kode4food/timebox/raft"
@@ -26,12 +28,10 @@ type (
 	}
 
 	nodeConfig struct {
-		id          string
-		addr        string
-		forwardAddr string
-		dataDir     string
-		compactStep int
-		trimEvents  bool
+		id         string
+		addr       string
+		dataDir    string
+		trimEvents bool
 	}
 )
 
@@ -145,6 +145,26 @@ func TestSnapshot(t *testing.T) {
 	assert.Equal(t, int64(1), evs[0].Sequence)
 }
 
+func TestSnapshotContext(t *testing.T) {
+	n := newNode(t, nodeConfig{
+		id: "node-1",
+	})
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := n.persistence.SaveSnapshot(
+		ctx, timebox.NewAggregateID("order", "ctx"), []byte(`{}`), 0,
+	)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
 func TestFollower(t *testing.T) {
 	nodes := newCluster(t, 3)
 	if len(nodes) != 3 {
@@ -205,7 +225,7 @@ func TestFollower(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 }
 
-func TestFollowerStatusReflectsForwardedWrites(t *testing.T) {
+func TestFollowerStatus(t *testing.T) {
 	nodes := newCluster(t, 3)
 	if len(nodes) != 3 {
 		return
@@ -251,7 +271,7 @@ func TestFollowerStatusReflectsForwardedWrites(t *testing.T) {
 	assert.Equal(t, "completed", status)
 }
 
-func TestReadySingleNode(t *testing.T) {
+func TestReadySingle(t *testing.T) {
 	n := newNode(t, nodeConfig{
 		id: "node-1",
 	})
@@ -291,7 +311,7 @@ func TestReadyCluster(t *testing.T) {
 	}
 }
 
-func TestDelayedJoinReplicates(t *testing.T) {
+func TestDelayedJoin(t *testing.T) {
 	srvs := make([]raft.Server, 0, 3)
 	cfgs := make([]nodeConfig, 0, 3)
 	for i := range 3 {
@@ -300,19 +320,13 @@ func TestDelayedJoinReplicates(t *testing.T) {
 		if !assert.NotEmpty(t, addr) {
 			return
 		}
-		forwardAddr := freeAddr(t)
-		if !assert.NotEmpty(t, forwardAddr) {
-			return
-		}
 		srvs = append(srvs, raft.Server{
-			ID:             id,
-			Address:        addr,
-			ForwardAddress: forwardAddr,
+			ID:      id,
+			Address: addr,
 		})
 		cfgs = append(cfgs, nodeConfig{
-			id:          id,
-			addr:        addr,
-			forwardAddr: forwardAddr,
+			id:   id,
+			addr: addr,
 		})
 	}
 
@@ -466,8 +480,10 @@ func TestRestart(t *testing.T) {
 	assert.Equal(t, []string{"stage"}, vals)
 }
 
-func TestRestartAfterCompaction(t *testing.T) {
+func TestRestartCompaction(t *testing.T) {
 	const count = 640
+
+	t.Setenv("TIMEBOX_RAFT_TEST_COMPACT_MIN_STEP", "512")
 
 	addr := freeAddr(t)
 	if addr == "" {
@@ -476,10 +492,9 @@ func TestRestartAfterCompaction(t *testing.T) {
 
 	dataDir := t.TempDir()
 	cfg := nodeConfig{
-		id:          "node-1",
-		addr:        addr,
-		dataDir:     dataDir,
-		compactStep: 512,
+		id:      "node-1",
+		addr:    addr,
+		dataDir: dataDir,
 	}
 
 	node := newNode(t, cfg)
@@ -503,10 +518,8 @@ func TestRestartAfterCompaction(t *testing.T) {
 	snapDir := filepath.Join(dataDir, "raft-snap")
 	assert.Eventually(t, func() bool {
 		count, err := countSnapshotFiles(snapDir)
-		return err == nil &&
-			count > 0 &&
-			count <= raft.DefaultSnapshotRetain
-	}, 15*time.Second, 100*time.Millisecond)
+		return err == nil && count == 1
+	}, 30*time.Second, 100*time.Millisecond)
 
 	if !assert.NoError(t, node.store.Close()) {
 		return
@@ -532,6 +545,419 @@ func TestRestartAfterCompaction(t *testing.T) {
 	assert.Equal(t, int64(count-1), evs[count-1].Sequence)
 }
 
+func TestCompactionPrune(t *testing.T) {
+	const count = 256
+
+	t.Setenv("TIMEBOX_RAFT_TEST_COMPACT_MIN_STEP", "64")
+
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "prune")
+	for i := range count {
+		err := n.store.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	snapDir := filepath.Join(cfg.dataDir, "raft-snap")
+	assert.Eventually(t, func() bool {
+		n, err := countSnapshotFiles(snapDir)
+		return err == nil && n == 1
+	}, 30*time.Second, 100*time.Millisecond)
+}
+
+func TestIndexes(t *testing.T) {
+	n := newNode(t, nodeConfig{
+		id: "node-1",
+	})
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "indexes")
+	base := time.Unix(1_700_000_000, 0).UTC()
+
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{
+		indexedEvent(id, "active", "prod", base),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	err = n.store.AppendEvents(id, 1, []*timebox.Event{
+		indexedEvent(id, "paused", "stage", base.Add(time.Minute)),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	status, err := n.store.GetAggregateStatus(id)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, "paused", status)
+
+	active, err := n.store.ListAggregatesByStatus("active")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, active)
+
+	paused, err := n.store.ListAggregatesByStatus("paused")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, []timebox.StatusEntry{{
+		ID:        id,
+		Timestamp: base.Add(time.Minute),
+	}}, paused)
+
+	prod, err := n.store.ListAggregatesByLabel("env", "prod")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, prod)
+
+	stage, err := n.store.ListAggregatesByLabel("env", "stage")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, []timebox.AggregateID{id}, stage)
+
+	vals, err := n.store.ListLabelValues("env")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, []string{"stage"}, vals)
+
+	err = n.store.AppendEvents(id, 2, []*timebox.Event{
+		indexedEvent(id, "", "", base.Add(2*time.Minute)),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	status, err = n.store.GetAggregateStatus(id)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, status)
+
+	paused, err = n.store.ListAggregatesByStatus("paused")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, paused)
+
+	stage, err = n.store.ListAggregatesByLabel("env", "stage")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, stage)
+
+	vals, err = n.store.ListLabelValues("env")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, vals)
+}
+
+func TestQueries(t *testing.T) {
+	for _, trimEvents := range []bool{false, true} {
+		name := "untrimmed"
+		if trimEvents {
+			name = "trimmed"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			n := newNode(t, nodeConfig{
+				id:         "node-1",
+				trimEvents: trimEvents,
+			})
+			if n == nil {
+				return
+			}
+			if !waitForWrite(t, n.store) {
+				return
+			}
+
+			first := timebox.NewAggregateID("order", "1")
+			second := timebox.NewAggregateID("order", "2")
+			third := timebox.NewAggregateID("invoice", "1")
+			base := time.Unix(1_700_000_000, 0).UTC()
+
+			assert.NoError(t, n.store.AppendEvents(first, 0, []*timebox.Event{
+				indexedEvent(first, "active", "prod", base),
+			}))
+			assert.NoError(t, n.store.AppendEvents(second, 0, []*timebox.Event{
+				indexedEvent(second, "active", "prod", base.Add(time.Minute)),
+			}))
+			assert.NoError(t, n.store.AppendEvents(third, 0, []*timebox.Event{
+				indexedEvent(third, "paused", "stage", base.Add(2*time.Minute)),
+			}))
+
+			ids, err := n.store.ListAggregates(timebox.NewAggregateID("order"))
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Equal(t, []timebox.AggregateID{first, second}, ids)
+
+			status, err := n.store.GetAggregateStatus(first)
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Equal(t, "active", status)
+
+			status, err = n.store.GetAggregateStatus(
+				timebox.NewAggregateID("missing", "1"),
+			)
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Empty(t, status)
+
+			active, err := n.store.ListAggregatesByStatus("active")
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Equal(t, []timebox.StatusEntry{
+				{ID: first, Timestamp: base},
+				{ID: second, Timestamp: base.Add(time.Minute)},
+			}, active)
+
+			missing, err := n.store.ListAggregatesByStatus("missing")
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Empty(t, missing)
+
+			prod, err := n.store.ListAggregatesByLabel("env", "prod")
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Equal(t, []timebox.AggregateID{first, second}, prod)
+
+			vals, err := n.store.ListLabelValues("env")
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Equal(t, []string{"prod", "stage"}, vals)
+		})
+	}
+}
+
+func TestLeaderRestart(t *testing.T) {
+	nodes := newCluster(t, 3)
+	if len(nodes) != 3 {
+		return
+	}
+
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+
+	followers := make([]*node, 0, 2)
+	for _, n := range nodes {
+		if n != leader {
+			followers = append(followers, n)
+		}
+	}
+	if !assert.Len(t, followers, 2) {
+		return
+	}
+
+	firstID := timebox.NewAggregateID("order", "restart-1")
+	err := followers[0].store.AppendEvents(firstID, 0, []*timebox.Event{
+		numberEvent(firstID, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	secondID := timebox.NewAggregateID("order", "restart-2")
+	err = followers[1].store.AppendEvents(secondID, 0, []*timebox.Event{
+		numberEvent(secondID, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	closeNode(t, leader)
+
+	alive := []*node{followers[0], followers[1]}
+	newLeader, ok := findLeader(t, alive)
+	if !ok {
+		return
+	}
+
+	var follower *node
+	for _, n := range alive {
+		if n != newLeader {
+			follower = n
+			break
+		}
+	}
+	if !assert.NotNil(t, follower) {
+		return
+	}
+
+	thirdID := timebox.NewAggregateID("order", "restart-3")
+	err = follower.store.AppendEvents(thirdID, 0, []*timebox.Event{
+		numberEvent(thirdID, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Eventually(t, func() bool {
+		evs, err := newLeader.store.GetEvents(thirdID, 0)
+		return err == nil && len(evs) == 1 && evs[0].Sequence == 0
+	}, 15*time.Second, 100*time.Millisecond)
+}
+
+func TestCorruptMeta(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "corrupt-meta")
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{
+		numberEvent(id, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	closeNode(t, n)
+	corruptMetaFile(t, cfg.dataDir)
+
+	_, err = raft.NewPersistence(testRaftConfig(cfg))
+	assert.Error(t, err)
+}
+
+func TestCorruptWAL(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "corrupt-wal")
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{
+		numberEvent(id, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	closeNode(t, n)
+	corruptWALFile(t, cfg.dataDir)
+
+	_, err = raft.NewPersistence(testRaftConfig(cfg))
+	assert.Error(t, err)
+}
+
+func TestRestartIndexes(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	first := timebox.NewAggregateID("order", "1")
+	second := timebox.NewAggregateID("order", "2")
+	base := time.Unix(1_700_000_000, 0).UTC()
+
+	assert.NoError(t, n.store.AppendEvents(first, 0, []*timebox.Event{
+		indexedEvent(first, "active", "prod", base),
+	}))
+	assert.NoError(t, n.store.AppendEvents(second, 0, []*timebox.Event{
+		indexedEvent(second, "paused", "stage", base.Add(time.Minute)),
+	}))
+
+	closeNode(t, n)
+
+	n = newNode(t, cfg)
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	status, err := n.store.GetAggregateStatus(first)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, "active", status)
+
+	paused, err := n.store.ListAggregatesByStatus("paused")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, []timebox.StatusEntry{{
+		ID:        second,
+		Timestamp: base.Add(time.Minute),
+	}}, paused)
+
+	stage, err := n.store.ListAggregatesByLabel("env", "stage")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, []timebox.AggregateID{second}, stage)
+
+	vals, err := n.store.ListLabelValues("env")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, []string{"prod", "stage"}, vals)
+}
+
 func newNode(t *testing.T, cfg nodeConfig) *node {
 	t.Helper()
 
@@ -547,30 +973,13 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 	if dataDir == "" {
 		dataDir = t.TempDir()
 	}
-	forwardAddr := cfg.forwardAddr
-	if forwardAddr == "" {
-		forwardAddr = freeAddr(t)
-		if forwardAddr == "" {
-			return nil
-		}
-	}
 
-	tbCfg := raft.Config{
-		LocalID:                 cfg.id,
-		DataDir:                 dataDir,
-		BindAddress:             addr,
-		ForwardBindAddress:      forwardAddr,
-		ForwardAdvertiseAddress: forwardAddr,
-		Bootstrap:               true,
-		ApplyTimeout:            5 * time.Second,
-		CompactMinStep:          cfg.compactStep,
-		Timebox: timebox.Config{
-			Indexer: combinedIndexer,
-			Snapshot: timebox.SnapshotConfig{
-				TrimEvents: cfg.trimEvents,
-			},
-		},
-	}
+	tbCfg := testRaftConfig(nodeConfig{
+		id:         cfg.id,
+		addr:       addr,
+		dataDir:    dataDir,
+		trimEvents: cfg.trimEvents,
+	})
 
 	persistence, err := raft.NewPersistence(tbCfg)
 	if !assert.NoError(t, err) {
@@ -594,6 +1003,52 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 		}
 	})
 	return n
+}
+
+func closeNode(t *testing.T, n *node) {
+	t.Helper()
+
+	if n == nil || n.store == nil {
+		return
+	}
+	assert.NoError(t, n.store.Close())
+	n.store = nil
+}
+
+func corruptMetaFile(t *testing.T, dataDir string) {
+	t.Helper()
+
+	db, err := bbolt.Open(filepath.Join(dataDir, "bbolt.db"), 0o600, nil)
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	err = db.Update(func(tx *bbolt.Tx) error {
+		c := tx.Bucket([]byte("timebox")).Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			if bytes.HasSuffix(k, []byte("/meta")) {
+				return tx.Bucket([]byte("timebox")).Put(k, []byte{0xff})
+			}
+		}
+		return assert.AnError
+	})
+	assert.NoError(t, err)
+}
+
+func corruptWALFile(t *testing.T, dataDir string) {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dataDir, "raft-wal", "*.wal"))
+	if !assert.NoError(t, err) {
+		return
+	}
+	if !assert.NotEmpty(t, matches) {
+		return
+	}
+	assert.NoError(t, os.WriteFile(matches[0], []byte("bad-wal"), 0o600))
 }
 
 func countSnapshotFiles(dir string) (int, error) {
@@ -626,38 +1081,23 @@ func newCluster(t *testing.T, n int) []*node {
 		if !assert.NotEmpty(t, addr) {
 			return nil
 		}
-		forwardAddr := freeAddr(t)
-		if !assert.NotEmpty(t, forwardAddr) {
-			return nil
-		}
 		srvs = append(srvs, raft.Server{
-			ID:             id,
-			Address:        addr,
-			ForwardAddress: forwardAddr,
+			ID:      id,
+			Address: addr,
 		})
 		cfgs = append(cfgs, nodeConfig{
-			id:          id,
-			addr:        addr,
-			forwardAddr: forwardAddr,
+			id:   id,
+			addr: addr,
 		})
 	}
 
 	for _, cfg := range cfgs {
-		tbCfg := raft.Config{
-			LocalID:                 cfg.id,
-			DataDir:                 t.TempDir(),
-			BindAddress:             cfg.addr,
-			AdvertiseAddress:        cfg.addr,
-			ForwardBindAddress:      cfg.forwardAddr,
-			ForwardAdvertiseAddress: cfg.forwardAddr,
-			Bootstrap:               true,
-			Servers:                 srvs,
-			ApplyTimeout:            5 * time.Second,
-			CompactMinStep:          cfg.compactStep,
-			Timebox: timebox.Config{
-				Indexer: combinedIndexer,
-			},
-		}
+		tbCfg := testRaftConfig(nodeConfig{
+			id:      cfg.id,
+			addr:    cfg.addr,
+			dataDir: t.TempDir(),
+		})
+		tbCfg.Servers = srvs
 
 		persistence, err := raft.NewPersistence(tbCfg)
 		if !assert.NoError(t, err) {
@@ -691,21 +1131,12 @@ func newCluster(t *testing.T, n int) []*node {
 func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 	t.Helper()
 
-	tbCfg := raft.Config{
-		LocalID:                 cfg.id,
-		DataDir:                 t.TempDir(),
-		BindAddress:             cfg.addr,
-		AdvertiseAddress:        cfg.addr,
-		ForwardBindAddress:      cfg.forwardAddr,
-		ForwardAdvertiseAddress: cfg.forwardAddr,
-		Bootstrap:               true,
-		Servers:                 srvs,
-		ApplyTimeout:            5 * time.Second,
-		CompactMinStep:          cfg.compactStep,
-		Timebox: timebox.Config{
-			Indexer: combinedIndexer,
-		},
-	}
+	tbCfg := testRaftConfig(nodeConfig{
+		id:      cfg.id,
+		addr:    cfg.addr,
+		dataDir: t.TempDir(),
+	})
+	tbCfg.Servers = srvs
 
 	p, err := raft.NewPersistence(tbCfg)
 	if !assert.NoError(t, err) {
@@ -743,6 +1174,20 @@ func waitForWrite(t *testing.T, store *timebox.Store) bool {
 		return err == nil
 	}, 15*time.Second, 100*time.Millisecond)
 	return ok
+}
+
+func testRaftConfig(cfg nodeConfig) raft.Config {
+	return raft.Config{
+		LocalID: cfg.id,
+		DataDir: cfg.dataDir,
+		Address: cfg.addr,
+		Timebox: timebox.Config{
+			Indexer: combinedIndexer,
+			Snapshot: timebox.SnapshotConfig{
+				TrimEvents: cfg.trimEvents,
+			},
+		},
+	}
 }
 
 func findLeader(t *testing.T, nodes []*node) (*node, bool) {

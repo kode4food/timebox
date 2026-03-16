@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,14 +45,7 @@ type (
 		compactPending uint64
 
 		// Cluster routing
-		forwarder         *forwardServer
-		forwardPool       *forwardPool
-		forwardAddr       ServerAddress
-		forwardByID       map[ServerID]ServerAddress
-		forwardByRaftAddr map[ServerAddress]ServerAddress
-		addrByNodeID      map[uint64]ServerAddress
-		idByNodeID        map[uint64]ServerID
-		forwardMu         sync.Mutex
+		peers map[uint64]peerInfo
 
 		// Background loops
 		bgWG      sync.WaitGroup
@@ -69,23 +63,18 @@ type (
 	ServerID      string
 	ServerAddress string
 	State         string
+
+	// peerInfo holds the addresses for one cluster member
+	peerInfo struct {
+		ID       ServerID
+		RaftAddr ServerAddress
+	}
 )
 
 const (
 	StateFollower  State = "follower"
 	StateCandidate State = "candidate"
 	StateLeader    State = "leader"
-	StateShutdown  State = "shutdown"
-
-	forwardRetryDelay  = 25 * time.Millisecond
-	forwardMaxAttempts = 3
-)
-
-var (
-	ErrNotLeader         = errors.New("not leader")
-	ErrBootstrapRequired = errors.New(
-		"raft bootstrap must be enabled when no local state exists",
-	)
 )
 
 var _ timebox.Persistence = (*Persistence)(nil)
@@ -130,13 +119,6 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	forwarder, err := newForwardServer(cfg)
-	if err != nil {
-		_ = tr.Close()
-		_ = log.Close()
-		_ = db.Close()
-		return nil, err
-	}
 
 	p := &Persistence{
 		db:         db,
@@ -145,14 +127,10 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 		storage:        log.memory,
 		raftLog:        log,
 		transport:      tr,
-		applyTimeout:   cfg.ApplyTimeout,
-		compactMinStep: uint64(cfg.CompactMinStep),
+		applyTimeout:   defaultApplyTimeout,
+		compactMinStep: compactMinStep(),
 
-		forwarder:         forwarder,
-		forwardByID:       forwardAddressesByID(cfg, forwarder),
-		forwardByRaftAddr: forwardAddressesByRaftAddr(cfg, forwarder, tr),
-		addrByNodeID:      serverAddressesByNodeID(cfg, tr),
-		idByNodeID:        serverIDsByNodeID(cfg, tr),
+		peers: buildPeerMap(cfg, tr),
 
 		readyCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),
@@ -162,7 +140,6 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents, p.setAggregateStatus)
 
 	if err := p.restoreMaterializedState(log.CommittedEntries()); err != nil {
-		_ = forwarder.Close()
 		_ = tr.Close()
 		_ = log.Close()
 		_ = db.Close()
@@ -170,7 +147,6 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	}
 	applied, err := loadLastApplied(db)
 	if err != nil {
-		_ = forwarder.Close()
 		_ = tr.Close()
 		_ = log.Close()
 		_ = db.Close()
@@ -189,9 +165,6 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	}
 
 	p.startLoops()
-	if cfg.ForwardBindAddress != "" {
-		p.serveForwarding()
-	}
 	return p, nil
 }
 
@@ -200,29 +173,13 @@ func (p *Persistence) Close() error {
 	var errs []error
 
 	p.stopOnce.Do(func() {
-		if p.stopCh != nil {
-			close(p.stopCh)
-		}
+		close(p.stopCh)
 	})
-	if p.node != nil {
-		p.node.Stop()
-	}
-	if p.transport != nil {
-		errs = append(errs, p.transport.Close())
-	}
-	if p.forwarder != nil {
-		errs = append(errs, p.forwarder.Close())
-	}
-	if pool := p.takeForwardPool(); pool != nil {
-		errs = append(errs, pool.Close())
-	}
+	p.node.Stop()
+	errs = append(errs, p.transport.Close())
 	p.bgWG.Wait()
-	if p.raftLog != nil {
-		errs = append(errs, p.raftLog.Close())
-	}
-	if p.db != nil {
-		errs = append(errs, p.db.Close())
-	}
+	errs = append(errs, p.raftLog.Close())
+	errs = append(errs, p.db.Close())
 	return errors.Join(errs...)
 }
 
@@ -230,11 +187,12 @@ func (p *Persistence) Close() error {
 func (p *Persistence) Append(
 	req timebox.AppendRequest,
 ) (*timebox.AppendResult, error) {
-	res, err := p.executeCommand(context.Background(), command{
-		Type:       commandAppend,
-		ProposalID: p.newProposalID(),
-		Append:     &appendCommand{Request: req},
-	})
+	res, err := p.applyWithTimeout(
+		context.Background(), command{
+			Type:   commandAppend,
+			Append: &appendCommand{Request: req},
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +206,9 @@ func (p *Persistence) LoadEvents(
 ) (*timebox.EventsResult, error) {
 	var res *timebox.EventsResult
 
+	encodedID := encodeAggregateID(id)
 	err := p.db.View(func(tx *bbolt.Tx) error {
-		meta, ok, err := loadMetaTx(tx.Bucket(bucketName), id)
+		meta, ok, err := loadMetaTx(tx.Bucket(bucketName), encodedID)
 		if err != nil {
 			return err
 		}
@@ -263,7 +222,7 @@ func (p *Persistence) LoadEvents(
 
 		startSeq := max(fromSeq, meta.BaseSequence)
 
-		evs, err := loadRawEventsTx(tx.Bucket(bucketName), id, startSeq)
+		evs, err := loadRawEventsTx(tx.Bucket(bucketName), encodedID, startSeq)
 		if err != nil {
 			return err
 		}
@@ -285,9 +244,10 @@ func (p *Persistence) LoadSnapshot(
 ) (*timebox.SnapshotRecord, error) {
 	var rec *timebox.SnapshotRecord
 
+	encodedID := encodeAggregateID(id)
 	err := p.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketName)
-		meta, ok, err := loadMetaTx(b, id)
+		meta, ok, err := loadMetaTx(b, encodedID)
 		if err != nil {
 			return err
 		}
@@ -298,14 +258,12 @@ func (p *Persistence) LoadSnapshot(
 
 		startSeq := max(meta.SnapshotSequence, meta.BaseSequence)
 
-		evs, err := loadRawEventsTx(b, id, startSeq)
+		evs, err := loadRawEventsTx(b, encodedID, startSeq)
 		if err != nil {
 			return err
 		}
 		rec = &timebox.SnapshotRecord{
-			Data: json.RawMessage(
-				cloneBytes(b.Get(aggregateSnapshotKey(id))),
-			),
+			Data:     cloneBytes(b.Get(aggregateSnapshotKey(encodedID))),
 			Sequence: meta.SnapshotSequence,
 			Events:   evs,
 		}
@@ -319,14 +277,14 @@ func (p *Persistence) LoadSnapshot(
 
 // SaveSnapshot submits snapshot state through the replicated log
 func (p *Persistence) SaveSnapshot(
-	ctx context.Context, id timebox.AggregateID, data []byte, sequence int64,
+	ctx context.Context, id timebox.AggregateID,
+	data []byte, sequence int64,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := p.executeCommand(ctx, command{
-		Type:       commandSnapshot,
-		ProposalID: p.newProposalID(),
+	_, err := p.applyWithTimeout(ctx, command{
+		Type: commandSnapshot,
 		Snapshot: &snapshotCommand{
 			ID:       id,
 			Data:     data,
@@ -339,7 +297,7 @@ func (p *Persistence) SaveSnapshot(
 // CanSaveSnapshot reports whether this node should originate background
 // Timebox snapshot writes
 func (p *Persistence) CanSaveSnapshot() bool {
-	if len(p.addrByNodeID) <= 1 {
+	if len(p.peers) <= 1 {
 		return true
 	}
 	return p.State() == StateLeader
@@ -357,8 +315,7 @@ func (p *Persistence) State() State {
 	}
 }
 
-// Ready reports when the local raft node can serve writes directly
-// or forward them
+// Ready reports when the local raft node can serve writes
 func (p *Persistence) Ready() <-chan struct{} {
 	return p.readyCh
 }
@@ -369,7 +326,8 @@ func (p *Persistence) LeaderWithID() (ServerAddress, ServerID) {
 	if lead == 0 {
 		return "", ""
 	}
-	return p.addrByNodeID[lead], p.idByNodeID[lead]
+	peer := p.peers[lead]
+	return peer.RaftAddr, peer.ID
 }
 
 // ListAggregates lists aggregates that match the provided prefix
@@ -384,6 +342,10 @@ func (p *Persistence) ListAggregates(
 		pfx := aggregateMetaPrefix()
 		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			key := string(k)
+			if !strings.HasSuffix(key, metaSuffix) {
+				k, _ = c.Next()
+				continue
+			}
 			enc := strings.TrimPrefix(key, aggRootPrefix)
 			enc = strings.TrimSuffix(enc, metaSuffix)
 			nextID, err := decodeAggregateID(enc)
@@ -569,12 +531,17 @@ func (p *Persistence) reloadStatusCache() error {
 		c := b.Cursor()
 		pfx := aggregateMetaPrefix()
 		for k, v := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
+			key := string(k)
+			if !strings.HasSuffix(key, metaSuffix) {
+				k, v = c.Next()
+				continue
+			}
 			meta, err := unmarshalMeta(v)
 			if err != nil {
 				return err
 			}
 			if meta.Status != "" {
-				key := string(bytes.TrimSuffix(
+				key = string(bytes.TrimSuffix(
 					bytes.TrimPrefix(k, []byte(aggRootPrefix)),
 					[]byte(metaSuffix),
 				))
@@ -598,96 +565,18 @@ func (p *Persistence) reloadStatusCache() error {
 	return nil
 }
 
-func (p *Persistence) executeCommand(
-	ctx context.Context, cmd command,
-) (*applyResult, error) {
-	for attempt := range forwardMaxAttempts {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		res, err := p.applyAsLeader(ctx, cmd)
-		switch {
-		case err == nil:
-			return normalizeApplyResult(res), nil
-		case !errors.Is(err, ErrNotLeader):
-			return nil, err
-		}
-
-		res, err = p.forwardCommand(ctx, cmd)
-		switch {
-		case err == nil:
-			return normalizeApplyResult(res), nil
-		case !errors.Is(err, ErrNotLeader):
-			return nil, err
-		}
-
-		if attempt == forwardMaxAttempts-1 {
-			break
-		}
-
-		timer := time.NewTimer(forwardRetryDelay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, ctx.Err()
-		case <-timer.C:
-		}
-	}
-
-	return nil, ErrNotLeader
-}
-
-func (p *Persistence) applyAsLeader(
-	ctx context.Context, cmd command,
-) (*applyResult, error) {
-	if p.State() != StateLeader {
-		return nil, ErrNotLeader
-	}
-	return p.applyWithTimeout(ctx, cmd)
-}
-
-func (p *Persistence) applyEncodedAsLeader(
-	ctx context.Context, data []byte,
-) (*applyResult, error) {
-	if p.State() != StateLeader {
-		return nil, ErrNotLeader
-	}
-	return p.applyEncoded(ctx, data)
-}
-
 func (p *Persistence) applyWithTimeout(
 	ctx context.Context, cmd command,
 ) (*applyResult, error) {
-	if cmd.ProposalID == "" {
-		cmd.ProposalID = p.newProposalID()
-	}
+	cmd.ProposalID = p.newProposalID()
 	data, err := encodeCommand(cmd)
 	if err != nil {
 		return nil, err
 	}
-	return p.applyEncoded(ctx, data)
-}
-
-func (p *Persistence) applyEncoded(
-	ctx context.Context, data []byte,
-) (*applyResult, error) {
 	timeout, err := p.commandTimeout(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cmd, err := decodeCommand(data)
-	if err != nil {
-		return nil, err
-	}
-	if cmd.ProposalID == "" {
-		cmd.ProposalID = p.newProposalID()
-		data, err = encodeCommand(*cmd)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	proposeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return p.propose(proposeCtx, data, cmd.ProposalID)
@@ -711,38 +600,6 @@ func (p *Persistence) commandTimeout(
 	return timeout, nil
 }
 
-func (p *Persistence) forwardPoolFor(
-	addr ServerAddress,
-) (*forwardPool, error) {
-	p.forwardMu.Lock()
-	if p.forwardPool != nil && p.forwardAddr == addr {
-		pool := p.forwardPool
-		p.forwardMu.Unlock()
-		return pool, nil
-	}
-
-	old := p.forwardPool
-	pool := newForwardPool(p.forwarder, addr)
-	p.forwardPool = pool
-	p.forwardAddr = addr
-	p.forwardMu.Unlock()
-
-	if old != nil {
-		_ = old.Close()
-	}
-	return pool, nil
-}
-
-func (p *Persistence) takeForwardPool() *forwardPool {
-	p.forwardMu.Lock()
-	defer p.forwardMu.Unlock()
-
-	pool := p.forwardPool
-	p.forwardPool = nil
-	p.forwardAddr = ""
-	return pool
-}
-
 func (p *Persistence) markReadyIfPossible() {
 	if p.State() == StateLeader {
 		p.markReady()
@@ -760,8 +617,6 @@ func (p *Persistence) markReady() {
 	})
 }
 
-func (p *Persistence) updateLeader(_ uint64) {}
-
 func (p *Persistence) markAppliedEntry(index uint64) error {
 	err := p.db.Update(func(tx *bbolt.Tx) error {
 		return markApplied(tx.Bucket(bucketName), index)
@@ -775,6 +630,15 @@ func (p *Persistence) markAppliedEntry(index uint64) error {
 
 func (p *Persistence) newProposalID() string {
 	return encodeSequence(int64(p.nextProposal.Add(1)))
+}
+
+func compactMinStep() uint64 {
+	if value := os.Getenv(testCompactStepEnv); value != "" {
+		if step, err := strconv.Atoi(value); err == nil && step > 0 {
+			return uint64(step)
+		}
+	}
+	return defaultCompactMinStep
 }
 
 func openBoltDB(path string) (*bbolt.DB, error) {
@@ -814,85 +678,31 @@ func bootstrapPeers(cfg Config, tr *raftTransport) []raft.Peer {
 	return res
 }
 
-func serverAddressesByNodeID(
+func buildPeerMap(
 	cfg Config, tr *raftTransport,
-) map[uint64]ServerAddress {
+) map[uint64]peerInfo {
 	srvs := cfg.Servers
 	if len(srvs) == 0 {
-		srvs = []Server{cfg.LocalServer()}
-		srvs[0].Address = string(tr.ServerAddress())
+		srv := cfg.LocalServer()
+		srv.Address = string(tr.ServerAddress())
+		srvs = []Server{srv}
 	}
 
-	res := make(map[uint64]ServerAddress, len(srvs))
+	res := make(map[uint64]peerInfo, len(srvs))
 	for _, srv := range srvs {
-		res[nodeID(srv.ID)] = ServerAddress(srv.Address)
+		res[nodeID(srv.ID)] = peerInfo{
+			ID:       ServerID(srv.ID),
+			RaftAddr: ServerAddress(srv.Address),
+		}
 	}
+
+	// Ensure local node uses actual listen address
+	localNID := nodeID(cfg.LocalID)
+	local := res[localNID]
+	local.ID = ServerID(cfg.LocalID)
 	if addr := tr.ServerAddress(); addr != "" {
-		res[nodeID(cfg.LocalID)] = addr
+		local.RaftAddr = addr
 	}
-	return res
-}
-
-func serverIDsByNodeID(cfg Config, tr *raftTransport) map[uint64]ServerID {
-	srvs := cfg.Servers
-	if len(srvs) == 0 {
-		srvs = []Server{cfg.LocalServer()}
-		srvs[0].Address = string(tr.ServerAddress())
-	}
-
-	res := make(map[uint64]ServerID, len(srvs))
-	for _, srv := range srvs {
-		res[nodeID(srv.ID)] = ServerID(srv.ID)
-	}
-	res[nodeID(cfg.LocalID)] = ServerID(cfg.LocalID)
-	return res
-}
-
-func forwardAddressesByID(
-	cfg Config, forwarder *forwardServer,
-) map[ServerID]ServerAddress {
-	if len(cfg.Servers) == 0 && forwarder == nil {
-		return nil
-	}
-
-	res := make(map[ServerID]ServerAddress, len(cfg.Servers))
-	for _, srv := range cfg.Servers {
-		if srv.ForwardAddress == "" {
-			continue
-		}
-		res[ServerID(srv.ID)] = ServerAddress(srv.ForwardAddress)
-	}
-
-	if forwarder != nil {
-		addr := forwarder.ServerAddress()
-		if addr != "" {
-			res[ServerID(cfg.LocalID)] = addr
-		}
-	}
-	return res
-}
-
-func forwardAddressesByRaftAddr(
-	cfg Config, forwarder *forwardServer, tr *raftTransport,
-) map[ServerAddress]ServerAddress {
-	if len(cfg.Servers) == 0 && forwarder == nil {
-		return nil
-	}
-
-	res := make(map[ServerAddress]ServerAddress, len(cfg.Servers))
-	for _, srv := range cfg.Servers {
-		if srv.Address == "" || srv.ForwardAddress == "" {
-			continue
-		}
-		res[ServerAddress(srv.Address)] = ServerAddress(srv.ForwardAddress)
-	}
-
-	if forwarder != nil {
-		raftAddr := tr.ServerAddress()
-		forwardAddr := forwarder.ServerAddress()
-		if raftAddr != "" && forwardAddr != "" {
-			res[raftAddr] = forwardAddr
-		}
-	}
+	res[localNID] = local
 	return res
 }

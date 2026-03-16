@@ -102,7 +102,22 @@ func (p *Persistence) serveReady() {
 					return
 				}
 				if err := p.handleReady(rd); err != nil {
-					p.handleLoopError(err)
+					p.pendingMu.Lock()
+					pending := p.pending
+					p.pending = map[string]chan proposalResult{}
+					p.pendingMu.Unlock()
+					for _, ch := range pending {
+						ch <- proposalResult{
+							res: &applyResult{
+								Code:    applyCodeInternal,
+								Message: err.Error(),
+							},
+						}
+					}
+					p.stopOnce.Do(func() {
+						close(p.stopCh)
+					})
+					p.node.Stop()
 					return
 				}
 			}
@@ -127,9 +142,6 @@ func (p *Persistence) handleReady(rd raft.Ready) error {
 	if err := p.applyBatch(rd.CommittedEntries); err != nil {
 		return err
 	}
-	if rd.SoftState != nil {
-		p.updateLeader(rd.SoftState.Lead)
-	}
 	p.markReadyIfPossible()
 	p.node.Advance()
 	return p.maybeProposeCompaction()
@@ -143,55 +155,96 @@ func (p *Persistence) applyBatch(ents []raftpb.Entry) error {
 	return p.applyCommittedEntries(append([]raftpb.Entry(nil), ents...))
 }
 
-func (p *Persistence) applyCommittedEntries(ents []raftpb.Entry) error {
+func (p *Persistence) applyCommittedEntries(
+	ents []raftpb.Entry,
+) error {
 	if len(ents) == 0 {
 		return nil
 	}
 
-	normal := make([]raftpb.Entry, 0, len(ents))
+	type pending struct {
+		proposalID string
+		index      uint64
+	}
+
+	var batch []decodedEntry
+	var ids []pending
+
 	flush := func() error {
-		if len(normal) == 0 {
+		if len(batch) == 0 {
 			return nil
 		}
 
-		results, err := p.fsm.ApplyEntries(normal)
+		results, err := p.fsm.applyEntries(batch)
 		if err != nil {
 			return err
 		}
-		for i, ent := range normal {
+		for i := range batch {
 			res := normalizeApplyResult(results[i])
-			p.resolveProposal(ent, res)
+			p.resolveProposal(ids[i].proposalID, res)
 			if err := res.Err(); err != nil {
 				return err
 			}
-			p.appliedIndex = ent.Index
+			p.appliedIndex = batch[i].index
 		}
-		normal = normal[:0]
+		batch = batch[:0]
+		ids = ids[:0]
 		return nil
 	}
 
 	for _, ent := range ents {
 		switch ent.Type {
-		case raftpb.EntryConfChange, raftpb.EntryConfChangeV2:
+		case raftpb.EntryConfChange,
+			raftpb.EntryConfChangeV2:
 			if err := flush(); err != nil {
 				return err
 			}
-			if err := p.applyCommittedEntry(ent); err != nil {
+			if err := p.applyConfChange(ent); err != nil {
 				return err
 			}
 		case raftpb.EntryNormal:
-			if peekCommandType(ent.Data) == commandCompact {
+			if len(ent.Data) == 0 {
+				batch = append(batch, decodedEntry{
+					index: ent.Index,
+					cmd:   &command{},
+				})
+				ids = append(ids, pending{
+					index: ent.Index,
+				})
+				continue
+			}
+			cmd, err := decodeCommand(ent.Data)
+			if err != nil {
+				return err
+			}
+			if cmd.Type == commandCompact {
 				if err := flush(); err != nil {
 					return err
 				}
-				if err := p.applyCommittedEntry(ent); err != nil {
+				if err := p.applyCompact(cmd); err != nil {
+					return err
+				}
+				if err := p.markAppliedEntry(ent.Index); err != nil {
 					return err
 				}
 				continue
 			}
-			normal = append(normal, ent)
+			batch = append(batch, decodedEntry{
+				index: ent.Index,
+				cmd:   cmd,
+			})
+			ids = append(ids, pending{
+				proposalID: cmd.ProposalID,
+				index:      ent.Index,
+			})
 		default:
-			normal = append(normal, ent)
+			batch = append(batch, decodedEntry{
+				index: ent.Index,
+				cmd:   &command{},
+			})
+			ids = append(ids, pending{
+				index: ent.Index,
+			})
 		}
 	}
 	return flush()
@@ -202,12 +255,12 @@ func (p *Persistence) sendMessages(msgs []raftpb.Message) {
 		if msg.To == 0 {
 			continue
 		}
-		addr, ok := p.addrByNodeID[msg.To]
-		if !ok || addr == "" {
+		peer, ok := p.peers[msg.To]
+		if !ok || peer.RaftAddr == "" {
 			p.node.ReportUnreachable(msg.To)
 			continue
 		}
-		err := p.transport.Send(addr, msg)
+		err := p.transport.Send(peer.RaftAddr, msg)
 		if err != nil {
 			p.node.ReportUnreachable(msg.To)
 			if msg.Type == raftpb.MsgSnap {
@@ -221,7 +274,9 @@ func (p *Persistence) sendMessages(msgs []raftpb.Message) {
 	}
 }
 
-func (p *Persistence) applyCommittedEntry(ent raftpb.Entry) error {
+func (p *Persistence) applyConfChange(
+	ent raftpb.Entry,
+) error {
 	switch ent.Type {
 	case raftpb.EntryConfChange:
 		if len(ent.Data) == 0 {
@@ -244,15 +299,6 @@ func (p *Persistence) applyCommittedEntry(ent raftpb.Entry) error {
 		p.node.ApplyConfChange(cc)
 		return p.markAppliedEntry(ent.Index)
 	default:
-		if peekCommandType(ent.Data) == commandCompact {
-			return p.applyCompactEntry(ent)
-		}
-		res := p.fsm.ApplyEntry(ent)
-		p.resolveProposal(ent, res)
-		if err := res.Err(); err != nil {
-			return err
-		}
-		p.appliedIndex = ent.Index
 		return nil
 	}
 }
@@ -281,19 +327,17 @@ func (p *Persistence) maybeProposeCompaction() error {
 	return nil
 }
 
-func (p *Persistence) applyCompactEntry(ent raftpb.Entry) error {
-	cmd, err := decodeCommand(ent.Data)
-	if err != nil {
-		return err
-	}
+func (p *Persistence) applyCompact(cmd *command) error {
 	if cmd.Compact == nil {
 		return ErrCompactCommandMissing
 	}
-	if err := p.raftLog.Compact(cmd.Compact.Index, p.confState()); err != nil {
+	if err := p.raftLog.Compact(
+		cmd.Compact.Index, p.confState(),
+	); err != nil {
 		return err
 	}
 	p.clearPendingCompaction()
-	return p.markAppliedEntry(ent.Index)
+	return nil
 }
 
 func (p *Persistence) propose(
@@ -333,15 +377,12 @@ func (p *Persistence) unregisterProposal(id string, ch chan proposalResult) {
 	p.pendingMu.Unlock()
 }
 
-func (p *Persistence) resolveProposal(ent raftpb.Entry, res *applyResult) {
-	if len(ent.Data) == 0 {
-		return
-	}
-	proposalID := decodeProposalID(ent.Data)
+func (p *Persistence) resolveProposal(
+	proposalID string, res *applyResult,
+) {
 	if proposalID == "" {
 		return
 	}
-
 	p.pendingMu.Lock()
 	ch, ok := p.pending[proposalID]
 	if ok {
@@ -351,25 +392,6 @@ func (p *Persistence) resolveProposal(ent raftpb.Entry, res *applyResult) {
 	if ok {
 		ch <- proposalResult{res: normalizeApplyResult(res)}
 	}
-}
-
-func (p *Persistence) failAllPending(err error) {
-	p.pendingMu.Lock()
-	pending := p.pending
-	p.pending = map[string]chan proposalResult{}
-	p.pendingMu.Unlock()
-
-	for _, ch := range pending {
-		ch <- proposalResult{res: encodeApplyError(applyCodeInternal, err)}
-	}
-}
-
-func (p *Persistence) handleLoopError(err error) {
-	p.failAllPending(err)
-	p.stopOnce.Do(func() {
-		close(p.stopCh)
-	})
-	p.node.Stop()
 }
 
 func (p *Persistence) beginCompaction(index uint64) bool {

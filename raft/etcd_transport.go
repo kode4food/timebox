@@ -191,7 +191,7 @@ func (p *raftPeerConn) Send(msgs ...raftpb.Message) error {
 }
 
 func newRaftTransport(cfg Config) (*raftTransport, error) {
-	ln, err := net.Listen("tcp", cfg.BindAddress)
+	ln, err := net.Listen("tcp", cfg.Address)
 	if err != nil {
 		return nil, err
 	}

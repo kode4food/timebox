@@ -38,30 +38,16 @@ func aggregateMetaPrefix() []byte {
 	return []byte(aggRootPrefix)
 }
 
-func aggregateMetaKeyEncoded(encodedID string) []byte {
+func aggregateMetaKey(encodedID string) []byte {
 	return []byte(aggRootPrefix + encodedID + metaSuffix)
 }
 
-func aggregateSnapshotKey(id timebox.AggregateID) []byte {
-	return aggregateSnapshotKeyEncoded(encodeAggregateID(id))
-}
-
-func aggregateSnapshotKeyEncoded(encodedID string) []byte {
+func aggregateSnapshotKey(encodedID string) []byte {
 	return []byte(aggRootPrefix + encodedID + snapshotSuffix)
 }
 
-func aggregateEventPrefix(id timebox.AggregateID) []byte {
-	return aggregateEventPrefixEncoded(encodeAggregateID(id))
-}
-
-func aggregateEventPrefixEncoded(encodedID string) []byte {
+func aggregateEventPrefix(encodedID string) []byte {
 	return []byte(aggRootPrefix + encodedID + eventPrefix)
-}
-
-func aggregateEventKey(id timebox.AggregateID, seq int64) []byte {
-	return aggregateEventKeyFromPrefix(
-		aggregateEventPrefixEncoded(encodeAggregateID(id)), seq,
-	)
 }
 
 func aggregateEventKeyFromPrefix(prefix []byte, seq int64) []byte {
@@ -75,7 +61,7 @@ func statusIndexPrefix(status string) []byte {
 	return []byte(statusRootPrefix + encodeKeyPart(status) + "/")
 }
 
-func statusIndexKeyEncoded(status, encodedID string) []byte {
+func statusIndexKey(status, encodedID string) []byte {
 	return []byte(
 		statusRootPrefix + encodeKeyPart(status) + "/" + encodedID,
 	)
@@ -88,7 +74,7 @@ func labelIndexPrefix(label, value string) []byte {
 	)
 }
 
-func labelIndexKeyEncoded(
+func labelIndexKey(
 	label, value, encodedID string,
 ) []byte {
 	return []byte(

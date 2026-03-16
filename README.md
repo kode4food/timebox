@@ -57,14 +57,9 @@ such as `redis.Config` or `raft.Config`.
 
 - `Timebox`: embedded `timebox.Config` used to configure the store layer.
 - `LocalID`: stable local Raft node ID.
-- `BindAddress`: local Raft listener address.
-- `AdvertiseAddress`: peer-visible Raft address.
-- `ForwardBindAddress`: local follower-forward listener.
-- `ForwardAdvertiseAddress`: peer-visible follower-forward address.
+- `Address`: node address used for Raft traffic.
 - `DataDir`: durable local state directory.
 - `Servers`: bootstrap voter set.
-- `ApplyTimeout`: per-write replication timeout.
-- `SnapshotRetain`: retained Raft snapshot count for the durable etcd snapshot store.
 
 `SnapshotConfig` fields:
 

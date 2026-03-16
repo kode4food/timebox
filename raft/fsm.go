@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"go.etcd.io/bbolt"
-	"go.etcd.io/raft/v3/raftpb"
 
 	"github.com/kode4food/timebox"
 )
@@ -18,21 +17,19 @@ type (
 		setStatus  func(timebox.AggregateID, string)
 	}
 
+	// decodedEntry pairs a raft log index with its decoded command
+	decodedEntry struct {
+		index uint64
+		cmd   *command
+	}
+
 	statusUpdate struct {
 		id     timebox.AggregateID
 		status string
 	}
 )
 
-func (f *fsm) ApplyEntry(ent raftpb.Entry) *applyResult {
-	res, err := f.ApplyEntries([]raftpb.Entry{ent})
-	if err != nil {
-		return encodeApplyError(applyCodeInternal, err)
-	}
-	return normalizeApplyResult(res[0])
-}
-
-func (f *fsm) ApplyEntries(ents []raftpb.Entry) ([]*applyResult, error) {
+func (f *fsm) applyEntries(ents []decodedEntry) ([]*applyResult, error) {
 	if len(ents) == 0 {
 		return nil, nil
 	}
@@ -47,46 +44,42 @@ func (f *fsm) ApplyEntries(ents []raftpb.Entry) ([]*applyResult, error) {
 			return err
 		}
 
-		for i, ent := range ents {
-			if ent.Index <= lastApplied {
+		for i, de := range ents {
+			if de.index <= lastApplied {
 				results[i] = &applyResult{}
 				continue
-			}
-			if len(ent.Data) == 0 {
-				results[i] = &applyResult{}
-				lastApplied = ent.Index
-				continue
-			}
-
-			cmd, err := decodeCommand(ent.Data)
-			if err != nil {
-				results[i] = encodeApplyError(applyCodeInvalidCommand, err)
-				break
 			}
 
 			var res *applyResult
 			var update *statusUpdate
 
-			switch cmd.Type {
+			switch de.cmd.Type {
 			case commandAppend:
-				if cmd.Append == nil {
+				if de.cmd.Append == nil {
 					results[i] = encodeApplyError(
-						applyCodeInvalidCommand, ErrAppendCommandMissing,
+						applyCodeInvalidCommand,
+						ErrAppendCommandMissing,
 					)
 					break
 				}
-				res, update, err = f.applyAppendTx(b, cmd.Append)
+				res, update, err = f.applyAppendTx(
+					b, de.cmd.Append,
+				)
 			case commandSnapshot:
-				if cmd.Snapshot == nil {
+				if de.cmd.Snapshot == nil {
 					results[i] = encodeApplyError(
-						applyCodeInvalidCommand, ErrSnapshotCommandMissing,
+						applyCodeInvalidCommand,
+						ErrSnapshotCommandMissing,
 					)
 					break
 				}
-				res, err = f.applySnapshotTx(b, cmd.Snapshot)
+				res, err = f.applySnapshotTx(
+					b, de.cmd.Snapshot,
+				)
 			default:
 				results[i] = encodeApplyError(
-					applyCodeInvalidCommand, ErrCommandTypeUnknown,
+					applyCodeInvalidCommand,
+					ErrCommandTypeUnknown,
 				)
 			}
 
@@ -95,7 +88,7 @@ func (f *fsm) ApplyEntries(ents []raftpb.Entry) ([]*applyResult, error) {
 			}
 
 			results[i] = res
-			lastApplied = ent.Index
+			lastApplied = de.index
 			if update != nil {
 				updates = append(updates, *update)
 			}
@@ -118,9 +111,9 @@ func (f *fsm) applyAppendTx(
 ) (*applyResult, *statusUpdate, error) {
 	req := cmd.Request
 	encodedID := encodeAggregateID(req.ID)
-	metaKey := aggregateMetaKeyEncoded(encodedID)
-	eventPrefix := aggregateEventPrefixEncoded(encodedID)
-	meta, err := loadOrCreateMetaTxEncoded(b, encodedID)
+	metaKey := aggregateMetaKey(encodedID)
+	evtPrefix := aggregateEventPrefix(encodedID)
+	meta, err := loadOrCreateMetaTx(b, encodedID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -128,7 +121,7 @@ func (f *fsm) applyAppendTx(
 	currentSeq := meta.CurrentSequence
 	if req.ExpectedSequence != currentSeq {
 		res, err := conflictResultTx(
-			b, req.ID, meta, req.ExpectedSequence,
+			b, encodedID, meta, req.ExpectedSequence,
 		)
 		return res, nil, err
 	}
@@ -136,7 +129,7 @@ func (f *fsm) applyAppendTx(
 	for i, event := range req.Events {
 		seq := currentSeq + int64(i)
 		if err := b.Put(
-			aggregateEventKeyFromPrefix(eventPrefix, seq), []byte(event),
+			aggregateEventKeyFromPrefix(evtPrefix, seq), []byte(event),
 		); err != nil {
 			return nil, nil, err
 		}
@@ -175,10 +168,10 @@ func (f *fsm) applySnapshotTx(
 	b *bbolt.Bucket, cmd *snapshotCommand,
 ) (*applyResult, error) {
 	encodedID := encodeAggregateID(cmd.ID)
-	metaKey := aggregateMetaKeyEncoded(encodedID)
-	snapshotKey := aggregateSnapshotKeyEncoded(encodedID)
-	eventPrefix := aggregateEventPrefixEncoded(encodedID)
-	meta, err := loadOrCreateMetaTxEncoded(b, encodedID)
+	metaKey := aggregateMetaKey(encodedID)
+	snapshotKey := aggregateSnapshotKey(encodedID)
+	evtPrefix := aggregateEventPrefix(encodedID)
+	meta, err := loadOrCreateMetaTx(b, encodedID)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +194,7 @@ func (f *fsm) applySnapshotTx(
 		if trimTo > meta.BaseSequence {
 			for seq := meta.BaseSequence; seq < trimTo; seq++ {
 				if err := b.Delete(
-					aggregateEventKeyFromPrefix(eventPrefix, seq),
+					aggregateEventKeyFromPrefix(evtPrefix, seq),
 				); err != nil {
 					return nil, err
 				}
@@ -237,7 +230,7 @@ func applyStatusMutation(
 ) error {
 	if meta.Status != "" && meta.Status != status {
 		if err := b.Delete(
-			statusIndexKeyEncoded(meta.Status, encodedID),
+			statusIndexKey(meta.Status, encodedID),
 		); err != nil {
 			return err
 		}
@@ -252,7 +245,7 @@ func applyStatusMutation(
 	meta.Status = status
 	meta.StatusAt = statusAt
 	return b.Put(
-		statusIndexKeyEncoded(status, encodedID), encodeInt64(statusAt),
+		statusIndexKey(status, encodedID), encodeInt64(statusAt),
 	)
 }
 
@@ -268,7 +261,7 @@ func applyLabelMutations(
 
 		if oldValue != "" {
 			if err := b.Delete(
-				labelIndexKeyEncoded(label, oldValue, encodedID),
+				labelIndexKey(label, oldValue, encodedID),
 			); err != nil {
 				return err
 			}
@@ -285,7 +278,7 @@ func applyLabelMutations(
 		}
 
 		if err := b.Put(
-			labelIndexKeyEncoded(label, value, encodedID), []byte{1},
+			labelIndexKey(label, value, encodedID), []byte{1},
 		); err != nil {
 			return err
 		}
@@ -313,10 +306,10 @@ func updateLabelValueCount(
 	return b.Put(key, encodeInt64(next))
 }
 
-func loadOrCreateMetaTxEncoded(
+func loadOrCreateMetaTx(
 	b *bbolt.Bucket, encodedID string,
 ) (*aggregateMeta, error) {
-	meta, ok, err := loadMetaTxEncoded(b, encodedID)
+	meta, ok, err := loadMetaTx(b, encodedID)
 	if err != nil {
 		return nil, err
 	}
@@ -327,15 +320,9 @@ func loadOrCreateMetaTxEncoded(
 }
 
 func loadMetaTx(
-	b *bbolt.Bucket, id timebox.AggregateID,
-) (*aggregateMeta, bool, error) {
-	return loadMetaTxEncoded(b, encodeAggregateID(id))
-}
-
-func loadMetaTxEncoded(
 	b *bbolt.Bucket, encodedID string,
 ) (*aggregateMeta, bool, error) {
-	value := b.Get(aggregateMetaKeyEncoded(encodedID))
+	value := b.Get(aggregateMetaKey(encodedID))
 	if len(value) == 0 {
 		return nil, false, nil
 	}
@@ -370,7 +357,7 @@ func markApplied(b *bbolt.Bucket, logIndex uint64) error {
 }
 
 func conflictResultTx(
-	b *bbolt.Bucket, id timebox.AggregateID, meta *aggregateMeta,
+	b *bbolt.Bucket, encodedID string, meta *aggregateMeta,
 	expectedSeq int64,
 ) (*applyResult, error) {
 	conflict := &timebox.AppendResult{
@@ -378,7 +365,7 @@ func conflictResultTx(
 	}
 	if expectedSeq < meta.CurrentSequence {
 		startSeq := max(expectedSeq, meta.BaseSequence)
-		evs, err := loadRawEventsTx(b, id, startSeq)
+		evs, err := loadRawEventsTx(b, encodedID, startSeq)
 		if err != nil {
 			return nil, err
 		}
@@ -388,20 +375,20 @@ func conflictResultTx(
 }
 
 func loadRawEventsTx(
-	b *bbolt.Bucket, id timebox.AggregateID, fromSeq int64,
+	b *bbolt.Bucket, encodedID string, fromSeq int64,
 ) ([]json.RawMessage, error) {
 	if fromSeq < 0 {
 		fromSeq = 0
 	}
 
 	c := b.Cursor()
-	pfx := aggregateEventPrefix(id)
+	pfx := aggregateEventPrefix(encodedID)
 	var events []json.RawMessage
-	for k, v := c.Seek(aggregateEventKey(id, fromSeq)); k != nil; {
+	for k, v := c.Seek(aggregateEventKeyFromPrefix(pfx, fromSeq)); k != nil; {
 		if !bytes.HasPrefix(k, pfx) {
 			break
 		}
-		events = append(events, json.RawMessage(slices.Clone(v)))
+		events = append(events, slices.Clone(v))
 		k, v = c.Next()
 	}
 	return events, nil

@@ -64,7 +64,7 @@ func (r *raftLog) Compact(index uint64, cs raftpb.ConfState) error {
 		return nil
 	}
 
-	snap, err := r.memory.CreateSnapshot(index, &cs, nil)
+	sn, err := r.memory.CreateSnapshot(index, &cs, nil)
 	switch {
 	case err == nil:
 	case errors.Is(err, raft.ErrSnapOutOfDate):
@@ -73,14 +73,14 @@ func (r *raftLog) Compact(index uint64, cs raftpb.ConfState) error {
 		return err
 	}
 
-	if err := r.log.SaveSnap(snap); err != nil {
+	if err := r.log.SaveSnap(sn); err != nil {
 		return err
 	}
 	if err := r.memory.Compact(index); err != nil &&
 		!errors.Is(err, raft.ErrCompacted) {
 		return err
 	}
-	if err := r.log.Release(snap); err != nil {
+	if err := r.log.Release(sn); err != nil {
 		return err
 	}
 
@@ -120,8 +120,8 @@ func committedEntries(
 func primeConfState(
 	lg *zap.Logger, ms *raft.MemoryStorage, ents []raftpb.Entry,
 ) error {
-	snap := raftpb.Snapshot{}
-	ids := storage.GetEffectiveNodeIDsFromWALEntries(lg, &snap, ents)
+	sn := raftpb.Snapshot{}
+	ids := storage.GetEffectiveNodeIDsFromWALEntries(lg, &sn, ents)
 	if len(ids) == 0 {
 		return nil
 	}
@@ -133,7 +133,7 @@ func primeConfState(
 
 	cs := raftpb.ConfState{Voters: ids}
 	_, err = ms.CreateSnapshot(lastIdx, &cs, nil)
-	if err == raft.ErrSnapOutOfDate {
+	if errors.Is(err, raft.ErrSnapOutOfDate) {
 		return nil
 	}
 	return err
@@ -144,10 +144,6 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 	walDir := filepath.Join(cfg.DataDir, raftWALDirName)
 	snapDir := filepath.Join(cfg.DataDir, raftSnapDirName)
 	haveWAL := wal.Exist(walDir)
-
-	if !haveWAL && !cfg.Bootstrap {
-		return nil, false, ErrBootstrapRequired
-	}
 
 	ss, err := openSnapshotter(lg, snapDir)
 	if err != nil {
@@ -192,7 +188,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		hardState:      hs,
 		entries:        filterEntriesAfter(ents, snapData.Metadata.Index),
 		snapshotDir:    snapDir,
-		snapshotRetain: cfg.SnapshotRetain,
+		snapshotRetain: defaultSnapshotRetain,
 	}
 	stateExists := haveWAL && (!raft.IsEmptyHardState(hs) ||
 		len(ents) != 0 || !raft.IsEmptySnap(snapData))

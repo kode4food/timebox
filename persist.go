@@ -65,19 +65,19 @@ type (
 
 	// AppendRequest contains primitive inputs required for an atomic append
 	AppendRequest struct {
-		ID               AggregateID
-		ExpectedSequence int64
-		Status           *string
-		StatusAt         string
-		Labels           map[string]string
-		Events           []string
+		ID               AggregateID       `json:"id"`
+		ExpectedSequence int64             `json:"expected_seq"`
+		Status           *string           `json:"status,omitempty"`
+		StatusAt         string            `json:"status_at,omitempty"`
+		Labels           map[string]string `json:"labels,omitempty"`
+		Events           []string          `json:"events"`
 	}
 
 	// AppendResult describes an optimistic concurrency conflict. A nil result
 	// means the append succeeded
 	AppendResult struct {
-		ActualSequence int64
-		NewEvents      []json.RawMessage
+		ActualSequence int64             `json:"actual_seq"`
+		NewEvents      []json.RawMessage `json:"new_events,omitempty"`
 	}
 
 	// EventsResult contains raw persisted events and the sequence to assign to
