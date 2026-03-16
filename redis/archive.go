@@ -75,17 +75,24 @@ func (p *Persistence) PollArchive(
 
 	streamKey := p.archiveStreamKey()
 	group := p.archiveGroup()
-	consumer := p.archiveConsumer()
-
 	if err := p.ensureArchiveGroup(ctx, streamKey, group); err != nil {
 		return err
 	}
 
-	rec, err := p.recoverArchive(ctx, streamKey, group, consumer, handler)
+	rec, err := p.recoverArchive(ctx, handler)
 	if err != nil || rec {
 		return err
 	}
 
+	return p.pollNewArchive(ctx, timeout, handler)
+}
+
+func (p *Persistence) pollNewArchive(
+	ctx context.Context, timeout time.Duration, handler timebox.ArchiveHandler,
+) error {
+	streamKey := p.archiveStreamKey()
+	group := p.archiveGroup()
+	consumer := p.archiveConsumer()
 	args := &redis.XReadGroupArgs{
 		Group:    group,
 		Consumer: consumer,
@@ -112,9 +119,11 @@ func (p *Persistence) PollArchive(
 }
 
 func (p *Persistence) recoverArchive(
-	ctx context.Context, stream, group, consumer string,
-	handler timebox.ArchiveHandler,
+	ctx context.Context, handler timebox.ArchiveHandler,
 ) (bool, error) {
+	stream := p.archiveStreamKey()
+	group := p.archiveGroup()
+	consumer := p.archiveConsumer()
 	args := &redis.XAutoClaimArgs{
 		Stream:   stream,
 		Group:    group,

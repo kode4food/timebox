@@ -162,33 +162,15 @@ func (p *Persistence) applyCommittedEntries(
 		return nil
 	}
 
-	type pending struct {
-		proposalID string
-		index      uint64
-	}
-
 	var batch []decodedEntry
-	var ids []pending
+	var propIDs []string
 
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-
-		results, err := p.fsm.applyEntries(batch)
-		if err != nil {
+	flushAndReset := func() error {
+		if err := p.flushBatch(batch, propIDs); err != nil {
 			return err
 		}
-		for i := range batch {
-			res := normalizeApplyResult(results[i])
-			p.resolveProposal(ids[i].proposalID, res)
-			if err := res.Err(); err != nil {
-				return err
-			}
-			p.appliedIndex = batch[i].index
-		}
 		batch = batch[:0]
-		ids = ids[:0]
+		propIDs = propIDs[:0]
 		return nil
 	}
 
@@ -196,7 +178,7 @@ func (p *Persistence) applyCommittedEntries(
 		switch ent.Type {
 		case raftpb.EntryConfChange,
 			raftpb.EntryConfChangeV2:
-			if err := flush(); err != nil {
+			if err := flushAndReset(); err != nil {
 				return err
 			}
 			if err := p.applyConfChange(ent); err != nil {
@@ -208,9 +190,7 @@ func (p *Persistence) applyCommittedEntries(
 					index: ent.Index,
 					cmd:   &command{},
 				})
-				ids = append(ids, pending{
-					index: ent.Index,
-				})
+				propIDs = append(propIDs, "")
 				continue
 			}
 			cmd, err := decodeCommand(ent.Data)
@@ -218,7 +198,7 @@ func (p *Persistence) applyCommittedEntries(
 				return err
 			}
 			if cmd.Type == commandCompact {
-				if err := flush(); err != nil {
+				if err := flushAndReset(); err != nil {
 					return err
 				}
 				if err := p.applyCompact(cmd); err != nil {
@@ -233,21 +213,37 @@ func (p *Persistence) applyCommittedEntries(
 				index: ent.Index,
 				cmd:   cmd,
 			})
-			ids = append(ids, pending{
-				proposalID: cmd.ProposalID,
-				index:      ent.Index,
-			})
+			propIDs = append(propIDs, cmd.ProposalID)
 		default:
 			batch = append(batch, decodedEntry{
 				index: ent.Index,
 				cmd:   &command{},
 			})
-			ids = append(ids, pending{
-				index: ent.Index,
-			})
+			propIDs = append(propIDs, "")
 		}
 	}
-	return flush()
+	return p.flushBatch(batch, propIDs)
+}
+
+func (p *Persistence) flushBatch(
+	batch []decodedEntry, propIDs []string,
+) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	results, err := p.fsm.applyEntries(batch)
+	if err != nil {
+		return err
+	}
+	for i := range batch {
+		res := normalizeApplyResult(results[i])
+		p.resolveProposal(propIDs[i], res)
+		if err := res.Err(); err != nil {
+			return err
+		}
+		p.appliedIndex = batch[i].index
+	}
+	return nil
 }
 
 func (p *Persistence) sendMessages(msgs []raftpb.Message) {

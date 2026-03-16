@@ -172,18 +172,27 @@ func (p *Persistence) SaveSnapshot(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-
 	key, parts, err := aggregateKey(id)
 	if err != nil {
 		return err
 	}
-
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := p.saveSnapshotTx(
+		ctx, tx, key, parts, data, sequence,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
+func (p *Persistence) saveSnapshotTx(
+	ctx context.Context, tx pgx.Tx, key string, parts []string, data []byte,
+	sequence int64,
+) error {
 	var baseSeq, snapSeq, nextSeq int64
 	found, err := p.loadSnapshotState(
 		ctx, tx, key, &baseSeq, &snapSeq, &nextSeq,
@@ -192,9 +201,7 @@ func (p *Persistence) SaveSnapshot(
 		return err
 	}
 	if !found {
-		if err := p.insertAggregate(
-			ctx, tx, key, parts,
-		); err != nil {
+		if err := p.insertAggregate(ctx, tx, key, parts); err != nil {
 			return err
 		}
 		found, err = p.loadSnapshotState(
@@ -229,7 +236,7 @@ func (p *Persistence) SaveSnapshot(
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO timebox_snapshot (
 			store, aggregate_key, base_seq,
 			snapshot_seq, snapshot_data
@@ -238,11 +245,8 @@ func (p *Persistence) SaveSnapshot(
 		SET base_seq = EXCLUDED.base_seq,
 		    snapshot_seq = EXCLUDED.snapshot_seq,
 		    snapshot_data = EXCLUDED.snapshot_data
-	`, p.store, key, newBase, sequence, string(data)); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
+	`, p.store, key, newBase, sequence, string(data))
+	return err
 }
 
 // ListAggregates lists aggregate IDs matching the given prefix

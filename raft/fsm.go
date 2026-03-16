@@ -111,8 +111,6 @@ func (f *fsm) applyAppendTx(
 ) (*applyResult, *statusUpdate, error) {
 	req := cmd.Request
 	encodedID := encodeAggregateID(req.ID)
-	metaKey := aggregateMetaKey(encodedID)
-	evtPrefix := aggregateEventPrefix(encodedID)
 	meta, err := loadOrCreateMetaTx(b, encodedID)
 	if err != nil {
 		return nil, nil, err
@@ -126,26 +124,12 @@ func (f *fsm) applyAppendTx(
 		return res, nil, err
 	}
 
-	for i, event := range req.Events {
-		seq := currentSeq + int64(i)
-		if err := b.Put(
-			aggregateEventKeyFromPrefix(evtPrefix, seq), []byte(event),
-		); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	if req.Status != nil {
-		if err := applyStatusMutation(
-			b, meta, encodedID, *req.Status, parseStatusAt(req.StatusAt),
-		); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	if err := applyLabelMutations(
-		b, meta, encodedID, req.Labels,
+	if err := writeEventsTx(
+		b, aggregateEventPrefix(encodedID), currentSeq, req.Events,
 	); err != nil {
+		return nil, nil, err
+	}
+	if err := applyMutationsTx(b, meta, encodedID, req); err != nil {
 		return nil, nil, err
 	}
 
@@ -154,7 +138,7 @@ func (f *fsm) applyAppendTx(
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := b.Put(metaKey, data); err != nil {
+	if err := b.Put(aggregateMetaKey(encodedID), data); err != nil {
 		return nil, nil, err
 	}
 
@@ -224,29 +208,47 @@ func newFSM(
 	}
 }
 
-func applyStatusMutation(
-	b *bbolt.Bucket, meta *aggregateMeta, encodedID string, status string,
-	statusAt int64,
+func writeEventsTx(
+	b *bbolt.Bucket, evtPrefix []byte, baseSeq int64, events []string,
 ) error {
-	if meta.Status != "" && meta.Status != status {
-		if err := b.Delete(
-			statusIndexKey(meta.Status, encodedID),
-		); err != nil {
+	for i, event := range events {
+		key := aggregateEventKeyFromPrefix(evtPrefix, baseSeq+int64(i))
+		if err := b.Put(key, []byte(event)); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	if status == "" {
-		meta.Status = ""
-		meta.StatusAt = 0
-		return nil
+func applyMutationsTx(
+	b *bbolt.Bucket, meta *aggregateMeta, encodedID string,
+	req timebox.AppendRequest,
+) error {
+	if req.Status != nil {
+		status := *req.Status
+		statusAt := parseStatusAt(req.StatusAt)
+		if meta.Status != "" && meta.Status != status {
+			if err := b.Delete(
+				statusIndexKey(meta.Status, encodedID),
+			); err != nil {
+				return err
+			}
+		}
+		if status == "" {
+			meta.Status = ""
+			meta.StatusAt = 0
+		} else {
+			meta.Status = status
+			meta.StatusAt = statusAt
+			if err := b.Put(
+				statusIndexKey(status, encodedID),
+				encodeInt64(statusAt),
+			); err != nil {
+				return err
+			}
+		}
 	}
-
-	meta.Status = status
-	meta.StatusAt = statusAt
-	return b.Put(
-		statusIndexKey(status, encodedID), encodeInt64(statusAt),
-	)
+	return applyLabelMutations(b, meta, encodedID, req.Labels)
 }
 
 func applyLabelMutations(

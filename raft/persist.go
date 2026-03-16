@@ -96,11 +96,13 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, err
 	}
+	return openPersistence(cfg)
+}
 
+func openPersistence(cfg Config) (*Persistence, error) {
 	dbPath := filepath.Join(cfg.DataDir, "bbolt.db")
 	db, err := openBoltDB(dbPath)
 	if err != nil {

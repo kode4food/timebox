@@ -186,6 +186,30 @@ func TestAppendLabelsOnly(t *testing.T) {
 	})
 }
 
+func TestStatusOnlyAppend(t *testing.T) {
+	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
+		p, err := postgres.NewPersistence(cfg)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = p.Close() }()
+
+		s := "active"
+		id := timebox.NewAggregateID("order", "status-only")
+		_, err = p.Append(timebox.AppendRequest{
+			ID:               id,
+			ExpectedSequence: 0,
+			Status:           &s,
+			Events:           []string{`{}`},
+		})
+		assert.NoError(t, err)
+
+		status, err := p.GetAggregateStatus(id)
+		assert.NoError(t, err)
+		assert.Equal(t, "active", status)
+	})
+}
+
 func TestAppendBadStatusAt(t *testing.T) {
 	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
 		p, err := postgres.NewPersistence(cfg)

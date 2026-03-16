@@ -354,6 +354,39 @@ func TestNewPersistenceBadURL(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestClosedPersistence(t *testing.T) {
+	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
+		p, err := postgres.NewPersistence(cfg)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.NoError(t, p.Close())
+
+		id := timebox.NewAggregateID("order", "closed")
+
+		_, err = p.LoadEvents(id, 0)
+		assert.Error(t, err)
+
+		_, err = p.LoadSnapshot(id)
+		assert.Error(t, err)
+
+		err = p.SaveSnapshot(context.Background(), id, []byte("{}"), 0)
+		assert.Error(t, err)
+
+		_, err = p.ListAggregates(nil)
+		assert.Error(t, err)
+
+		_, err = p.ListAggregatesByStatus("x")
+		assert.Error(t, err)
+
+		_, err = p.ListAggregatesByLabel("k", "v")
+		assert.Error(t, err)
+
+		_, err = p.ListLabelValues("k")
+		assert.Error(t, err)
+	})
+}
+
 func TestNewPersistenceInvalidURL(t *testing.T) {
 	_, err := postgres.NewPersistence(postgres.Config{
 		URL:      "://",

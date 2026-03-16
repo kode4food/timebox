@@ -1,4 +1,4 @@
-package memory
+package memory_test
 
 import (
 	"context"
@@ -10,17 +10,27 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/memory"
 )
 
 func TestNewStore(t *testing.T) {
-	store, err := NewStore(timebox.Config{})
+	store, err := memory.NewStore(timebox.Config{})
 	assert.NoError(t, err)
 	assert.NotNil(t, store)
 	assert.NoError(t, store.Close())
 }
 
+func TestReady(t *testing.T) {
+	p := memory.NewPersistence()
+	select {
+	case <-p.Ready():
+	default:
+		t.Fatal("Ready channel should be closed")
+	}
+}
+
 func TestAppendAndLoadEvents(t *testing.T) {
-	p := NewPersistence()
+	p := memory.NewPersistence()
 	id := timebox.NewAggregateID("order", "1")
 
 	res, err := p.Append(timebox.AppendRequest{
@@ -41,7 +51,7 @@ func TestAppendAndLoadEvents(t *testing.T) {
 }
 
 func TestAppendConflictTrailing(t *testing.T) {
-	p := NewPersistence()
+	p := memory.NewPersistence()
 	id := timebox.NewAggregateID("order", "1")
 
 	_, err := p.Append(timebox.AppendRequest{
@@ -64,8 +74,46 @@ func TestAppendConflictTrailing(t *testing.T) {
 	}, res.NewEvents)
 }
 
+func TestAppendStatusNoAt(t *testing.T) {
+	p := memory.NewPersistence()
+	id := timebox.NewAggregateID("order", "noat")
+	status := "active"
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Status:           &status,
+		Events:           []string{`{"type":"created"}`},
+	})
+	assert.NoError(t, err)
+	got, err := p.GetAggregateStatus(id)
+	assert.NoError(t, err)
+	assert.Equal(t, status, got)
+}
+
+func TestAppendLabelDeletion(t *testing.T) {
+	p := memory.NewPersistence()
+	id := timebox.NewAggregateID("order", "lbl")
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Labels:           map[string]string{"env": "prod"},
+		Events:           []string{`{"type":"created"}`},
+	})
+	assert.NoError(t, err)
+	_, err = p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 1,
+		Labels:           map[string]string{"env": ""},
+		Events:           []string{`{"type":"updated"}`},
+	})
+	assert.NoError(t, err)
+	vals, err := p.ListLabelValues("env")
+	assert.NoError(t, err)
+	assert.Empty(t, vals)
+}
+
 func TestSaveSnapshotTrimsEvents(t *testing.T) {
-	p := NewPersistence(timebox.Config{
+	p := memory.NewPersistence(timebox.Config{
 		Snapshot: timebox.SnapshotConfig{TrimEvents: true},
 	})
 	id := timebox.NewAggregateID("order", "1")
@@ -96,8 +144,28 @@ func TestSaveSnapshotTrimsEvents(t *testing.T) {
 	}, evs.Events)
 }
 
+func TestSaveSnapshotStale(t *testing.T) {
+	p := memory.NewPersistence()
+	id := timebox.NewAggregateID("order", "stale")
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []string{`{"type":"one"}`, `{"type":"two"}`},
+	})
+	assert.NoError(t, err)
+	err = p.SaveSnapshot(context.Background(), id, []byte(`{"v":2}`), 2)
+	assert.NoError(t, err)
+	// stale snapshot at earlier sequence should be ignored
+	err = p.SaveSnapshot(context.Background(), id, []byte(`{"v":0}`), 0)
+	assert.NoError(t, err)
+	snap, err := p.LoadSnapshot(id)
+	assert.NoError(t, err)
+	assert.Equal(t, json.RawMessage(`{"v":2}`), snap.Data)
+	assert.Equal(t, int64(2), snap.Sequence)
+}
+
 func TestSaveSnapshotCanceled(t *testing.T) {
-	p := NewPersistence()
+	p := memory.NewPersistence()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -107,8 +175,22 @@ func TestSaveSnapshotCanceled(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
+func TestLoadSnapshotMissing(t *testing.T) {
+	p := memory.NewPersistence()
+	snap, err := p.LoadSnapshot(timebox.NewAggregateID("none"))
+	assert.NoError(t, err)
+	assert.Equal(t, &timebox.SnapshotRecord{}, snap)
+}
+
+func TestGetAggregateStatusMissing(t *testing.T) {
+	p := memory.NewPersistence()
+	status, err := p.GetAggregateStatus(timebox.NewAggregateID("none"))
+	assert.NoError(t, err)
+	assert.Equal(t, "", status)
+}
+
 func TestAggregateQueries(t *testing.T) {
-	p := NewPersistence()
+	p := memory.NewPersistence()
 	status := "active"
 	ts := time.Unix(1700000000, 0).UTC()
 	first := timebox.NewAggregateID("order", "1")
@@ -160,7 +242,7 @@ func TestAggregateQueries(t *testing.T) {
 }
 
 func TestArchiveLifecycle(t *testing.T) {
-	p := NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{Archiving: true})
 	id := timebox.NewAggregateID("order", "1")
 
 	_, err := p.Append(timebox.AppendRequest{
@@ -195,18 +277,46 @@ func TestArchiveLifecycle(t *testing.T) {
 	assert.Empty(t, aggs)
 }
 
+func TestArchiveMissingAggregate(t *testing.T) {
+	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	err := p.Archive(timebox.NewAggregateID("order", "missing"))
+	assert.NoError(t, err)
+}
+
 func TestArchiveErrors(t *testing.T) {
-	p := NewPersistence()
+	p := memory.NewPersistence()
 	err := p.Archive(timebox.NewAggregateID("order", "1"))
 	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
 
-	p = NewPersistence(timebox.Config{Archiving: true})
+	p = memory.NewPersistence(timebox.Config{Archiving: true})
 	err = p.PollArchive(context.Background(), 0, nil)
 	assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
 }
 
+func TestPollArchiveTimeout(t *testing.T) {
+	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	err := p.PollArchive(context.Background(), time.Millisecond, func(
+		_ context.Context, _ *timebox.ArchiveRecord,
+	) error {
+		return nil
+	})
+	assert.NoError(t, err)
+}
+
+func TestPollArchiveContextCancel(t *testing.T) {
+	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := p.PollArchive(ctx, 0, func(
+		_ context.Context, _ *timebox.ArchiveRecord,
+	) error {
+		return nil
+	})
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
 func TestArchiveHandlerErrorKeeps(t *testing.T) {
-	p := NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{Archiving: true})
 	id := timebox.NewAggregateID("order", "1")
 
 	_, err := p.Append(timebox.AppendRequest{
@@ -238,17 +348,39 @@ func TestArchiveHandlerErrorKeeps(t *testing.T) {
 	assert.Equal(t, id, got.AggregateID)
 }
 
-func TestClose(t *testing.T) {
-	p := NewPersistence(timebox.Config{Archiving: true})
+func TestClosedMethods(t *testing.T) {
+	p := memory.NewPersistence(timebox.Config{Archiving: true})
 	assert.NoError(t, p.Close())
 
 	_, err := p.LoadEvents(timebox.NewAggregateID("order", "1"), 0)
-	assert.ErrorIs(t, err, ErrClosed)
+	assert.ErrorIs(t, err, memory.ErrClosed)
 
 	err = p.PollArchive(context.Background(), time.Millisecond, func(
 		_ context.Context, _ *timebox.ArchiveRecord,
 	) error {
 		return nil
 	})
-	assert.ErrorIs(t, err, ErrClosed)
+	assert.ErrorIs(t, err, memory.ErrClosed)
+
+	_, err = p.Append(timebox.AppendRequest{
+		ID:               timebox.NewAggregateID("order", "1"),
+		ExpectedSequence: 0,
+		Events:           []string{`{}`},
+	})
+	assert.ErrorIs(t, err, memory.ErrClosed)
+
+	_, err = p.GetAggregateStatus(timebox.NewAggregateID("order", "1"))
+	assert.ErrorIs(t, err, memory.ErrClosed)
+
+	_, err = p.ListAggregatesByStatus("active")
+	assert.ErrorIs(t, err, memory.ErrClosed)
+
+	_, err = p.ListAggregatesByLabel("env", "prod")
+	assert.ErrorIs(t, err, memory.ErrClosed)
+
+	_, err = p.ListLabelValues("env")
+	assert.ErrorIs(t, err, memory.ErrClosed)
+
+	_, err = p.ListAggregates(nil)
+	assert.ErrorIs(t, err, memory.ErrClosed)
 }

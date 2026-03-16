@@ -15,6 +15,43 @@ import (
 	tbredis "github.com/kode4food/timebox/redis"
 )
 
+func TestReady(t *testing.T) {
+	withPersistence(t, nil, func(
+		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
+	) {
+		select {
+		case <-p.Ready():
+		default:
+			t.Fatal("Ready channel should be closed")
+		}
+	})
+}
+
+func TestNewPersistenceBadConfig(t *testing.T) {
+	_, err := tbredis.NewPersistence(tbredis.Config{DB: -1})
+	assert.ErrorIs(t, err, tbredis.ErrInvalidDB)
+}
+
+func TestPollArchiveServerDown(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	addr := server.Addr()
+
+	p, err := tbredis.NewPersistence(testConfig(addr, func(cfg *tbredis.Config) {
+		cfg.Timebox.Archiving = true
+	}))
+	assert.NoError(t, err)
+	defer func() { _ = p.Close() }()
+
+	server.Close()
+	err = p.PollArchive(context.Background(), 0, func(
+		_ context.Context, _ *timebox.ArchiveRecord,
+	) error {
+		return nil
+	})
+	assert.Error(t, err)
+}
+
 func TestNewPersistencePingError(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
