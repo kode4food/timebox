@@ -17,7 +17,7 @@ jobs:
         with:
           go-version: "1.24"
       - name: Run tests with coverage
-        run: go test ./... -coverpkg=./... -coverprofile=cover.out
+        run: go test ./... -coverprofile=cover.out
       - name: Upload coverage to Qlty
         uses: qltysh/qlty-action/coverage@v1
         with:
