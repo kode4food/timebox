@@ -14,9 +14,9 @@ type (
 	commandType string
 
 	command struct {
-		ProposalID string          `json:"pid,omitempty"`
-		Type       commandType     `json:"type"`
-		Append     *appendCommand  `json:"append,omitempty"`
+		ProposalID string           `json:"pid,omitempty"`
+		Type       commandType      `json:"type"`
+		Append     *appendCommand   `json:"append,omitempty"`
 		Snapshot   *snapshotCommand `json:"snapshot,omitempty"`
 		Compact    *compactCommand  `json:"compact,omitempty"`
 	}
@@ -110,7 +110,6 @@ func decodeCommand(data []byte) (*command, error) {
 	}
 	return &cmd, nil
 }
-
 
 func marshalMeta(meta *aggregateMeta) ([]byte, error) {
 	if meta == nil {
