@@ -26,10 +26,8 @@ type (
 	// and serves reads from bbolt
 	Persistence struct {
 		// Local state
-		db         *bbolt.DB
-		fsm        *fsm
-		statusMu   sync.RWMutex
-		statusByID map[string]string
+		db  *bbolt.DB
+		fsm *fsm
 
 		// Raft runtime
 		node         raft.Node
@@ -123,9 +121,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	}
 
 	p := &Persistence{
-		db:         db,
-		statusByID: map[string]string{},
-
+		db:             db,
 		storage:        log.memory,
 		raftLog:        log,
 		transport:      tr,
@@ -139,7 +135,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 
 		pending: map[string]chan proposalResult{},
 	}
-	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents, p.setAggregateStatus)
+	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents)
 
 	if err := p.restoreMaterializedState(log.CommittedEntries()); err != nil {
 		_ = tr.Close()
@@ -198,7 +194,6 @@ func (p *Persistence) Append(
 	if err != nil {
 		return nil, err
 	}
-	p.recordAppendStatus(req, res)
 	return res.Conflict, nil
 }
 
@@ -371,10 +366,19 @@ func (p *Persistence) ListAggregates(
 func (p *Persistence) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
-	if status, ok := p.aggregateStatus(id); ok {
-		return status, nil
-	}
-	return "", nil
+	var status string
+	err := p.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketName)
+		meta, ok, err := loadMetaTx(b, encodeAggregateID(id))
+		if err != nil {
+			return err
+		}
+		if ok {
+			status = meta.Status
+		}
+		return nil
+	})
+	return status, err
 }
 
 // ListAggregatesByStatus lists aggregates currently indexed by status
@@ -480,82 +484,6 @@ func (p *Persistence) restoreMaterializedState(ents []raftpb.Entry) error {
 	); err != nil {
 		return err
 	}
-	return p.reloadStatusCache()
-}
-
-func (p *Persistence) aggregateStatus(
-	id timebox.AggregateID,
-) (string, bool) {
-	key := id.Join(":")
-	p.statusMu.RLock()
-	status, ok := p.statusByID[key]
-	p.statusMu.RUnlock()
-	return status, ok
-}
-
-func (p *Persistence) setAggregateStatus(
-	id timebox.AggregateID, status string,
-) {
-	key := id.Join(":")
-	p.statusMu.Lock()
-	if status == "" {
-		delete(p.statusByID, key)
-	} else {
-		p.statusByID[key] = status
-	}
-	p.statusMu.Unlock()
-}
-
-func (p *Persistence) recordAppendStatus(
-	req timebox.AppendRequest, res *applyResult,
-) {
-	if req.Status == nil {
-		return
-	}
-	if res != nil && res.Conflict != nil {
-		return
-	}
-	p.setAggregateStatus(req.ID, *req.Status)
-}
-
-func (p *Persistence) reloadStatusCache() error {
-	next := map[string]string{}
-	err := p.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketName)
-		c := b.Cursor()
-		pfx := aggregateMetaPrefix()
-		for k, v := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
-			key := string(k)
-			if !strings.HasSuffix(key, metaSuffix) {
-				k, v = c.Next()
-				continue
-			}
-			meta, err := unmarshalMeta(v)
-			if err != nil {
-				return err
-			}
-			if meta.Status != "" {
-				key = string(bytes.TrimSuffix(
-					bytes.TrimPrefix(k, []byte(aggRootPrefix)),
-					[]byte(metaSuffix),
-				))
-				id, err := decodeAggregateID(key)
-				if err != nil {
-					return err
-				}
-				next[id.Join(":")] = meta.Status
-			}
-			k, v = c.Next()
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	p.statusMu.Lock()
-	p.statusByID = next
-	p.statusMu.Unlock()
 	return nil
 }
 

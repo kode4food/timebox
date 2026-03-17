@@ -860,7 +860,13 @@ func TestCorruptMeta(t *testing.T) {
 	closeNode(t, n)
 	corruptMetaFile(t, cfg.dataDir)
 
-	_, err = raft.NewPersistence(testRaftConfig(cfg))
+	p, err := raft.NewPersistence(testRaftConfig(cfg))
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() { _ = p.Close() }()
+
+	_, err = p.GetAggregateStatus(id)
 	assert.Error(t, err)
 }
 

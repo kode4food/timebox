@@ -14,18 +14,12 @@ type (
 	fsm struct {
 		db         *bbolt.DB
 		trimEvents bool
-		setStatus  func(timebox.AggregateID, string)
 	}
 
 	// decodedEntry pairs a raft log index with its decoded command
 	decodedEntry struct {
 		index uint64
 		cmd   *command
-	}
-
-	statusUpdate struct {
-		id     timebox.AggregateID
-		status string
 	}
 )
 
@@ -35,7 +29,6 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*applyResult, error) {
 	}
 
 	results := make([]*applyResult, len(ents))
-	updates := make([]statusUpdate, 0, len(ents))
 
 	err := f.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketName)
@@ -51,11 +44,10 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*applyResult, error) {
 			}
 
 			var res *applyResult
-			var update *statusUpdate
 
 			switch de.cmd.Type {
 			case commandAppend:
-				res, update, err = f.applyAppendTx(
+				res, err = f.applyAppendTx(
 					b, de.cmd.Append,
 				)
 			case commandSnapshot:
@@ -72,9 +64,6 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*applyResult, error) {
 
 			results[i] = res
 			lastApplied = de.index
-			if update != nil {
-				updates = append(updates, *update)
-			}
 		}
 
 		return markApplied(b, lastApplied)
@@ -83,52 +72,43 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*applyResult, error) {
 		return nil, err
 	}
 
-	for _, update := range updates {
-		f.setStatus(update.id, update.status)
-	}
 	return results, nil
 }
 
 func (f *fsm) applyAppendTx(
 	b *bbolt.Bucket, cmd *appendCommand,
-) (*applyResult, *statusUpdate, error) {
+) (*applyResult, error) {
 	req := cmd.Request
 	encodedID := encodeAggregateID(req.ID)
 	meta, err := loadOrCreateMetaTx(b, encodedID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	currentSeq := meta.CurrentSequence
 	if req.ExpectedSequence != currentSeq {
-		res, err := conflictResultTx(
-			b, encodedID, meta, req.ExpectedSequence,
-		)
-		return res, nil, err
+		return conflictResultTx(b, encodedID, meta, req.ExpectedSequence)
 	}
 
 	if err := writeEventsTx(
 		b, aggregateEventPrefix(encodedID), currentSeq, req.Events,
 	); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := applyMutationsTx(b, meta, encodedID, req); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	meta.CurrentSequence = currentSeq + int64(len(req.Events))
 	data, err := marshalMeta(meta)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := b.Put(aggregateMetaKey(encodedID), data); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return &applyResult{}, &statusUpdate{
-		id:     req.ID,
-		status: meta.Status,
-	}, nil
+	return &applyResult{}, nil
 }
 
 func (f *fsm) applySnapshotTx(
@@ -181,13 +161,10 @@ func (f *fsm) applySnapshotTx(
 	return &applyResult{}, nil
 }
 
-func newFSM(
-	db *bbolt.DB, trimEvents bool, setStatus func(timebox.AggregateID, string),
-) *fsm {
+func newFSM(db *bbolt.DB, trimEvents bool) *fsm {
 	return &fsm{
 		db:         db,
 		trimEvents: trimEvents,
-		setStatus:  setStatus,
 	}
 }
 
