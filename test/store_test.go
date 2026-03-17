@@ -117,7 +117,7 @@ func TestNewStorePingError(t *testing.T) {
 	addr := server.Addr()
 	server.Close()
 
-	store, err := newStore(testStoreConfig(addr, nil))
+	store, err := newStore(tbredis.Config{Addr: addr})
 	assert.Error(t, err)
 	assert.Nil(t, store)
 }

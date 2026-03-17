@@ -11,20 +11,9 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-func TestArchiveDisabled(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{})
-	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
-	defer func() { _ = store.Close() }()
-
-	err = store.Archive(timebox.NewAggregateID("test", "disabled"))
-	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
-}
-
 func TestArchiveToStream(t *testing.T) {
 	server, store, err := newMemoryStore(timebox.Config{
-		Snapshot:  timebox.SnapshotConfig{TrimEvents: true},
-		Archiving: true,
+		Snapshot: timebox.SnapshotConfig{TrimEvents: true},
 		Indexer: func([]*timebox.Event) []*timebox.Index {
 			active := "active"
 			return []*timebox.Index{{
@@ -86,7 +75,7 @@ func TestArchiveToStream(t *testing.T) {
 }
 
 func TestConsumeArchive(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{Archiving: true})
+	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)
 	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
@@ -119,7 +108,7 @@ func TestConsumeArchive(t *testing.T) {
 }
 
 func TestConsumeArchiveNoHandler(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{Archiving: true})
+	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)
 	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
@@ -129,7 +118,7 @@ func TestConsumeArchiveNoHandler(t *testing.T) {
 }
 
 func TestConsumeArchiveNoMessages(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{Archiving: true})
+	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)
 	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
@@ -145,18 +134,4 @@ func TestConsumeArchiveNoMessages(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.False(t, called)
-}
-
-func TestConsumeArchiveDisabled(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{})
-	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
-	defer func() { _ = store.Close() }()
-
-	err = store.ConsumeArchive(context.Background(), func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		return nil
-	})
-	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
 }

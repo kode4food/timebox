@@ -333,10 +333,6 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	if err := p.checkClosed(); err != nil {
 		return err
 	}
-	if !p.cfg.Archiving {
-		return timebox.ErrArchivingDisabled
-	}
-
 	key := keyFor(id)
 	a, ok := p.aggs[key]
 	if !ok {
@@ -365,9 +361,6 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 func (p *Persistence) ConsumeArchive(
 	ctx context.Context, h timebox.ArchiveHandler,
 ) error {
-	if !p.cfg.Archiving {
-		return timebox.ErrArchivingDisabled
-	}
 	if h == nil {
 		return timebox.ErrArchiveHandlerMissing
 	}

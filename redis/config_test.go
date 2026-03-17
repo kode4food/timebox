@@ -32,7 +32,6 @@ func TestConfigWith(t *testing.T) {
 				MaxQueueSize: 7,
 				TrimEvents:   true,
 			},
-			Archiving: true,
 		},
 		Addr:   "127.0.0.1:6380",
 		Prefix: "orders",
@@ -48,7 +47,6 @@ func TestConfigWith(t *testing.T) {
 	assert.Equal(t, 2, cfg.Timebox.Snapshot.WorkerCount)
 	assert.Equal(t, 7, cfg.Timebox.Snapshot.MaxQueueSize)
 	assert.True(t, cfg.Timebox.Snapshot.TrimEvents)
-	assert.True(t, cfg.Timebox.Archiving)
 }
 
 func TestConfigWithFields(t *testing.T) {

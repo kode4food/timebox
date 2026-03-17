@@ -29,7 +29,6 @@ func TestConfigWith(t *testing.T) {
 			MaxQueueSize: 7,
 			TrimEvents:   true,
 		},
-		Archiving: true,
 	})
 
 	assert.Equal(t, 9, cfg.MaxRetries)
@@ -38,7 +37,6 @@ func TestConfigWith(t *testing.T) {
 	assert.Equal(t, 2, cfg.Snapshot.WorkerCount)
 	assert.Equal(t, 7, cfg.Snapshot.MaxQueueSize)
 	assert.True(t, cfg.Snapshot.TrimEvents)
-	assert.True(t, cfg.Archiving)
 }
 
 func TestConfigValidate(t *testing.T) {

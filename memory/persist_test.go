@@ -231,7 +231,7 @@ func TestAggregateQueries(t *testing.T) {
 }
 
 func TestArchiveLifecycle(t *testing.T) {
-	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{})
 	id := timebox.NewAggregateID("order", "1")
 
 	_, err := p.Append(timebox.AppendRequest{
@@ -265,23 +265,19 @@ func TestArchiveLifecycle(t *testing.T) {
 }
 
 func TestArchiveMissingAggregate(t *testing.T) {
-	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{})
 	err := p.Archive(timebox.NewAggregateID("order", "missing"))
 	assert.NoError(t, err)
 }
 
 func TestArchiveErrors(t *testing.T) {
 	p := memory.NewPersistence()
-	err := p.Archive(timebox.NewAggregateID("order", "1"))
-	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
-
-	p = memory.NewPersistence(timebox.Config{Archiving: true})
-	err = p.ConsumeArchive(context.Background(), nil)
+	err := p.ConsumeArchive(context.Background(), nil)
 	assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
 }
 
 func TestConsumeArchiveTimeout(t *testing.T) {
-	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{})
 	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
 	defer cancel()
 	err := p.ConsumeArchive(ctx, func(
@@ -293,7 +289,7 @@ func TestConsumeArchiveTimeout(t *testing.T) {
 }
 
 func TestConsumeArchiveContextCancel(t *testing.T) {
-	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := p.ConsumeArchive(ctx, func(
@@ -305,7 +301,7 @@ func TestConsumeArchiveContextCancel(t *testing.T) {
 }
 
 func TestArchiveHandlerErrorKeeps(t *testing.T) {
-	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{})
 	id := timebox.NewAggregateID("order", "1")
 
 	_, err := p.Append(timebox.AppendRequest{
@@ -338,7 +334,7 @@ func TestArchiveHandlerErrorKeeps(t *testing.T) {
 }
 
 func TestClosedMethods(t *testing.T) {
-	p := memory.NewPersistence(timebox.Config{Archiving: true})
+	p := memory.NewPersistence(timebox.Config{})
 	assert.NoError(t, p.Close())
 
 	_, err := p.LoadEvents(timebox.NewAggregateID("order", "1"), 0)

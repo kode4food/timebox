@@ -20,13 +20,9 @@ func newStore(cfgs ...tbredis.Config) (*timebox.Store, error) {
 	return tbredis.NewStore(cfgs...)
 }
 
-func testStoreConfig(
-	addr string, mutate func(*tbredis.Config),
-) tbredis.Config {
+func testStoreConfig(addr string, with func(*tbredis.Config)) tbredis.Config {
 	cfg := tbredis.Config{Addr: addr}
-	if mutate != nil {
-		mutate(&cfg)
-	}
+	with(&cfg)
 	return cfg
 }
 

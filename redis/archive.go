@@ -23,10 +23,6 @@ type archivePayload struct {
 const DefaultMinIdle = 30 * time.Second
 
 func (p *Persistence) Archive(id timebox.AggregateID) error {
-	if !p.config.Timebox.Archiving {
-		return timebox.ErrArchivingDisabled
-	}
-
 	snapKey := p.buildKey(id, snapshotValSuffix)
 	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
 	eventsKey := p.buildKey(id, eventsSuffix)
@@ -60,9 +56,6 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 func (p *Persistence) ConsumeArchive(
 	ctx context.Context, handler timebox.ArchiveHandler,
 ) error {
-	if !p.config.Timebox.Archiving {
-		return timebox.ErrArchivingDisabled
-	}
 	if handler == nil {
 		return timebox.ErrArchiveHandlerMissing
 	}

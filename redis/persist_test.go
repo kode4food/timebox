@@ -37,9 +37,7 @@ func TestConsumeArchiveServerDown(t *testing.T) {
 	assert.NoError(t, err)
 	addr := server.Addr()
 
-	p, err := tbredis.NewPersistence(testConfig(addr, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}))
+	p, err := tbredis.NewPersistence(tbredis.Config{Addr: addr})
 	assert.NoError(t, err)
 	defer func() { _ = p.Close() }()
 
@@ -58,7 +56,7 @@ func TestNewPersistencePingError(t *testing.T) {
 	addr := server.Addr()
 	server.Close()
 
-	p, err := newPersistence(testConfig(addr, nil))
+	p, err := newPersistence(tbredis.Config{Addr: addr})
 	assert.Error(t, err)
 	assert.Nil(t, p)
 }
@@ -71,7 +69,6 @@ func TestNewStore(t *testing.T) {
 	store, err := tbredis.NewStore(
 		testConfig(server.Addr(), func(cfg *tbredis.Config) {
 			cfg.Shard = "blue"
-			cfg.Timebox.Archiving = true
 		}),
 	)
 	assert.NoError(t, err)
@@ -217,9 +214,7 @@ func TestAggregateStatusMissing(t *testing.T) {
 }
 
 func TestArchiveLifecycle(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
+	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
 	) {
 		id := timebox.NewAggregateID("order", "1")
@@ -253,9 +248,7 @@ func TestArchiveLifecycle(t *testing.T) {
 }
 
 func TestArchiveMissing(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
+	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
 	) {
 		err := p.Archive(timebox.NewAggregateID("missing"))
@@ -267,24 +260,13 @@ func TestPersistenceArchiveErrors(t *testing.T) {
 	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
 	) {
-		err := p.Archive(timebox.NewAggregateID("order", "1"))
-		assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
-	})
-
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
-		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
-	) {
 		err := p.ConsumeArchive(ctx, nil)
 		assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
 	})
 }
 
 func TestArchiveMalformed(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
+	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
 		streamKey := tbredis.DefaultPrefix + ":archive"
@@ -304,9 +286,7 @@ func TestArchiveMalformed(t *testing.T) {
 }
 
 func TestArchivePayloadJSON(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
+	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
 		streamKey := tbredis.DefaultPrefix + ":archive"
@@ -326,9 +306,7 @@ func TestArchivePayloadJSON(t *testing.T) {
 }
 
 func TestArchivePayloadBytes(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
+	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
 		payload := []byte(
@@ -356,9 +334,7 @@ func TestArchivePayloadBytes(t *testing.T) {
 }
 
 func TestArchiveHandlerError(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
+	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
 		id := timebox.NewAggregateID("order", "handler-error")

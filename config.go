@@ -8,7 +8,6 @@ type (
 		Snapshot   SnapshotConfig
 		MaxRetries int
 		CacheSize  int
-		Archiving  bool
 		Indexer    Indexer
 	}
 
@@ -90,9 +89,6 @@ func (cfg Config) With(other Config) Config {
 	}
 	if other.CacheSize != 0 {
 		cfg.CacheSize = other.CacheSize
-	}
-	if other.Archiving {
-		cfg.Archiving = other.Archiving
 	}
 	if other.Indexer != nil {
 		cfg.Indexer = other.Indexer
