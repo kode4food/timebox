@@ -89,7 +89,7 @@ Read paths exposed by the store:
 
 ## Archiving
 
-Archiving moves an aggregate's snapshot and event history into backend-specific archive storage and clears the live records. It is a one-way operation. The Raft backend currently returns `timebox.ErrArchivingDisabled` for archive APIs.
+Archiving moves an aggregate's snapshot and event history into backend-specific archive storage and clears the live records. It is a one-way operation. The `memory` and `redis` backends support archiving, while `postgres` and `raft` do not.
 
 Enable it with `Archiving`, then call `Store.Archive(id)`.
 
