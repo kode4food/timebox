@@ -1,0 +1,133 @@
+package raft_test
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/raft"
+)
+
+func TestCommandType(t *testing.T) {
+	t.Run("empty returns -1", func(t *testing.T) {
+		assert.Equal(t, -1, raft.Command(nil).Type())
+	})
+
+	t.Run("compact", func(t *testing.T) {
+		c := raft.MakeCompactCommand(1, 2)
+		assert.Equal(t, raft.CmdTypeCompact, c.Type())
+	})
+
+	t.Run("append", func(t *testing.T) {
+		c := raft.MakeAppendCommand(1, &timebox.AppendRequest{
+			ID: timebox.NewAggregateID("ns", "id"),
+		})
+		assert.Equal(t, raft.CmdTypeAppend, c.Type())
+	})
+
+	t.Run("snapshot", func(t *testing.T) {
+		c := raft.MakeSnapshotCommand(1, &raft.SnapshotCommand{
+			ID: timebox.NewAggregateID("ns", "id"),
+		})
+		assert.Equal(t, raft.CmdTypeSnapshot, c.Type())
+	})
+}
+
+func TestCommandProposalID(t *testing.T) {
+	t.Run("roundtrip", func(t *testing.T) {
+		c := raft.MakeCompactCommand(42, 0)
+		pid, err := c.ProposalID()
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(42), pid)
+	})
+
+	t.Run("too short", func(t *testing.T) {
+		_, err := raft.Command([]byte{0x01}).ProposalID()
+		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+	})
+}
+
+func TestCommandCompactIndex(t *testing.T) {
+	t.Run("roundtrip", func(t *testing.T) {
+		c := raft.MakeCompactCommand(0, 100)
+		assert.Equal(t, uint64(100), c.CompactIndex())
+	})
+
+	t.Run("too short returns zero", func(t *testing.T) {
+		assert.Equal(t, uint64(0), raft.Command([]byte{0x00}).CompactIndex())
+	})
+}
+
+func TestCommandAppendRoundtrip(t *testing.T) {
+	status := "active"
+	req := &timebox.AppendRequest{
+		ID:               timebox.NewAggregateID("ns", "id1"),
+		ExpectedSequence: 7,
+		Status:           &status,
+		StatusAt:         time.Now().UTC().Format(time.RFC3339),
+		Labels:           map[string]string{"env": "prod"},
+		Events:           []string{"event.one", "event.two"},
+	}
+	c := raft.MakeAppendCommand(99, req)
+
+	pid, err := c.ProposalID()
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(99), pid)
+
+	got, err := c.AppendRequest()
+	assert.NoError(t, err)
+	assert.Equal(t, req.ID, got.ID)
+	assert.Equal(t, req.ExpectedSequence, got.ExpectedSequence)
+	assert.Equal(t, req.Status, got.Status)
+	assert.Equal(t, req.StatusAt, got.StatusAt)
+	assert.Equal(t, req.Labels, got.Labels)
+	assert.Equal(t, req.Events, got.Events)
+}
+
+func TestCommandSnapshotRoundtrip(t *testing.T) {
+	sc := &raft.SnapshotCommand{
+		ID:       timebox.NewAggregateID("ns", "id2"),
+		Sequence: 3,
+		Data:     []byte{0xDE, 0xAD, 0xBE, 0xEF},
+	}
+	c := raft.MakeSnapshotCommand(77, sc)
+
+	pid, err := c.ProposalID()
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(77), pid)
+
+	got, err := c.SnapshotRequest()
+	assert.NoError(t, err)
+	assert.Equal(t, sc.ID, got.ID)
+	assert.Equal(t, sc.Sequence, got.Sequence)
+	assert.Equal(t, sc.Data, got.Data)
+}
+
+func TestCommandCorrupt(t *testing.T) {
+	t.Run("append too short", func(t *testing.T) {
+		_, err := raft.Command([]byte{0x01}).AppendRequest()
+		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+	})
+
+	t.Run("append corrupt payload", func(t *testing.T) {
+		c := make(raft.Command, 9+4) // header + truncated payload
+		c[0] = raft.CmdTypeAppend
+		_, err := c.AppendRequest()
+		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+	})
+
+	t.Run("snapshot too short", func(t *testing.T) {
+		_, err := raft.Command([]byte{raft.CmdTypeSnapshot}).SnapshotRequest()
+		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+	})
+
+	t.Run("snapshot corrupt payload", func(t *testing.T) {
+		c := make(raft.Command, 9+4) // header + truncated payload
+		c[0] = raft.CmdTypeSnapshot
+		_, err := c.SnapshotRequest()
+		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+	})
+}

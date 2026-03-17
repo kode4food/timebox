@@ -53,7 +53,7 @@ type (
 
 		// Proposal tracking
 		pendingMu    sync.Mutex
-		pending      map[string]chan proposalResult
+		pending      map[uint64]chan proposalResult
 		nextProposal atomic.Uint64
 	}
 
@@ -132,7 +132,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		readyCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),
 
-		pending: map[string]chan proposalResult{},
+		pending: map[uint64]chan proposalResult{},
 	}
 	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents)
 
@@ -184,11 +184,11 @@ func (p *Persistence) Close() error {
 func (p *Persistence) Append(
 	req timebox.AppendRequest,
 ) (*timebox.AppendResult, error) {
+	propID := p.newProposalID()
 	res, err := p.applyWithTimeout(
-		context.Background(), command{
-			Type:   commandAppend,
-			Append: &appendCommand{Request: req},
-		},
+		context.Background(),
+		MakeAppendCommand(propID, &req),
+		propID,
 	)
 	if err != nil {
 		return nil, err
@@ -275,14 +275,16 @@ func (p *Persistence) LoadSnapshot(
 func (p *Persistence) SaveSnapshot(
 	id timebox.AggregateID, data []byte, sequence int64,
 ) error {
-	_, err := p.applyWithTimeout(context.Background(), command{
-		Type: commandSnapshot,
-		Snapshot: &snapshotCommand{
+	propID := p.newProposalID()
+	_, err := p.applyWithTimeout(
+		context.Background(),
+		MakeSnapshotCommand(propID, &SnapshotCommand{
 			ID:       id,
 			Data:     data,
 			Sequence: sequence,
-		},
-	})
+		}),
+		propID,
+	)
 	return err
 }
 
@@ -331,7 +333,7 @@ func (p *Persistence) ListAggregates(
 	err := p.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
-		pfx := aggregateMetaPrefix()
+		pfx := AggregateMetaPrefix()
 		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			key := string(k)
 			if !strings.HasSuffix(key, metaSuffix) {
@@ -372,20 +374,15 @@ func (p *Persistence) restoreMaterializedState(ents []raftpb.Entry) error {
 }
 
 func (p *Persistence) applyWithTimeout(
-	ctx context.Context, cmd command,
-) (*applyResult, error) {
-	cmd.ProposalID = p.newProposalID()
-	data, err := encodeCommand(cmd)
-	if err != nil {
-		return nil, err
-	}
+	ctx context.Context, data []byte, proposalID uint64,
+) (*ApplyResult, error) {
 	timeout, err := p.commandTimeout(ctx)
 	if err != nil {
 		return nil, err
 	}
 	proposeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return p.propose(proposeCtx, data, cmd.ProposalID)
+	return p.propose(proposeCtx, data, proposalID)
 }
 
 func (p *Persistence) commandTimeout(
@@ -431,8 +428,8 @@ func (p *Persistence) markAppliedEntry(index uint64) error {
 	return nil
 }
 
-func (p *Persistence) newProposalID() string {
-	return encodeSequence(int64(p.nextProposal.Add(1)))
+func (p *Persistence) newProposalID() uint64 {
+	return p.nextProposal.Add(1)
 }
 
 func compactMinStep() uint64 {

@@ -16,7 +16,7 @@ import (
 )
 
 type proposalResult struct {
-	res *applyResult
+	res *ApplyResult
 }
 
 const (
@@ -104,11 +104,11 @@ func (p *Persistence) serveReady() {
 				if err := p.handleReady(rd); err != nil {
 					p.pendingMu.Lock()
 					pending := p.pending
-					p.pending = map[string]chan proposalResult{}
+					p.pending = map[uint64]chan proposalResult{}
 					p.pendingMu.Unlock()
 					for _, ch := range pending {
 						ch <- proposalResult{
-							res: &applyResult{
+							res: &ApplyResult{
 								Code:    applyCodeInternal,
 								Message: err.Error(),
 							},
@@ -163,7 +163,7 @@ func (p *Persistence) applyCommittedEntries(
 	}
 
 	var batch []decodedEntry
-	var propIDs []string
+	var propIDs []uint64
 
 	flushAndReset := func() error {
 		if err := p.flushBatch(batch, propIDs); err != nil {
@@ -194,11 +194,8 @@ func (p *Persistence) applyCommittedEntries(
 				}
 				continue
 			}
-			cmd, err := decodeCommand(ent.Data)
-			if err != nil {
-				return err
-			}
-			if cmd.Type == commandCompact {
+			cmd := Command(ent.Data)
+			if cmd.Type() == CmdTypeCompact {
 				if err := flushAndReset(); err != nil {
 					return err
 				}
@@ -210,11 +207,15 @@ func (p *Persistence) applyCommittedEntries(
 				}
 				continue
 			}
+			propID, err := cmd.ProposalID()
+			if err != nil {
+				return err
+			}
 			batch = append(batch, decodedEntry{
 				index: ent.Index,
 				cmd:   cmd,
 			})
-			propIDs = append(propIDs, cmd.ProposalID)
+			propIDs = append(propIDs, propID)
 		default:
 			if err := flushAndReset(); err != nil {
 				return err
@@ -228,7 +229,7 @@ func (p *Persistence) applyCommittedEntries(
 }
 
 func (p *Persistence) flushBatch(
-	batch []decodedEntry, propIDs []string,
+	batch []decodedEntry, propIDs []uint64,
 ) error {
 	if len(batch) == 0 {
 		return nil
@@ -302,9 +303,9 @@ func (p *Persistence) maybeProposeCompaction() error {
 	return nil
 }
 
-func (p *Persistence) applyCompact(cmd *command) error {
+func (p *Persistence) applyCompact(cmd Command) error {
 	if err := p.raftLog.Compact(
-		cmd.Compact.Index, p.confState(),
+		cmd.CompactIndex(), p.confState(),
 	); err != nil {
 		return err
 	}
@@ -313,8 +314,8 @@ func (p *Persistence) applyCompact(cmd *command) error {
 }
 
 func (p *Persistence) propose(
-	ctx context.Context, data []byte, proposalID string,
-) (*applyResult, error) {
+	ctx context.Context, data []byte, proposalID uint64,
+) (*ApplyResult, error) {
 	ch := p.registerProposal(proposalID)
 	defer p.unregisterProposal(proposalID, ch)
 
@@ -333,7 +334,7 @@ func (p *Persistence) propose(
 	}
 }
 
-func (p *Persistence) registerProposal(id string) chan proposalResult {
+func (p *Persistence) registerProposal(id uint64) chan proposalResult {
 	ch := make(chan proposalResult, 1)
 	p.pendingMu.Lock()
 	p.pending[id] = ch
@@ -341,7 +342,7 @@ func (p *Persistence) registerProposal(id string) chan proposalResult {
 	return ch
 }
 
-func (p *Persistence) unregisterProposal(id string, ch chan proposalResult) {
+func (p *Persistence) unregisterProposal(id uint64, ch chan proposalResult) {
 	p.pendingMu.Lock()
 	if cur, ok := p.pending[id]; ok && cur == ch {
 		delete(p.pending, id)
@@ -350,9 +351,9 @@ func (p *Persistence) unregisterProposal(id string, ch chan proposalResult) {
 }
 
 func (p *Persistence) resolveProposal(
-	proposalID string, res *applyResult,
+	proposalID uint64, res *ApplyResult,
 ) {
-	if proposalID == "" {
+	if proposalID == 0 {
 		return
 	}
 	p.pendingMu.Lock()
@@ -397,19 +398,11 @@ func (p *Persistence) confState() raftpb.ConfState {
 }
 
 func (p *Persistence) proposeCompaction(index uint64) error {
-	data, err := encodeCommand(command{
-		Type:    commandCompact,
-		Compact: &compactCommand{Index: index},
-	})
-	if err != nil {
-		return err
-	}
-
 	ctx, cancel := context.WithTimeout(
 		context.Background(), p.applyTimeout,
 	)
 	defer cancel()
-	return p.node.Propose(ctx, data)
+	return p.node.Propose(ctx, MakeCompactCommand(0, index))
 }
 
 func (p *Persistence) safeCompactIndex() uint64 {

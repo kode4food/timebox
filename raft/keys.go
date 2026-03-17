@@ -34,11 +34,11 @@ var bucketName = []byte("timebox")
 // Variable key parts are base64url encoded so iteration remains
 // lexicographically well-structured without introducing ambiguous separators
 
-func aggregateMetaPrefix() []byte {
+func AggregateMetaPrefix() []byte {
 	return []byte(aggRootPrefix)
 }
 
-func aggregateMetaKey(encodedID string) []byte {
+func AggregateMetaKey(encodedID string) []byte {
 	return []byte(aggRootPrefix + encodedID + metaSuffix)
 }
 
@@ -135,12 +135,6 @@ func decodeKeyPart(value string) (string, error) {
 		return "", err
 	}
 	return string(decoded), nil
-}
-
-func encodeSequence(seq int64) string {
-	buf := make([]byte, seqWidth)
-	writeSequence(buf, seq)
-	return string(buf)
 }
 
 func writeSequence(dst []byte, seq int64) {
