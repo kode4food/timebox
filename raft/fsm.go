@@ -55,32 +55,15 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*applyResult, error) {
 
 			switch de.cmd.Type {
 			case commandAppend:
-				if de.cmd.Append == nil {
-					results[i] = encodeApplyError(
-						applyCodeInvalidCommand,
-						ErrAppendCommandMissing,
-					)
-					break
-				}
 				res, update, err = f.applyAppendTx(
 					b, de.cmd.Append,
 				)
 			case commandSnapshot:
-				if de.cmd.Snapshot == nil {
-					results[i] = encodeApplyError(
-						applyCodeInvalidCommand,
-						ErrSnapshotCommandMissing,
-					)
-					break
-				}
 				res, err = f.applySnapshotTx(
 					b, de.cmd.Snapshot,
 				)
 			default:
-				results[i] = encodeApplyError(
-					applyCodeInvalidCommand,
-					ErrCommandTypeUnknown,
-				)
+				return ErrCommandTypeUnknown
 			}
 
 			if err != nil {

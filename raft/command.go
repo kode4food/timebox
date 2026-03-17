@@ -57,9 +57,7 @@ const (
 	commandSnapshot commandType = "snapshot"
 	commandCompact  commandType = "compact"
 
-	applyCodeInvalidCommand = "invalid-command"
-	applyCodeCorruptState   = "corrupt-state"
-	applyCodeInternal       = "internal"
+	applyCodeInternal = "internal"
 )
 
 var (
@@ -68,12 +66,6 @@ var (
 
 	// ErrCorruptState indicates local durable state failed local invariants
 	ErrCorruptState = errors.New("corrupt raft persistence state")
-
-	// ErrAppendCommandMissing indicates an append command lacks payload
-	ErrAppendCommandMissing = errors.New("append payload missing")
-
-	// ErrSnapshotCommandMissing indicates a snapshot command lacks payload
-	ErrSnapshotCommandMissing = errors.New("snapshot payload missing")
 
 	// ErrCompactCommandMissing indicates a compact command lacks payload
 	ErrCompactCommandMissing = errors.New("compact payload missing")
@@ -86,14 +78,7 @@ func (r *applyResult) Err() error {
 	if r.Code == "" {
 		return nil
 	}
-	switch r.Code {
-	case applyCodeInvalidCommand:
-		return fmt.Errorf("%w: %s", ErrUnexpectedApplyResult, r.Message)
-	case applyCodeCorruptState:
-		return fmt.Errorf("%w: %s", ErrCorruptState, r.Message)
-	default:
-		return fmt.Errorf("%w: %s", ErrUnexpectedApplyResult, r.Message)
-	}
+	return fmt.Errorf("%w: %s", ErrUnexpectedApplyResult, r.Message)
 }
 
 func encodeCommand(cmd command) ([]byte, error) {
@@ -101,9 +86,6 @@ func encodeCommand(cmd command) ([]byte, error) {
 }
 
 func decodeCommand(data []byte) (*command, error) {
-	if len(data) == 0 {
-		return nil, ErrCommandTypeUnknown
-	}
 	var cmd command
 	if err := json.Unmarshal(data, &cmd); err != nil {
 		return nil, err
@@ -112,16 +94,10 @@ func decodeCommand(data []byte) (*command, error) {
 }
 
 func marshalMeta(meta *aggregateMeta) ([]byte, error) {
-	if meta == nil {
-		meta = &aggregateMeta{}
-	}
 	return json.Marshal(meta)
 }
 
 func unmarshalMeta(data []byte) (*aggregateMeta, error) {
-	if len(data) == 0 {
-		return &aggregateMeta{Labels: map[string]string{}}, nil
-	}
 	var meta aggregateMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, err
@@ -133,24 +109,8 @@ func unmarshalMeta(data []byte) (*aggregateMeta, error) {
 }
 
 func parseStatusAt(value string) int64 {
-	if value == "" {
-		return 0
-	}
-	ts, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return 0
-	}
+	ts, _ := strconv.ParseInt(value, 10, 64)
 	return ts
-}
-
-func encodeApplyError(code string, err error) *applyResult {
-	if err == nil {
-		return nil
-	}
-	return &applyResult{
-		Code:    code,
-		Message: err.Error(),
-	}
 }
 
 func normalizeApplyResult(res *applyResult) *applyResult {
@@ -173,6 +133,6 @@ func decodeInt64(value []byte) (int64, error) {
 	case 8:
 		return int64(binary.BigEndian.Uint64(value)), nil
 	default:
-		return strconv.ParseInt(string(value), 10, 64)
+		return 0, ErrCorruptState
 	}
 }

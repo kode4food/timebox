@@ -237,9 +237,6 @@ func (p *Persistence) ListAggregates(
 			res = append(res, slices.Clone(a.id))
 		}
 	}
-	sort.Slice(res, func(i, j int) bool {
-		return res[i].Join(":") < res[j].Join(":")
-	})
 	return res, nil
 }
 
@@ -283,7 +280,7 @@ func (p *Persistence) ListAggregatesByStatus(
 		})
 	}
 	sort.Slice(res, func(i, j int) bool {
-		return res[i].ID.Join(":") < res[j].ID.Join(":")
+		return res[i].Timestamp.Before(res[j].Timestamp)
 	})
 	return res, nil
 }
@@ -305,9 +302,6 @@ func (p *Persistence) ListAggregatesByLabel(
 			res = append(res, slices.Clone(a.id))
 		}
 	}
-	sort.Slice(res, func(i, j int) bool {
-		return res[i].Join(":") < res[j].Join(":")
-	})
 	return res, nil
 }
 

@@ -186,11 +186,12 @@ func (p *Persistence) applyCommittedEntries(
 			}
 		case raftpb.EntryNormal:
 			if len(ent.Data) == 0 {
-				batch = append(batch, decodedEntry{
-					index: ent.Index,
-					cmd:   &command{},
-				})
-				propIDs = append(propIDs, "")
+				if err := flushAndReset(); err != nil {
+					return err
+				}
+				if err := p.markAppliedEntry(ent.Index); err != nil {
+					return err
+				}
 				continue
 			}
 			cmd, err := decodeCommand(ent.Data)
@@ -215,11 +216,12 @@ func (p *Persistence) applyCommittedEntries(
 			})
 			propIDs = append(propIDs, cmd.ProposalID)
 		default:
-			batch = append(batch, decodedEntry{
-				index: ent.Index,
-				cmd:   &command{},
-			})
-			propIDs = append(propIDs, "")
+			if err := flushAndReset(); err != nil {
+				return err
+			}
+			if err := p.markAppliedEntry(ent.Index); err != nil {
+				return err
+			}
 		}
 	}
 	return p.flushBatch(batch, propIDs)

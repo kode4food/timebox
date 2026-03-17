@@ -40,7 +40,7 @@ func (p *Persistence) ListAggregatesByStatus(
 		SELECT aggregate_parts, status_at
 		FROM timebox_index
 		WHERE store = $1 AND status = $2
-		ORDER BY aggregate_key
+		ORDER BY status_at
 	`, p.store, status)
 	if err != nil {
 		return nil, err
@@ -70,7 +70,6 @@ func (p *Persistence) ListAggregatesByLabel(
 		SELECT aggregate_parts
 		FROM timebox_index
 		WHERE store = $1 AND labels ->> $2 = $3
-		ORDER BY aggregate_key
 	`, p.store, label, value)
 	if err != nil {
 		return nil, err

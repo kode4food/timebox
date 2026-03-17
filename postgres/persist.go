@@ -262,7 +262,6 @@ func (p *Persistence) ListAggregates(
 			SELECT aggregate_parts
 			FROM timebox_index
 			WHERE store = $1
-			ORDER BY aggregate_key
 		`, p.store)
 	} else {
 		rows, err = p.pool.Query(ctx, `
@@ -271,7 +270,6 @@ func (p *Persistence) ListAggregates(
 			WHERE store = $1
 			  AND array_length(aggregate_parts, 1) >= $2
 			  AND aggregate_parts[1:$2] = $3::text[]
-			ORDER BY aggregate_key
 		`, p.store, len(id), stringParts(id))
 	}
 	if err != nil {
