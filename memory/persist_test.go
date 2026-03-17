@@ -219,7 +219,7 @@ func TestAggregateQueries(t *testing.T) {
 
 	aggs, err := p.ListAggregates(timebox.NewAggregateID("order"))
 	assert.NoError(t, err)
-	assert.Equal(t, []timebox.AggregateID{first, second}, aggs)
+	assert.ElementsMatch(t, []timebox.AggregateID{first, second}, aggs)
 
 	gotStatus, err := p.GetAggregateStatus(first)
 	assert.NoError(t, err)

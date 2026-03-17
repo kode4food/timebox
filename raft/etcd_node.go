@@ -238,7 +238,7 @@ func (p *Persistence) flushBatch(
 		return err
 	}
 	for i := range batch {
-		res := normalizeApplyResult(results[i])
+		res := results[i]
 		p.resolveProposal(propIDs[i], res)
 		if err := res.Err(); err != nil {
 			return err
@@ -258,16 +258,8 @@ func (p *Persistence) sendMessages(msgs []raftpb.Message) {
 			p.node.ReportUnreachable(msg.To)
 			continue
 		}
-		err := p.transport.Send(peer.RaftAddr, msg)
-		if err != nil {
+		if err := p.transport.Send(peer.RaftAddr, msg); err != nil {
 			p.node.ReportUnreachable(msg.To)
-			if msg.Type == raftpb.MsgSnap {
-				p.node.ReportSnapshot(msg.To, raft.SnapshotFailure)
-			}
-			continue
-		}
-		if msg.Type == raftpb.MsgSnap {
-			p.node.ReportSnapshot(msg.To, raft.SnapshotFinish)
 		}
 	}
 }
@@ -275,30 +267,15 @@ func (p *Persistence) sendMessages(msgs []raftpb.Message) {
 func (p *Persistence) applyConfChange(
 	ent raftpb.Entry,
 ) error {
-	switch ent.Type {
-	case raftpb.EntryConfChange:
-		if len(ent.Data) == 0 {
-			return p.markAppliedEntry(ent.Index)
-		}
-		var cc raftpb.ConfChange
-		if err := cc.Unmarshal(ent.Data); err != nil {
-			return err
-		}
-		p.node.ApplyConfChange(cc)
+	if len(ent.Data) == 0 {
 		return p.markAppliedEntry(ent.Index)
-	case raftpb.EntryConfChangeV2:
-		if len(ent.Data) == 0 {
-			return p.markAppliedEntry(ent.Index)
-		}
-		var cc raftpb.ConfChangeV2
-		if err := cc.Unmarshal(ent.Data); err != nil {
-			return err
-		}
-		p.node.ApplyConfChange(cc)
-		return p.markAppliedEntry(ent.Index)
-	default:
-		return nil
 	}
+	var cc raftpb.ConfChange
+	if err := cc.Unmarshal(ent.Data); err != nil {
+		return err
+	}
+	p.node.ApplyConfChange(cc)
+	return p.markAppliedEntry(ent.Index)
 }
 
 func (p *Persistence) maybeProposeCompaction() error {
@@ -326,9 +303,6 @@ func (p *Persistence) maybeProposeCompaction() error {
 }
 
 func (p *Persistence) applyCompact(cmd *command) error {
-	if cmd.Compact == nil {
-		return ErrCompactCommandMissing
-	}
 	if err := p.raftLog.Compact(
 		cmd.Compact.Index, p.confState(),
 	); err != nil {
@@ -355,7 +329,7 @@ func (p *Persistence) propose(
 		if err := res.res.Err(); err != nil {
 			return nil, err
 		}
-		return normalizeApplyResult(res.res), nil
+		return res.res, nil
 	}
 }
 
@@ -388,7 +362,7 @@ func (p *Persistence) resolveProposal(
 	}
 	p.pendingMu.Unlock()
 	if ok {
-		ch <- proposalResult{res: normalizeApplyResult(res)}
+		ch <- proposalResult{res: res}
 	}
 }
 

@@ -49,9 +49,6 @@ func (r *raftLog) Save(rd raft.Ready) error {
 }
 
 func (r *raftLog) AppendEntries(ents []raftpb.Entry) error {
-	if len(ents) == 0 {
-		return nil
-	}
 	if err := r.memory.Append(ents); err != nil {
 		return err
 	}

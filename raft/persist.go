@@ -514,10 +514,7 @@ func (p *Persistence) commandTimeout(
 		}
 	}
 	if timeout <= 0 {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-		timeout = p.applyTimeout
+		return 0, ctx.Err()
 	}
 	return timeout, nil
 }

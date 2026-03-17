@@ -67,9 +67,6 @@ var (
 	// ErrCorruptState indicates local durable state failed local invariants
 	ErrCorruptState = errors.New("corrupt raft persistence state")
 
-	// ErrCompactCommandMissing indicates a compact command lacks payload
-	ErrCompactCommandMissing = errors.New("compact payload missing")
-
 	// ErrCommandTypeUnknown indicates the FSM received an unknown command type
 	ErrCommandTypeUnknown = errors.New("unknown command type")
 )
@@ -111,13 +108,6 @@ func unmarshalMeta(data []byte) (*aggregateMeta, error) {
 func parseStatusAt(value string) int64 {
 	ts, _ := strconv.ParseInt(value, 10, 64)
 	return ts
-}
-
-func normalizeApplyResult(res *applyResult) *applyResult {
-	if res == nil {
-		return &applyResult{}
-	}
-	return res
 }
 
 func encodeInt64(value int64) []byte {

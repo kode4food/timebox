@@ -114,24 +114,52 @@ func TestSnapshot(t *testing.T) {
 	}
 
 	id := timebox.NewAggregateID("order", "snapshot")
-	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
+
+	// Load snapshot before any data exists — aggregate unknown
+	var emptyState map[string]int
+	snap, err := n.store.GetSnapshot(id, &emptyState)
 	if !assert.NoError(t, err) {
 		return
 	}
+	assert.Nil(t, emptyState)
+	assert.Equal(t, int64(0), snap.NextSequence)
+
+	err = n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	// Load snapshot before any snapshot stored — aggregate exists but no snap
+	snap, err = n.store.GetSnapshot(id, &emptyState)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Nil(t, emptyState)
+	assert.Equal(t, int64(0), snap.NextSequence)
+	assert.Len(t, snap.AdditionalEvents, 1)
+
 	err = n.store.PutSnapshot(id, map[string]int{"value": 1}, 1)
 	if !assert.NoError(t, err) {
 		return
 	}
+
+	// Stale snapshot — sequence lower than current snapshot; should be no-op
+	err = n.store.PutSnapshot(id, map[string]int{"value": 0}, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+
 	err = n.store.AppendEvents(id, 1, []*timebox.Event{numberEvent(id, 2)})
 	if !assert.NoError(t, err) {
 		return
 	}
 
 	var snapState map[string]int
-	snap, err := n.store.GetSnapshot(id, &snapState)
+	snap, err = n.store.GetSnapshot(id, &snapState)
 	if !assert.NoError(t, err) {
 		return
 	}
+	// Stale snapshot was rejected; original seq-1 snapshot intact
 	assert.Equal(t, map[string]int{"value": 1}, snapState)
 	assert.Equal(t, int64(1), snap.NextSequence)
 	assert.Len(t, snap.AdditionalEvents, 1)
@@ -143,6 +171,46 @@ func TestSnapshot(t *testing.T) {
 	}
 	assert.Len(t, evs, 1)
 	assert.Equal(t, int64(1), evs[0].Sequence)
+}
+
+func TestSnapshotFutureSeq(t *testing.T) {
+	n := newNode(t, nodeConfig{
+		id: "node-1",
+	})
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "future-snap")
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	// Snapshot at seq 5 — ahead of current events (CurrentSequence=1)
+	// exercises the cmd.Sequence > meta.CurrentSequence branch
+	err = n.store.PutSnapshot(id, map[string]int{"value": 5}, 5)
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	err = n.store.AppendEvents(id, 5, []*timebox.Event{numberEvent(id, 6)})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	var snapState map[string]int
+	snap, err := n.store.GetSnapshot(id, &snapState)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, map[string]int{"value": 5}, snapState)
+	assert.Equal(t, int64(5), snap.NextSequence)
+	assert.Len(t, snap.AdditionalEvents, 1)
+	assert.Equal(t, int64(5), snap.AdditionalEvents[0].Sequence)
 }
 
 func TestSnapshotContext(t *testing.T) {
@@ -163,6 +231,32 @@ func TestSnapshotContext(t *testing.T) {
 		ctx, timebox.NewAggregateID("order", "ctx"), []byte(`{}`), 0,
 	)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestSnapshotShortDeadline(t *testing.T) {
+	n := newNode(t, nodeConfig{
+		id: "node-1",
+	})
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "short-deadline")
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	// Use a deadline shorter than the default applyTimeout (10s) to exercise
+	// the commandTimeout deadline branch.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = n.persistence.SaveSnapshot(ctx, id, []byte(`{}`), 1)
+	assert.NoError(t, err)
 }
 
 func TestFollower(t *testing.T) {
@@ -867,6 +961,23 @@ func TestCorruptMeta(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	_, err = p.GetAggregateStatus(id)
+	assert.Error(t, err)
+}
+
+func TestCorruptBoltDB(t *testing.T) {
+	dataDir := t.TempDir()
+
+	// Use a directory where bbolt.db file should go — bbolt.Open will fail
+	if err := os.Mkdir(filepath.Join(dataDir, "bbolt.db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: dataDir,
+	}
+	_, err := raft.NewPersistence(testRaftConfig(cfg))
 	assert.Error(t, err)
 }
 

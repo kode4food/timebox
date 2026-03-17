@@ -72,8 +72,8 @@ func (p *Persistence) Append(
 		if req.StatusAt != "" {
 			v, err := strconv.ParseInt(req.StatusAt, 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf(
-					"%w: %s", timebox.ErrUnexpectedResult, err,
+				return nil, fmt.Errorf("%w: %s",
+					timebox.ErrUnexpectedResult, err,
 				)
 			}
 			statusAt = v
