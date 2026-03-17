@@ -198,17 +198,17 @@ func (s *Store) GetSnapshot(
 func (s *Store) PutSnapshot(
 	id AggregateID, value any, sequence int64,
 ) error {
-	return s.writeSnapshot(context.Background(), id, value, sequence)
+	return s.writeSnapshot(id, value, sequence)
 }
 
 func (s *Store) writeSnapshot(
-	ctx context.Context, id AggregateID, value any, sequence int64,
+	id AggregateID, value any, sequence int64,
 ) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	return s.persistence.SaveSnapshot(ctx, id, data, sequence)
+	return s.persistence.SaveSnapshot(id, data, sequence)
 }
 
 func (s *Store) canSaveSnapshot() bool {
@@ -265,17 +265,6 @@ func (s *Store) ConsumeArchive(
 		return ErrArchivingDisabled
 	}
 	return archiver.ConsumeArchive(ctx, handler)
-}
-
-// PollArchive reads one archive record using the provided timeout
-func (s *Store) PollArchive(
-	ctx context.Context, timeout time.Duration, handler ArchiveHandler,
-) error {
-	archiver, ok := s.persistence.(Archiver)
-	if !ok {
-		return ErrArchivingDisabled
-	}
-	return archiver.PollArchive(ctx, timeout, handler)
 }
 
 func (e *VersionConflictError) Error() string {

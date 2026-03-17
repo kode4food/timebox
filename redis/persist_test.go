@@ -32,7 +32,7 @@ func TestNewPersistenceBadConfig(t *testing.T) {
 	assert.ErrorIs(t, err, tbredis.ErrInvalidDB)
 }
 
-func TestPollArchiveServerDown(t *testing.T) {
+func TestConsumeArchiveServerDown(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	addr := server.Addr()
@@ -44,7 +44,7 @@ func TestPollArchiveServerDown(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	server.Close()
-	err = p.PollArchive(context.Background(), 0, func(
+	err = p.ConsumeArchive(context.Background(), func(
 		_ context.Context, _ *timebox.ArchiveRecord,
 	) error {
 		return nil
@@ -133,7 +133,7 @@ func TestSnapshotListAggregates(t *testing.T) {
 		})
 		assert.NoError(t, err)
 
-		err = p.SaveSnapshot(ctx, id, []byte(`{"value":1}`), 1)
+		err = p.SaveSnapshot(id, []byte(`{"value":1}`), 1)
 		assert.NoError(t, err)
 		_, err = p.Append(timebox.AppendRequest{
 			ID:               other,
@@ -141,7 +141,7 @@ func TestSnapshotListAggregates(t *testing.T) {
 			Events:           []string{`{"type":"created"}`},
 		})
 		assert.NoError(t, err)
-		err = p.SaveSnapshot(ctx, other, []byte(`{"value":2}`), 1)
+		err = p.SaveSnapshot(other, []byte(`{"value":2}`), 1)
 		assert.NoError(t, err)
 
 		snap, err := p.LoadSnapshot(id)
@@ -230,12 +230,12 @@ func TestArchiveLifecycle(t *testing.T) {
 			Events:           []string{`{"type":"created"}`},
 		})
 		assert.NoError(t, err)
-		err = p.SaveSnapshot(ctx, id, []byte(`{"value":1}`), 1)
+		err = p.SaveSnapshot(id, []byte(`{"value":1}`), 1)
 		assert.NoError(t, err)
 		assert.NoError(t, p.Archive(id))
 
 		var got *timebox.ArchiveRecord
-		err = p.PollArchive(ctx, time.Millisecond, func(
+		err = p.ConsumeArchive(ctx, func(
 			_ context.Context, rec *timebox.ArchiveRecord,
 		) error {
 			got = rec
@@ -276,23 +276,8 @@ func TestPersistenceArchiveErrors(t *testing.T) {
 	}, func(
 		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
 	) {
-		err := p.PollArchive(ctx, 0, nil)
+		err := p.ConsumeArchive(ctx, nil)
 		assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
-	})
-}
-
-func TestArchiveNoMessages(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
-		cfg.Timebox.Archiving = true
-	}, func(
-		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
-	) {
-		err := p.PollArchive(ctx, time.Millisecond, func(
-			_ context.Context, _ *timebox.ArchiveRecord,
-		) error {
-			return nil
-		})
-		assert.NoError(t, err)
 	})
 }
 
@@ -438,19 +423,5 @@ func TestCorruptSnapshot(t *testing.T) {
 		snap, err := p.LoadSnapshot(id)
 		assert.NoError(t, err)
 		assert.Equal(t, json.RawMessage("not-json"), snap.Data)
-	})
-}
-
-func TestSaveSnapshotCanceled(t *testing.T) {
-	withPersistence(t, nil, func(
-		ctx context.Context, p *tbredis.Persistence, _ *redis.Client,
-	) {
-		ctx, cancel := context.WithCancel(ctx)
-		cancel()
-
-		err := p.SaveSnapshot(ctx,
-			timebox.NewAggregateID("order", "1"), []byte(`{}`), 1,
-		)
-		assert.ErrorIs(t, err, context.Canceled)
 	})
 }

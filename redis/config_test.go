@@ -2,7 +2,6 @@ package redis_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -31,7 +30,6 @@ func TestConfigWith(t *testing.T) {
 				Workers:      true,
 				WorkerCount:  2,
 				MaxQueueSize: 7,
-				SaveTimeout:  5 * time.Second,
 				TrimEvents:   true,
 			},
 			Archiving: true,
@@ -49,7 +47,6 @@ func TestConfigWith(t *testing.T) {
 	assert.True(t, cfg.Timebox.Snapshot.Workers)
 	assert.Equal(t, 2, cfg.Timebox.Snapshot.WorkerCount)
 	assert.Equal(t, 7, cfg.Timebox.Snapshot.MaxQueueSize)
-	assert.Equal(t, 5*time.Second, cfg.Timebox.Snapshot.SaveTimeout)
 	assert.True(t, cfg.Timebox.Snapshot.TrimEvents)
 	assert.True(t, cfg.Timebox.Archiving)
 }
@@ -142,7 +139,6 @@ func validTimeboxConfig() timebox.Config {
 		Snapshot: timebox.SnapshotConfig{
 			WorkerCount:  1,
 			MaxQueueSize: 1,
-			SaveTimeout:  time.Second,
 		},
 	}
 }

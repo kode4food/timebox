@@ -93,10 +93,7 @@ Archiving moves an aggregate's snapshot and event history into backend-specific 
 
 Enable it with `Archiving`, then call `Store.Archive(id)`.
 
-To consume archived records:
-
-- `Store.ConsumeArchive(ctx, handler)` blocks until one record is available
-- `Store.PollArchive(ctx, timeout, handler)` waits up to `timeout`
+To consume archived records, call `Store.ConsumeArchive(ctx, handler)`. It blocks until one record is processed or the context is done. Use `context.WithTimeout` to poll with a deadline.
 
 Handlers must be idempotent because processing is at-least-once.
 

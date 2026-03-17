@@ -310,29 +310,6 @@ func TestLoadSnapshotMissing(t *testing.T) {
 	})
 }
 
-func TestSaveSnapshotCancelledCtx(t *testing.T) {
-	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
-		store, err := postgres.NewStore(cfg)
-		if !assert.NoError(t, err) {
-			return
-		}
-		defer func() { _ = store.Close() }()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		p, err := postgres.NewPersistence(cfg)
-		if !assert.NoError(t, err) {
-			return
-		}
-		defer func() { _ = p.Close() }()
-
-		id := timebox.NewAggregateID("order", "cancel")
-		err = p.SaveSnapshot(ctx, id, []byte("{}"), 0)
-		assert.Error(t, err)
-	})
-}
-
 func TestNewStoreBadConfig(t *testing.T) {
 	_, err := postgres.NewStore(postgres.Config{MaxConns: -1})
 	assert.ErrorIs(t, err, postgres.ErrInvalidMaxConns)
@@ -370,7 +347,7 @@ func TestClosedPersistence(t *testing.T) {
 		_, err = p.LoadSnapshot(id)
 		assert.Error(t, err)
 
-		err = p.SaveSnapshot(context.Background(), id, []byte("{}"), 0)
+		err = p.SaveSnapshot(id, []byte("{}"), 0)
 		assert.Error(t, err)
 
 		_, err = p.ListAggregates(nil)

@@ -273,13 +273,9 @@ func (p *Persistence) LoadSnapshot(
 
 // SaveSnapshot submits snapshot state through the replicated log
 func (p *Persistence) SaveSnapshot(
-	ctx context.Context, id timebox.AggregateID,
-	data []byte, sequence int64,
+	id timebox.AggregateID, data []byte, sequence int64,
 ) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	_, err := p.applyWithTimeout(ctx, command{
+	_, err := p.applyWithTimeout(context.Background(), command{
 		Type: commandSnapshot,
 		Snapshot: &snapshotCommand{
 			ID:       id,

@@ -183,12 +183,8 @@ func (p *Persistence) LoadSnapshot(
 
 // SaveSnapshot saves a snapshot if the sequence is not older
 func (p *Persistence) SaveSnapshot(
-	ctx context.Context, id timebox.AggregateID, data []byte, sequence int64,
+	id timebox.AggregateID, data []byte, sequence int64,
 ) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -365,29 +361,15 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	return nil
 }
 
-// ConsumeArchive blocks until an archive record is available
+// ConsumeArchive blocks until one archive record is available or ctx is done
 func (p *Persistence) ConsumeArchive(
 	ctx context.Context, h timebox.ArchiveHandler,
-) error {
-	return p.PollArchive(ctx, 0, h)
-}
-
-// PollArchive waits up to timeout for one archive record
-func (p *Persistence) PollArchive(
-	ctx context.Context, timeout time.Duration, h timebox.ArchiveHandler,
 ) error {
 	if !p.cfg.Archiving {
 		return timebox.ErrArchivingDisabled
 	}
 	if h == nil {
 		return timebox.ErrArchiveHandlerMissing
-	}
-
-	wait := (<-chan time.Time)(nil)
-	if timeout > 0 {
-		t := time.NewTimer(timeout)
-		defer t.Stop()
-		wait = t.C
 	}
 
 	for {
@@ -405,8 +387,6 @@ func (p *Persistence) PollArchive(
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-wait:
-			return nil
 		case <-p.archiveCh:
 		}
 	}

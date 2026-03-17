@@ -1,9 +1,6 @@
 package timebox
 
-import (
-	"errors"
-	"time"
-)
+import "errors"
 
 type (
 	// Config configures Store behavior
@@ -20,7 +17,6 @@ type (
 		Workers      bool
 		WorkerCount  int
 		MaxQueueSize int
-		SaveTimeout  time.Duration
 		TrimEvents   bool
 	}
 
@@ -39,9 +35,6 @@ const (
 
 	// DefaultSnapshotQueueSize is the snapshot worker channel capacity
 	DefaultSnapshotQueueSize = 1024
-
-	// DefaultSnapshotSaveTimeout is the timeout for snapshot persistence
-	DefaultSnapshotSaveTimeout = 30 * time.Second
 
 	// DefaultTrimEvents determines whether snapshots trim stored events
 	DefaultTrimEvents = false
@@ -65,9 +58,6 @@ var (
 
 	// ErrInvalidMaxQueueSize indicates MaxQueueSize is below the allowed range
 	ErrInvalidMaxQueueSize = errors.New("max queue size must be > 0")
-
-	// ErrInvalidSaveTimeout indicates SaveTimeout is below the allowed range
-	ErrInvalidSaveTimeout = errors.New("save timeout must be > 0")
 )
 
 // Configure overlays each supplied value on top of defaults in order
@@ -85,7 +75,6 @@ func DefaultConfig() Config {
 			Workers:      DefaultWorkers,
 			WorkerCount:  DefaultSnapshotWorkers,
 			MaxQueueSize: DefaultSnapshotQueueSize,
-			SaveTimeout:  DefaultSnapshotSaveTimeout,
 			TrimEvents:   DefaultTrimEvents,
 		},
 		MaxRetries: DefaultMaxRetries,
@@ -140,9 +129,6 @@ func (cfg SnapshotConfig) With(other SnapshotConfig) SnapshotConfig {
 	if other.MaxQueueSize != 0 {
 		cfg.MaxQueueSize = other.MaxQueueSize
 	}
-	if other.SaveTimeout != 0 {
-		cfg.SaveTimeout = other.SaveTimeout
-	}
 	if other.TrimEvents {
 		cfg.TrimEvents = other.TrimEvents
 	}
@@ -156,8 +142,6 @@ func (cfg SnapshotConfig) Validate() error {
 		return ErrInvalidWorkerCount
 	case cfg.MaxQueueSize <= 0:
 		return ErrInvalidMaxQueueSize
-	case cfg.SaveTimeout <= 0:
-		return ErrInvalidSaveTimeout
 	}
 	return nil
 }

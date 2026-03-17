@@ -190,52 +190,6 @@ func TestSnapshotFutureSeq(t *testing.T) {
 	assert.Equal(t, int64(5), snap.AdditionalEvents[0].Sequence)
 }
 
-func TestSnapshotContext(t *testing.T) {
-	n := newNode(t, nodeConfig{
-		id: "node-1",
-	})
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := n.persistence.SaveSnapshot(
-		ctx, timebox.NewAggregateID("order", "ctx"), []byte(`{}`), 0,
-	)
-	assert.ErrorIs(t, err, context.Canceled)
-}
-
-func TestSnapshotShortDeadline(t *testing.T) {
-	n := newNode(t, nodeConfig{
-		id: "node-1",
-	})
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
-
-	id := timebox.NewAggregateID("order", "short-deadline")
-	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	// Use a deadline shorter than the default applyTimeout (10s) to exercise
-	// the commandTimeout deadline branch.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err = n.persistence.SaveSnapshot(ctx, id, []byte(`{}`), 1)
-	assert.NoError(t, err)
-}
-
 func TestFollower(t *testing.T) {
 	nodes := newCluster(t, 3)
 	if len(nodes) != 3 {
@@ -350,7 +304,7 @@ func TestReadySingle(t *testing.T) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	assert.NoError(t, n.store.WaitReady(ctx))
 }

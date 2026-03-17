@@ -167,11 +167,9 @@ func (p *Persistence) LoadSnapshot(
 // SaveSnapshot saves a snapshot if the provided sequence is not
 // older
 func (p *Persistence) SaveSnapshot(
-	ctx context.Context, id timebox.AggregateID, data []byte, sequence int64,
+	id timebox.AggregateID, data []byte, sequence int64,
 ) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+	ctx := context.Background()
 	key, parts, err := aggregateKey(id)
 	if err != nil {
 		return err

@@ -106,7 +106,7 @@ func TestNewStore(t *testing.T) {
 		_ = store.Close()
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	if !assert.NoError(t, store.WaitReady(ctx)) {
 		return

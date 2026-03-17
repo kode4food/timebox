@@ -60,12 +60,6 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 func (p *Persistence) ConsumeArchive(
 	ctx context.Context, handler timebox.ArchiveHandler,
 ) error {
-	return p.PollArchive(ctx, 0, handler)
-}
-
-func (p *Persistence) PollArchive(
-	ctx context.Context, timeout time.Duration, handler timebox.ArchiveHandler,
-) error {
 	if !p.config.Timebox.Archiving {
 		return timebox.ErrArchivingDisabled
 	}
@@ -84,11 +78,11 @@ func (p *Persistence) PollArchive(
 		return err
 	}
 
-	return p.pollNewArchive(ctx, timeout, handler)
+	return p.pollNewArchive(ctx, handler)
 }
 
 func (p *Persistence) pollNewArchive(
-	ctx context.Context, timeout time.Duration, handler timebox.ArchiveHandler,
+	ctx context.Context, handler timebox.ArchiveHandler,
 ) error {
 	streamKey := p.archiveStreamKey()
 	group := p.archiveGroup()
@@ -98,14 +92,11 @@ func (p *Persistence) pollNewArchive(
 		Consumer: consumer,
 		Streams:  []string{streamKey, ">"},
 		Count:    1,
-		Block:    timeout,
+		Block:    0,
 	}
 
 	streams, err := p.client.XReadGroup(ctx, args).Result()
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil
-		}
 		return err
 	}
 

@@ -23,6 +23,13 @@ type (
 	}
 )
 
+func newFSM(db *bbolt.DB, trimEvents bool) *fsm {
+	return &fsm{
+		db:         db,
+		trimEvents: trimEvents,
+	}
+}
+
 func (f *fsm) applyEntries(ents []decodedEntry) ([]*applyResult, error) {
 	if len(ents) == 0 {
 		return nil, nil
@@ -159,13 +166,6 @@ func (f *fsm) applySnapshotTx(
 	}
 
 	return &applyResult{}, nil
-}
-
-func newFSM(db *bbolt.DB, trimEvents bool) *fsm {
-	return &fsm{
-		db:         db,
-		trimEvents: trimEvents,
-	}
 }
 
 func writeEventsTx(
@@ -319,8 +319,7 @@ func markApplied(b *bbolt.Bucket, logIndex uint64) error {
 }
 
 func conflictResultTx(
-	b *bbolt.Bucket, encodedID string, meta *aggregateMeta,
-	expectedSeq int64,
+	b *bbolt.Bucket, encodedID string, meta *aggregateMeta, expectedSeq int64,
 ) (*applyResult, error) {
 	conflict := &timebox.AppendResult{
 		ActualSequence: meta.CurrentSequence,

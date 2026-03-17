@@ -258,7 +258,7 @@ func (p *Persistence) LoadSnapshot(
 
 // SaveSnapshot saves a snapshot if the provided sequence is not older
 func (p *Persistence) SaveSnapshot(
-	ctx context.Context, id timebox.AggregateID, data []byte, sequence int64,
+	id timebox.AggregateID, data []byte, sequence int64,
 ) error {
 	snapKey := p.buildKey(id, snapshotValSuffix)
 	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
@@ -268,8 +268,8 @@ func (p *Persistence) SaveSnapshot(
 		keys = []string{snapKey, snapSeqKey, eventsKey}
 	}
 
-	_, err := p.putSnapshot.Run(ctx,
-		p.client, keys, string(data), sequence,
+	_, err := p.putSnapshot.Run(
+		context.Background(), p.client, keys, string(data), sequence,
 	).Result()
 	return err
 }

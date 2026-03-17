@@ -73,7 +73,7 @@ func TestArchiveToStream(t *testing.T) {
 	assert.Empty(t, labelVals)
 
 	var handled *timebox.ArchiveRecord
-	err = store.PollArchive(ctx, time.Millisecond, func(
+	err = store.ConsumeArchive(ctx, func(
 		_ context.Context, rec *timebox.ArchiveRecord,
 	) error {
 		handled = rec
@@ -135,13 +135,15 @@ func TestConsumeArchiveNoMessages(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	called := false
-	err = store.PollArchive(context.Background(), 5*time.Millisecond, func(
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
+	defer cancel()
+	err = store.ConsumeArchive(ctx, func(
 		_ context.Context, _ *timebox.ArchiveRecord,
 	) error {
 		called = true
 		return nil
 	})
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.False(t, called)
 }
 

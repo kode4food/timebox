@@ -125,7 +125,7 @@ func TestSaveSnapshotTrimsEvents(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	err = p.SaveSnapshot(context.Background(), id, []byte(`{"value":1}`), 1)
+	err = p.SaveSnapshot(id, []byte(`{"value":1}`), 1)
 	assert.NoError(t, err)
 
 	snap, err := p.LoadSnapshot(id)
@@ -153,26 +153,15 @@ func TestSaveSnapshotStale(t *testing.T) {
 		Events:           []string{`{"type":"one"}`, `{"type":"two"}`},
 	})
 	assert.NoError(t, err)
-	err = p.SaveSnapshot(context.Background(), id, []byte(`{"v":2}`), 2)
+	err = p.SaveSnapshot(id, []byte(`{"v":2}`), 2)
 	assert.NoError(t, err)
 	// stale snapshot at earlier sequence should be ignored
-	err = p.SaveSnapshot(context.Background(), id, []byte(`{"v":0}`), 0)
+	err = p.SaveSnapshot(id, []byte(`{"v":0}`), 0)
 	assert.NoError(t, err)
 	snap, err := p.LoadSnapshot(id)
 	assert.NoError(t, err)
 	assert.Equal(t, json.RawMessage(`{"v":2}`), snap.Data)
 	assert.Equal(t, int64(2), snap.Sequence)
-}
-
-func TestSaveSnapshotCanceled(t *testing.T) {
-	p := memory.NewPersistence()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := p.SaveSnapshot(ctx,
-		timebox.NewAggregateID("order", "1"), []byte(`{"value":1}`), 1,
-	)
-	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func TestLoadSnapshotMissing(t *testing.T) {
@@ -251,13 +240,11 @@ func TestArchiveLifecycle(t *testing.T) {
 		Events:           []string{`{"type":"created"}`},
 	})
 	assert.NoError(t, err)
-	assert.NoError(t, p.SaveSnapshot(
-		context.Background(), id, []byte(`{"value":1}`), 1,
-	))
+	assert.NoError(t, p.SaveSnapshot(id, []byte(`{"value":1}`), 1))
 	assert.NoError(t, p.Archive(id))
 
 	var got *timebox.ArchiveRecord
-	err = p.PollArchive(context.Background(), time.Millisecond, func(
+	err = p.ConsumeArchive(context.Background(), func(
 		_ context.Context, rec *timebox.ArchiveRecord,
 	) error {
 		got = rec
@@ -289,25 +276,27 @@ func TestArchiveErrors(t *testing.T) {
 	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
 
 	p = memory.NewPersistence(timebox.Config{Archiving: true})
-	err = p.PollArchive(context.Background(), 0, nil)
+	err = p.ConsumeArchive(context.Background(), nil)
 	assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
 }
 
-func TestPollArchiveTimeout(t *testing.T) {
+func TestConsumeArchiveTimeout(t *testing.T) {
 	p := memory.NewPersistence(timebox.Config{Archiving: true})
-	err := p.PollArchive(context.Background(), time.Millisecond, func(
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer cancel()
+	err := p.ConsumeArchive(ctx, func(
 		_ context.Context, _ *timebox.ArchiveRecord,
 	) error {
 		return nil
 	})
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
-func TestPollArchiveContextCancel(t *testing.T) {
+func TestConsumeArchiveContextCancel(t *testing.T) {
 	p := memory.NewPersistence(timebox.Config{Archiving: true})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := p.PollArchive(ctx, 0, func(
+	err := p.ConsumeArchive(ctx, func(
 		_ context.Context, _ *timebox.ArchiveRecord,
 	) error {
 		return nil
@@ -337,7 +326,7 @@ func TestArchiveHandlerErrorKeeps(t *testing.T) {
 	assert.ErrorIs(t, err, handlerErr)
 
 	var got *timebox.ArchiveRecord
-	err = p.PollArchive(context.Background(), time.Millisecond, func(
+	err = p.ConsumeArchive(context.Background(), func(
 		_ context.Context, rec *timebox.ArchiveRecord,
 	) error {
 		got = rec
@@ -355,7 +344,7 @@ func TestClosedMethods(t *testing.T) {
 	_, err := p.LoadEvents(timebox.NewAggregateID("order", "1"), 0)
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	err = p.PollArchive(context.Background(), time.Millisecond, func(
+	err = p.ConsumeArchive(context.Background(), func(
 		_ context.Context, _ *timebox.ArchiveRecord,
 	) error {
 		return nil

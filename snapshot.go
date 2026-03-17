@@ -63,13 +63,8 @@ func (sw *SnapshotWorker) worker(id int) {
 }
 
 func (sw *SnapshotWorker) saveSnapshot(workerID int, req snapshotRequest) {
-	ctx, cancel := context.WithTimeout(
-		sw.ctx, sw.store.config.Snapshot.SaveTimeout,
-	)
-	defer cancel()
-
 	start := time.Now()
-	err := sw.store.writeSnapshot(ctx, req.id, req.value, req.sequence)
+	err := sw.store.writeSnapshot(req.id, req.value, req.sequence)
 	duration := time.Since(start)
 
 	if err != nil {

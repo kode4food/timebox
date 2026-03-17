@@ -28,9 +28,7 @@ type (
 		LoadSnapshot(id AggregateID) (*SnapshotRecord, error)
 
 		// SaveSnapshot stores raw snapshot data at the provided sequence
-		SaveSnapshot(
-			ctx context.Context, id AggregateID, data []byte, sequence int64,
-		) error
+		SaveSnapshot(id AggregateID, data []byte, sequence int64) error
 
 		// ListAggregates lists aggregate IDs that match the provided prefix
 		ListAggregates(id AggregateID) ([]AggregateID, error)
@@ -54,13 +52,9 @@ type (
 		// Archive moves an aggregate's persisted artifacts into archive storage
 		Archive(id AggregateID) error
 
-		// ConsumeArchive blocks until one archive record is available
+		// ConsumeArchive blocks until one archive record is available or ctx
+		// is done
 		ConsumeArchive(ctx context.Context, handler ArchiveHandler) error
-
-		// PollArchive waits up to timeout for one archive record
-		PollArchive(
-			ctx context.Context, timeout time.Duration, handler ArchiveHandler,
-		) error
 	}
 
 	// AppendRequest contains primitive inputs required for an atomic append

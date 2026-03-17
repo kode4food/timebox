@@ -46,7 +46,7 @@ func (f *fakePersistence) LoadSnapshot(
 }
 
 func (f *fakePersistence) SaveSnapshot(
-	context.Context, timebox.AggregateID, []byte, int64,
+	timebox.AggregateID, []byte, int64,
 ) error {
 	return nil
 }
@@ -122,13 +122,13 @@ func TestStoreWaitReady(t *testing.T) {
 	assert.NotNil(t, store)
 	defer func() { _ = store.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
 	assert.ErrorIs(t, store.WaitReady(ctx), context.DeadlineExceeded)
 
 	close(p.readyCh)
 
-	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel = context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	assert.NoError(t, store.WaitReady(ctx))
 }
@@ -140,7 +140,6 @@ func TestStoreConfigAndStatus(t *testing.T) {
 		Snapshot: timebox.SnapshotConfig{
 			WorkerCount:  1,
 			MaxQueueSize: 1,
-			SaveTimeout:  time.Second,
 		},
 	}
 	p := memory.NewPersistence(cfg)
@@ -265,12 +264,6 @@ func TestArchiveUnsupported(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
 
-	err = store.PollArchive(context.Background(), 0, func(
-		context.Context, *timebox.ArchiveRecord,
-	) error {
-		return nil
-	})
-	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
 }
 
 func TestListAggregates(t *testing.T) {

@@ -210,7 +210,7 @@ func TestArchivePendingRecovery(t *testing.T) {
 	server.SetTime(now.Add(tbredis.DefaultMinIdle + time.Second))
 
 	var handled *timebox.ArchiveRecord
-	err = store.PollArchive(ctx, 50*time.Millisecond, func(
+	err = store.ConsumeArchive(ctx, func(
 		_ context.Context, record *timebox.ArchiveRecord,
 	) error {
 		handled = record
