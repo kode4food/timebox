@@ -80,24 +80,20 @@ func (p *Persistence) ListLabelValues(label string) ([]string, error) {
 	return vals, nil
 }
 
-func (p *Persistence) buildStatusIndexKey(status string) string {
-	return p.buildGlobalKey(statusSuffix + ":" + status)
+func (p *Persistence) buildStatusHashKey() string {
+	return fmt.Sprintf("%s:%s", p.prefix, statusSuffix)
 }
 
-func (p *Persistence) buildStatusHashKey() string {
-	return p.buildGlobalKey(statusSuffix)
+func (p *Persistence) buildStatusIndexKey(status string) string {
+	return fmt.Sprintf("%s:%s:%s", p.prefix, statusSuffix, status)
 }
 
 func (p *Persistence) buildLabelValuesKey(label string) string {
-	return p.buildGlobalKey(
-		fmt.Sprintf("%s:%s", labelSuffix, escapeKeyPart(label)),
-	)
+	return fmt.Sprintf("%s:%s:%s", p.prefix, labelSuffix, escapeKeyPart(label))
 }
 
 func (p *Persistence) buildLabelIndexKey(label, value string) string {
-	return p.buildGlobalKey(
-		fmt.Sprintf("%s:%s:%s",
-			labelSuffix, escapeKeyPart(label), escapeKeyPart(value),
-		),
+	return fmt.Sprintf("%s:%s:%s:%s",
+		p.prefix, labelSuffix, escapeKeyPart(label), escapeKeyPart(value),
 	)
 }

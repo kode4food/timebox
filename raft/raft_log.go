@@ -94,12 +94,8 @@ func (r *raftLog) CompactedIndex() uint64 {
 }
 
 func (r *raftLog) CommittedEntries() []raftpb.Entry {
-	return committedEntries(r.hardState.Commit, r.entries)
-}
-
-func committedEntries(
-	commit uint64, ents []raftpb.Entry,
-) []raftpb.Entry {
+	commit := r.hardState.Commit
+	ents := r.entries
 	if commit == 0 || len(ents) == 0 {
 		return nil
 	}

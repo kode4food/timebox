@@ -2,7 +2,6 @@ package raft
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -19,19 +18,19 @@ type (
 	}
 
 	AggregateMeta struct {
-		CurrentSequence  int64             `json:"cur"`
-		BaseSequence     int64             `json:"base,omitempty"`
-		SnapshotSequence int64             `json:"snap,omitempty"`
-		Status           string            `json:"status,omitempty"`
-		StatusAt         int64             `json:"statusAt,omitempty"`
-		Labels           map[string]string `json:"labels,omitempty"`
+		CurrentSequence  int64
+		BaseSequence     int64
+		SnapshotSequence int64
+		Status           string
+		StatusAt         int64
+		Labels           map[string]string
 	}
 
 	ApplyResult struct {
-		Conflict *timebox.AppendResult `json:"conflict,omitempty"`
-		Status   string                `json:"status,omitempty"`
-		Code     string                `json:"code,omitempty"`
-		Message  string                `json:"message,omitempty"`
+		Conflict *timebox.AppendResult
+		Status   string
+		Code     string
+		Message  string
 	}
 
 	Command []byte
@@ -261,19 +260,50 @@ func (r *ApplyResult) Err() error {
 	return fmt.Errorf("%w: %s", ErrUnexpectedApplyResult, r.Message)
 }
 
-func marshalMeta(meta *AggregateMeta) ([]byte, error) {
-	return json.Marshal(meta)
+func marshalMeta(meta *AggregateMeta) []byte {
+	buf := make([]byte, 0, 64)
+	buf = bin.AppendInt64(buf, meta.CurrentSequence)
+	buf = bin.AppendInt64(buf, meta.BaseSequence)
+	buf = bin.AppendInt64(buf, meta.SnapshotSequence)
+	buf = bin.AppendString(buf, meta.Status)
+	buf = bin.AppendInt64(buf, meta.StatusAt)
+	buf = appendStrMap(buf, meta.Labels)
+	return buf
 }
 
 func unmarshalMeta(data []byte) (*AggregateMeta, error) {
-	var meta AggregateMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
+	cur, data, err := bin.ReadInt64(data)
+	if err != nil {
 		return nil, err
 	}
-	if meta.Labels == nil {
-		meta.Labels = map[string]string{}
+	base, data, err := bin.ReadInt64(data)
+	if err != nil {
+		return nil, err
 	}
-	return &meta, nil
+	snap, data, err := bin.ReadInt64(data)
+	if err != nil {
+		return nil, err
+	}
+	status, data, err := bin.ReadString(data)
+	if err != nil {
+		return nil, err
+	}
+	statusAt, data, err := bin.ReadInt64(data)
+	if err != nil {
+		return nil, err
+	}
+	labels, _, err := readStrMap(data)
+	if err != nil {
+		return nil, err
+	}
+	return &AggregateMeta{
+		CurrentSequence:  cur,
+		BaseSequence:     base,
+		SnapshotSequence: snap,
+		Status:           status,
+		StatusAt:         statusAt,
+		Labels:           labels,
+	}, nil
 }
 
 func parseStatusAt(value string) int64 {
@@ -282,18 +312,13 @@ func parseStatusAt(value string) int64 {
 }
 
 func encodeInt64(value int64) []byte {
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, uint64(value))
-	return buf
+	return bin.AppendInt64(nil, value)
 }
 
 func decodeInt64(value []byte) (int64, error) {
-	switch len(value) {
-	case 0:
+	if len(value) == 0 {
 		return 0, nil
-	case 8:
-		return int64(binary.BigEndian.Uint64(value)), nil
-	default:
-		return 0, ErrCorruptState
 	}
+	v, _, err := bin.ReadInt64(value)
+	return v, err
 }

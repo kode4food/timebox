@@ -16,6 +16,7 @@ import (
 type (
 	// Persistence keeps store state in memory for semantic tests
 	Persistence struct {
+		timebox.AlwaysReady
 		timebox.Config
 
 		mu        sync.RWMutex
@@ -72,11 +73,6 @@ func (p *Persistence) Close() error {
 	p.closed = true
 	p.notifyArchive()
 	return nil
-}
-
-// Ready reports that in-memory persistence can serve requests immediately
-func (p *Persistence) Ready() <-chan struct{} {
-	return timebox.ReadyNow()
 }
 
 // Append appends events if the expected sequence matches

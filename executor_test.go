@@ -595,9 +595,7 @@ func setupExecutorWithCacheConfigs(
 
 func setupExecutorWithConfigs(
 	t *testing.T, tbCfg, storeCfg timebox.Config,
-) (
-	io.Closer, *timebox.Store, *timebox.Executor[*CounterState],
-) {
+) (io.Closer, *timebox.Store, *timebox.Executor[*CounterState]) {
 	t.Helper()
 
 	server, store := setupExecutorStore(t, tbCfg, storeCfg)

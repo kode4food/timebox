@@ -14,6 +14,7 @@ import (
 )
 
 type snapshotGatePersistence struct {
+	timebox.AlwaysReady
 	canSave   bool
 	saveCh    chan struct{}
 	saveErr   error
@@ -24,10 +25,6 @@ type snapshotGatePersistence struct {
 
 func (p *snapshotGatePersistence) Close() error {
 	return nil
-}
-
-func (p *snapshotGatePersistence) Ready() <-chan struct{} {
-	return timebox.ReadyNow()
 }
 
 func (p *snapshotGatePersistence) Append(
@@ -511,8 +508,7 @@ func TestGetSnapshotEmpty(t *testing.T) {
 }
 
 func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
-	io.Closer, *timebox.Store,
-	*timebox.Executor[*CounterState],
+	io.Closer, *timebox.Store, *timebox.Executor[*CounterState],
 ) {
 	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)

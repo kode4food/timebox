@@ -115,16 +115,11 @@ func (c Config) Validate() error {
 	return c.Timebox.Validate()
 }
 
-// ServerAddress returns the peer-visible Raft address
-func (c Config) ServerAddress() string {
-	return c.Address
-}
-
 // LocalServer returns the local server entry derived from this config
 func (c Config) LocalServer() Server {
 	return Server{
 		ID:      c.LocalID,
-		Address: c.ServerAddress(),
+		Address: c.Address,
 	}
 }
 

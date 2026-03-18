@@ -12,7 +12,9 @@ import (
 	"github.com/kode4food/timebox/memory"
 )
 
-type fakePersistence struct{}
+type fakePersistence struct {
+	timebox.AlwaysReady
+}
 
 type fakeReadyPersistence struct {
 	fakePersistence
@@ -21,10 +23,6 @@ type fakeReadyPersistence struct {
 
 func (f *fakePersistence) Close() error {
 	return nil
-}
-
-func (f *fakePersistence) Ready() <-chan struct{} {
-	return timebox.ReadyNow()
 }
 
 func (f *fakePersistence) Append(

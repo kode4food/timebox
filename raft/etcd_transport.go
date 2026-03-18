@@ -197,7 +197,7 @@ func newRaftTransport(cfg Config) (*raftTransport, error) {
 	}
 
 	t := &raftTransport{
-		advertise: ServerAddress(cfg.ServerAddress()),
+		advertise: ServerAddress(cfg.Address),
 		listener:  ln.(*net.TCPListener),
 		peers:     map[ServerAddress]*raftPeerConn{},
 		conns:     map[net.Conn]struct{}{},

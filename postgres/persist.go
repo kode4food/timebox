@@ -15,6 +15,7 @@ import (
 
 // Persistence implements timebox.Persistence using Postgres
 type Persistence struct {
+	timebox.AlwaysReady
 	Config
 	pool *pgxpool.Pool
 }
@@ -85,12 +86,6 @@ func newPersistence(cfg Config) (*Persistence, error) {
 func (p *Persistence) Close() error {
 	p.pool.Close()
 	return nil
-}
-
-// Ready reports that Postgres persistence can serve requests
-// immediately
-func (p *Persistence) Ready() <-chan struct{} {
-	return timebox.ReadyNow()
 }
 
 // LoadEvents loads events starting at fromSeq

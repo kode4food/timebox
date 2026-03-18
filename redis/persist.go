@@ -15,6 +15,7 @@ import (
 
 // Persistence implements timebox.Persistence using Redis/Valkey
 type Persistence struct {
+	timebox.AlwaysReady
 	Config
 
 	client         *redis.Client
@@ -110,11 +111,6 @@ func newPersistence(cfg Config) (*Persistence, error) {
 // Close closes the Redis client
 func (p *Persistence) Close() error {
 	return p.client.Close()
-}
-
-// Ready reports that Redis persistence can serve requests immediately
-func (p *Persistence) Ready() <-chan struct{} {
-	return timebox.ReadyNow()
 }
 
 // Append appends events if the expected sequence matches
@@ -304,36 +300,28 @@ func (p *Persistence) ListAggregates(
 	return ids, nil
 }
 
-func (p *Persistence) buildKey(
-	id timebox.AggregateID, suffix string,
-) string {
+func (p *Persistence) buildKey(id timebox.AggregateID, suffix string) string {
 	return fmt.Sprintf("%s:%s:%s", p.prefix, p.JoinKey(id), suffix)
 }
 
-func (p *Persistence) buildGlobalKey(suffix string) string {
-	return fmt.Sprintf("%s:%s", p.prefix, suffix)
-}
-
 func (p *Persistence) buildLabelStateKey(id timebox.AggregateID) string {
-	return p.buildGlobalKey(
-		fmt.Sprintf("%s:%s", labelsSuffix, p.JoinKey(id)),
-	)
+	return fmt.Sprintf("%s:%s:%s", p.prefix, p.JoinKey(id), labelsSuffix)
 }
 
 func (p *Persistence) buildLabelRootKey() string {
-	return p.buildGlobalKey(labelSuffix)
+	return fmt.Sprintf("%s:%s", p.prefix, labelSuffix)
 }
 
 func (p *Persistence) archiveStreamKey() string {
-	return p.buildGlobalKey(archiveStreamSuffix)
+	return fmt.Sprintf("%s:%s", p.prefix, archiveStreamSuffix)
 }
 
 func (p *Persistence) archiveGroup() string {
-	return p.buildGlobalKey(archiveGroupSuffix)
+	return fmt.Sprintf("%s:%s", p.prefix, archiveGroupSuffix)
 }
 
 func (p *Persistence) archiveConsumer() string {
-	return p.buildGlobalKey(archiveConsumerSuffix)
+	return fmt.Sprintf("%s:%s", p.prefix, archiveConsumerSuffix)
 }
 
 func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {

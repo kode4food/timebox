@@ -25,7 +25,7 @@ func TestConfig(t *testing.T) {
 		})
 
 		assert.NoError(t, cfg.Validate())
-		assert.Equal(t, "127.0.0.1:9701", cfg.ServerAddress())
+		assert.Equal(t, "127.0.0.1:9701", cfg.Address)
 	})
 
 	t.Run("invalid", func(t *testing.T) {

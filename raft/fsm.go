@@ -110,11 +110,7 @@ func (f *fsm) applyAppendTx(
 	}
 
 	meta.CurrentSequence = currentSeq + int64(len(req.Events))
-	data, err := marshalMeta(meta)
-	if err != nil {
-		return nil, err
-	}
-	if err := b.Put(AggregateMetaKey(encodedID), data); err != nil {
+	if err := b.Put(AggregateMetaKey(encodedID), marshalMeta(meta)); err != nil {
 		return nil, err
 	}
 
@@ -160,11 +156,7 @@ func (f *fsm) applySnapshotTx(
 		}
 	}
 
-	data, err := marshalMeta(meta)
-	if err != nil {
-		return nil, err
-	}
-	if err := b.Put(metaKey, data); err != nil {
+	if err := b.Put(metaKey, marshalMeta(meta)); err != nil {
 		return nil, err
 	}
 
