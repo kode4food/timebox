@@ -22,6 +22,10 @@ type (
 		// Cluster identity
 		Address string
 		Servers []Server
+
+		// CompactMinStep is the minimum number of new log entries required
+		// before a compaction is triggered. Defaults to 16,384
+		CompactMinStep uint64
 	}
 
 	// Server identifies one voter in the bootstrap configuration
@@ -35,7 +39,6 @@ const (
 	defaultApplyTimeout   = 10 * time.Second
 	defaultCompactMinStep = 16_384
 	defaultSnapshotRetain = 1
-	testCompactStepEnv    = "TIMEBOX_RAFT_TEST_COMPACT_MIN_STEP"
 )
 
 var (
@@ -61,7 +64,8 @@ var (
 // DefaultConfig returns the opinionated defaults for one Raft node
 func DefaultConfig() Config {
 	return Config{
-		Timebox: timebox.DefaultConfig(),
+		Timebox:        timebox.DefaultConfig(),
+		CompactMinStep: defaultCompactMinStep,
 	}
 }
 
@@ -79,6 +83,9 @@ func (c Config) With(other Config) Config {
 	}
 	if len(other.Servers) != 0 {
 		c.Servers = append([]Server(nil), other.Servers...)
+	}
+	if other.CompactMinStep != 0 {
+		c.CompactMinStep = other.CompactMinStep
 	}
 	return c
 }

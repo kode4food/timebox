@@ -281,14 +281,14 @@ func buildAppendLua(spec luaAppendSpec) string {
 func buildLuaAppendCall(p *Persistence, in luaAppendInput) luaAppendCall {
 	ops := newLuaAppendOps(in.labels)
 	spec := luaAppendSpec{
-		trim:   p.config.Timebox.Snapshot.TrimEvents,
+		trim:   p.Timebox.Snapshot.TrimEvents,
 		status: in.status != nil,
 		labels: len(ops) > 0,
 	}
 	return luaAppendCall{
 		spec: spec,
 		keys: buildLuaAppendKeys(p, in.id, spec),
-		args: buildLuaAppendArgs(p.config.JoinKey(in.id), in, ops, spec),
+		args: buildLuaAppendArgs(p.JoinKey(in.id), in, ops, spec),
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +23,8 @@ type (
 	// Persistence applies Timebox writes through etcd raft
 	// and serves reads from bbolt
 	Persistence struct {
+		Config
+
 		// Local state
 		db  *bbolt.DB
 		fsm *fsm
@@ -38,7 +39,6 @@ type (
 
 		// Raft compaction
 		compactMu      sync.Mutex
-		compactMinStep uint64
 		compactPending uint64
 
 		// Cluster routing
@@ -120,12 +120,12 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	}
 
 	p := &Persistence{
-		db:             db,
-		storage:        log.memory,
-		raftLog:        log,
-		transport:      tr,
-		applyTimeout:   defaultApplyTimeout,
-		compactMinStep: compactMinStep(),
+		Config:       cfg,
+		db:           db,
+		storage:      log.memory,
+		raftLog:      log,
+		transport:    tr,
+		applyTimeout: defaultApplyTimeout,
 
 		peers: buildPeerMap(cfg, tr),
 
@@ -186,9 +186,7 @@ func (p *Persistence) Append(
 ) (*timebox.AppendResult, error) {
 	propID := p.newProposalID()
 	res, err := p.applyWithTimeout(
-		context.Background(),
-		MakeAppendCommand(propID, &req),
-		propID,
+		context.Background(), MakeAppendCommand(propID, &req), propID,
 	)
 	if err != nil {
 		return nil, err
@@ -432,15 +430,6 @@ func (p *Persistence) newProposalID() uint64 {
 	return p.nextProposal.Add(1)
 }
 
-func compactMinStep() uint64 {
-	if value := os.Getenv(testCompactStepEnv); value != "" {
-		if step, err := strconv.Atoi(value); err == nil && step > 0 {
-			return uint64(step)
-		}
-	}
-	return defaultCompactMinStep
-}
-
 func openBoltDB(path string) (*bbolt.DB, error) {
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{
 		Timeout:      time.Second,
@@ -478,9 +467,7 @@ func bootstrapPeers(cfg Config, tr *raftTransport) []raft.Peer {
 	return res
 }
 
-func buildPeerMap(
-	cfg Config, tr *raftTransport,
-) map[uint64]peerInfo {
+func buildPeerMap(cfg Config, tr *raftTransport) map[uint64]peerInfo {
 	srvs := cfg.Servers
 	if len(srvs) == 0 {
 		srv := cfg.LocalServer()

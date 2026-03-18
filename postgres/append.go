@@ -95,22 +95,22 @@ func (p *Persistence) Append(
 	switch {
 	case req.Status != nil && len(req.Labels) > 0:
 		err = p.pool.QueryRow(ctx, appendStatusLabelsQuery,
-			p.store, key, parts, req.ExpectedSequence,
+			p.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, lblJSON, req.Events,
 		).Scan(&success, &actualSeq, &newEvents)
 	case req.Status != nil:
 		err = p.pool.QueryRow(ctx, appendStatusQuery,
-			p.store, key, parts, req.ExpectedSequence,
+			p.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, req.Events,
 		).Scan(&success, &actualSeq, &newEvents)
 	case len(req.Labels) > 0:
 		err = p.pool.QueryRow(ctx, appendLabelsQuery,
-			p.store, key, parts, req.ExpectedSequence,
+			p.Prefix, key, parts, req.ExpectedSequence,
 			lblJSON, req.Events,
 		).Scan(&success, &actualSeq, &newEvents)
 	default:
 		err = p.pool.QueryRow(ctx, appendPlainQuery,
-			p.store, key, parts, req.ExpectedSequence,
+			p.Prefix, key, parts, req.ExpectedSequence,
 			req.Events,
 		).Scan(&success, &actualSeq, &newEvents)
 	}

@@ -25,7 +25,7 @@ func (p *Persistence) GetAggregateStatus(
 		SELECT status
 		FROM timebox_index
 		WHERE store = $1 AND aggregate_key = $2
-	`, p.store, key).Scan(&status)
+	`, p.Prefix, key).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -41,7 +41,7 @@ func (p *Persistence) ListAggregatesByStatus(
 		FROM timebox_index
 		WHERE store = $1 AND status = $2
 		ORDER BY status_at
-	`, p.store, status)
+	`, p.Prefix, status)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (p *Persistence) ListAggregatesByLabel(
 		SELECT aggregate_parts
 		FROM timebox_index
 		WHERE store = $1 AND labels ->> $2 = $3
-	`, p.store, label, value)
+	`, p.Prefix, label, value)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (p *Persistence) ListLabelValues(label string) ([]string, error) {
 			AS lbl(key, value)
 		WHERE i.store = $1 AND lbl.key = $2
 		ORDER BY lbl.value
-	`, p.store, label)
+	`, p.Prefix, label)
 	if err != nil {
 		return nil, err
 	}

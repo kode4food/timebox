@@ -290,7 +290,7 @@ func (p *Persistence) maybeProposeCompaction() error {
 	if compactTo == 0 || compactTo <= current {
 		return nil
 	}
-	if compactTo-current < p.compactMinStep {
+	if compactTo-current < p.CompactMinStep {
 		return nil
 	}
 	if !p.beginCompaction(compactTo) {

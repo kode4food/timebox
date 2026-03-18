@@ -42,7 +42,7 @@ func (p *Persistence) ListAggregatesByStatus(
 	res := make([]timebox.StatusEntry, 0, len(members))
 	for _, member := range members {
 		res = append(res, timebox.StatusEntry{
-			ID:        p.config.ParseKey(fmt.Sprint(member.Member)),
+			ID:        p.ParseKey(fmt.Sprint(member.Member)),
 			Timestamp: time.UnixMilli(int64(member.Score)).UTC(),
 		})
 	}
@@ -61,7 +61,7 @@ func (p *Persistence) ListAggregatesByLabel(
 
 	ids := make([]timebox.AggregateID, 0, len(members))
 	for _, member := range members {
-		ids = append(ids, p.config.ParseKey(member))
+		ids = append(ids, p.ParseKey(member))
 	}
 	return ids, nil
 }

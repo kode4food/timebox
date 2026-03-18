@@ -27,10 +27,11 @@ type (
 	}
 
 	nodeConfig struct {
-		id         string
-		addr       string
-		dataDir    string
-		trimEvents bool
+		id             string
+		addr           string
+		dataDir        string
+		trimEvents     bool
+		compactMinStep uint64
 	}
 )
 
@@ -53,10 +54,11 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 	}
 
 	tbCfg := testRaftConfig(nodeConfig{
-		id:         cfg.id,
-		addr:       addr,
-		dataDir:    dataDir,
-		trimEvents: cfg.trimEvents,
+		id:             cfg.id,
+		addr:           addr,
+		dataDir:        dataDir,
+		trimEvents:     cfg.trimEvents,
+		compactMinStep: cfg.compactMinStep,
 	})
 
 	persistence, err := raft.NewPersistence(tbCfg)
@@ -258,9 +260,10 @@ func waitForWrite(t *testing.T, store *timebox.Store) bool {
 
 func testRaftConfig(cfg nodeConfig) raft.Config {
 	return raft.Config{
-		LocalID: cfg.id,
-		DataDir: cfg.dataDir,
-		Address: cfg.addr,
+		LocalID:        cfg.id,
+		DataDir:        cfg.dataDir,
+		Address:        cfg.addr,
+		CompactMinStep: cfg.compactMinStep,
 		Timebox: timebox.Config{
 			Indexer: combinedIndexer,
 			Snapshot: timebox.SnapshotConfig{

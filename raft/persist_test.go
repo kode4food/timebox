@@ -508,8 +508,6 @@ func TestRestart(t *testing.T) {
 func TestRestartCompaction(t *testing.T) {
 	const count = 640
 
-	t.Setenv("TIMEBOX_RAFT_TEST_COMPACT_MIN_STEP", "512")
-
 	addr := freeAddr(t)
 	if addr == "" {
 		return
@@ -517,9 +515,10 @@ func TestRestartCompaction(t *testing.T) {
 
 	dataDir := t.TempDir()
 	cfg := nodeConfig{
-		id:      "node-1",
-		addr:    addr,
-		dataDir: dataDir,
+		id:             "node-1",
+		addr:           addr,
+		dataDir:        dataDir,
+		compactMinStep: 512,
 	}
 
 	node := newNode(t, cfg)
@@ -573,12 +572,11 @@ func TestRestartCompaction(t *testing.T) {
 func TestCompactionPrune(t *testing.T) {
 	const count = 256
 
-	t.Setenv("TIMEBOX_RAFT_TEST_COMPACT_MIN_STEP", "64")
-
 	cfg := nodeConfig{
-		id:      "node-1",
-		addr:    freeAddr(t),
-		dataDir: t.TempDir(),
+		id:             "node-1",
+		addr:           freeAddr(t),
+		dataDir:        t.TempDir(),
+		compactMinStep: 64,
 	}
 
 	n := newNode(t, cfg)

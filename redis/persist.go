@@ -15,6 +15,8 @@ import (
 
 // Persistence implements timebox.Persistence using Redis/Valkey
 type Persistence struct {
+	Config
+
 	client         *redis.Client
 	prefix         string
 	appendScripts  map[luaAppendSpec]*redis.Script
@@ -23,7 +25,6 @@ type Persistence struct {
 	getSnapshot    *redis.Script
 	publishArchive *redis.Script
 	consumeArchive *redis.Script
-	config         Config
 }
 
 const (
@@ -102,7 +103,7 @@ func newPersistence(cfg Config) (*Persistence, error) {
 		getSnapshot:    redis.NewScript(getSnapshotScript),
 		publishArchive: redis.NewScript(luaPublishArchive),
 		consumeArchive: redis.NewScript(luaConsumeArchive),
-		config:         cfg,
+		Config:         cfg,
 	}, nil
 }
 
@@ -159,7 +160,7 @@ func (p *Persistence) LoadEvents(
 ) (*timebox.EventsResult, error) {
 	eventsKey := p.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
-	if p.config.Timebox.Snapshot.TrimEvents {
+	if p.Timebox.Snapshot.TrimEvents {
 		snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
 		keys = []string{eventsKey, snapSeqKey}
 	}
@@ -172,7 +173,7 @@ func (p *Persistence) LoadEvents(
 		return nil, err
 	}
 
-	if p.config.Timebox.Snapshot.TrimEvents {
+	if p.Timebox.Snapshot.TrimEvents {
 		res := result.([]any)
 		if len(res) < 2 {
 			return nil, errors.Join(
@@ -263,7 +264,7 @@ func (p *Persistence) SaveSnapshot(
 	snapKey := p.buildKey(id, snapshotValSuffix)
 	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
 	keys := []string{snapKey, snapSeqKey}
-	if p.config.Timebox.Snapshot.TrimEvents {
+	if p.Timebox.Snapshot.TrimEvents {
 		eventsKey := p.buildKey(id, eventsSuffix)
 		keys = []string{snapKey, snapSeqKey, eventsKey}
 	}
@@ -306,7 +307,7 @@ func (p *Persistence) ListAggregates(
 func (p *Persistence) buildKey(
 	id timebox.AggregateID, suffix string,
 ) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, p.config.JoinKey(id), suffix)
+	return fmt.Sprintf("%s:%s:%s", p.prefix, p.JoinKey(id), suffix)
 }
 
 func (p *Persistence) buildGlobalKey(suffix string) string {
@@ -315,7 +316,7 @@ func (p *Persistence) buildGlobalKey(suffix string) string {
 
 func (p *Persistence) buildLabelStateKey(id timebox.AggregateID) string {
 	return p.buildGlobalKey(
-		fmt.Sprintf("%s:%s", labelsSuffix, p.config.JoinKey(id)),
+		fmt.Sprintf("%s:%s", labelsSuffix, p.JoinKey(id)),
 	)
 }
 
@@ -349,7 +350,7 @@ func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {
 		}
 	}
 
-	return p.config.ParseKey(str)
+	return p.ParseKey(str)
 }
 
 func toRawMessages(data []any) ([]json.RawMessage, error) {

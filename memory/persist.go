@@ -16,8 +16,9 @@ import (
 type (
 	// Persistence keeps store state in memory for semantic tests
 	Persistence struct {
+		timebox.Config
+
 		mu        sync.RWMutex
-		cfg       timebox.Config
 		closed    bool
 		nextID    int64
 		aggs      map[string]*aggregate
@@ -50,7 +51,7 @@ var _ timebox.Persistence = (*Persistence)(nil)
 func NewPersistence(cfgs ...timebox.Config) *Persistence {
 	cfg := timebox.Configure(timebox.DefaultConfig(), cfgs...)
 	return &Persistence{
-		cfg:       cfg,
+		Config:    cfg,
 		aggs:      map[string]*aggregate{},
 		archive:   []*timebox.ArchiveRecord{},
 		archiveCh: make(chan struct{}, 1),
@@ -208,7 +209,7 @@ func (p *Persistence) SaveSnapshot(
 
 	a.snapshotData = append(json.RawMessage{}, data...)
 	a.snapshotSeq = sequence
-	if p.cfg.Snapshot.TrimEvents && sequence > a.baseSeq {
+	if p.Snapshot.TrimEvents && sequence > a.baseSeq {
 		trim := min(sequence-a.baseSeq, int64(len(a.events)))
 		a.events = cloneMessages(a.events[trim:])
 		a.baseSeq += trim
