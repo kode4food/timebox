@@ -74,7 +74,7 @@ const (
 	StateLeader    State = "leader"
 )
 
-var _ timebox.Persistence = (*Persistence)(nil)
+var _ timebox.Backend = (*Persistence)(nil)
 
 // NewStore opens a Timebox store backed by etcd raft quorum commits and bbolt
 func NewStore(cfgs ...Config) (*timebox.Store, error) {

@@ -46,7 +46,7 @@ var (
 	ErrClosed = errors.New("memory persistence is closed")
 )
 
-var _ timebox.Persistence = (*Persistence)(nil)
+var _ timebox.Backend = (*Persistence)(nil)
 
 // NewPersistence creates a new in-memory Persistence
 func NewPersistence(cfgs ...timebox.Config) *Persistence {

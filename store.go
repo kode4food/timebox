@@ -9,8 +9,9 @@ import (
 )
 
 type (
-	// Store persists events and snapshots
+	// Store persists, queries, and snapshots aggregate events
 	Store struct {
+		Queries
 		persistence    Persistence
 		snapshotWorker *SnapshotWorker
 		config         Config
@@ -37,18 +38,19 @@ type (
 	}
 )
 
-// NewStore creates a Store using a supplied Persistence
-func NewStore(p Persistence, cfg Config) (*Store, error) {
+// NewStore creates a Store backed by the supplied Backend
+func NewStore(b Backend, cfg Config) (*Store, error) {
 	cfg = Configure(DefaultConfig(), cfg)
 	if err := cfg.validateStore(); err != nil {
 		return nil, err
 	}
-	return newStore(cfg, p), nil
+	return newStore(cfg, b), nil
 }
 
-func newStore(cfg Config, p Persistence) *Store {
+func newStore(cfg Config, b Backend) *Store {
 	s := &Store{
-		persistence: p,
+		Queries:     b,
+		persistence: b,
 		config:      cfg,
 	}
 	if cfg.Snapshot.Workers {
@@ -216,35 +218,6 @@ func (s *Store) canSaveSnapshot() bool {
 		return p.CanSaveSnapshot()
 	}
 	return true
-}
-
-// ListAggregates lists aggregate IDs that share the prefix of the provided id
-func (s *Store) ListAggregates(id AggregateID) ([]AggregateID, error) {
-	return s.persistence.ListAggregates(id)
-}
-
-// GetAggregateStatus returns the current indexed status for an aggregate
-func (s *Store) GetAggregateStatus(id AggregateID) (string, error) {
-	return s.persistence.GetAggregateStatus(id)
-}
-
-// ListAggregatesByStatus returns the aggregates currently indexed under the
-// provided status, including when they entered that status
-func (s *Store) ListAggregatesByStatus(status string) ([]StatusEntry, error) {
-	return s.persistence.ListAggregatesByStatus(status)
-}
-
-// ListAggregatesByLabel returns the aggregates currently indexed under a
-// label/value pair
-func (s *Store) ListAggregatesByLabel(
-	label, value string,
-) ([]AggregateID, error) {
-	return s.persistence.ListAggregatesByLabel(label, value)
-}
-
-// ListLabelValues returns the unique current values indexed for a label
-func (s *Store) ListLabelValues(label string) ([]string, error) {
-	return s.persistence.ListLabelValues(label)
 }
 
 // Archive moves aggregate artifacts to persistent archive storage

@@ -9,6 +9,12 @@ import (
 )
 
 type (
+	// Backend is used by Store to provide Persistence and Queries
+	Backend interface {
+		Persistence
+		Queries
+	}
+
 	// Persistence provides the low-level primitives Store uses to implement
 	// Store semantics
 	Persistence interface {
@@ -29,7 +35,10 @@ type (
 
 		// SaveSnapshot stores raw snapshot data at the provided sequence
 		SaveSnapshot(id AggregateID, data []byte, sequence int64) error
+	}
 
+	// Queries provides aggregate and index query operations
+	Queries interface {
 		// ListAggregates lists aggregate IDs that match the provided prefix
 		ListAggregates(id AggregateID) ([]AggregateID, error)
 

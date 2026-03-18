@@ -22,7 +22,7 @@ type Persistence struct {
 
 const connectTimeout = 5 * time.Second
 
-var _ timebox.Persistence = (*Persistence)(nil)
+var _ timebox.Backend = (*Persistence)(nil)
 
 // NewStore creates a Store backed by Postgres persistence
 func NewStore(cfgs ...Config) (*timebox.Store, error) {
