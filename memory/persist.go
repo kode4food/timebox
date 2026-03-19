@@ -108,9 +108,7 @@ func (p *Persistence) Append(
 		}, nil
 	}
 
-	for _, e := range req.Events {
-		a.events = append(a.events, e)
-	}
+	a.events = append(a.events, req.Events...)
 	if req.Status != nil {
 		a.status = *req.Status
 		if ts, err := strconv.ParseInt(req.StatusAt, 10, 64); err == nil {
