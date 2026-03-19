@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -294,6 +295,84 @@ func TestFollowerStatus(t *testing.T) {
 		return
 	}
 	assert.Equal(t, "completed", status)
+}
+
+func TestCommittedPublisher(t *testing.T) {
+	var mu sync.Mutex
+	got := map[string][]*timebox.Event{}
+
+	record := func(node string) raft.Publisher {
+		return func(evs ...*timebox.Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			got[node] = append(got[node], evs...)
+		}
+	}
+
+	srvs := []raft.Server{
+		{ID: "node-1", Address: freeAddr(t)},
+		{ID: "node-2", Address: freeAddr(t)},
+		{ID: "node-3", Address: freeAddr(t)},
+	}
+
+	nodes := []*node{
+		newClusterNode(t, nodeConfig{
+			id:        "node-1",
+			addr:      srvs[0].Address,
+			publisher: record("node-1"),
+		}, srvs),
+		newClusterNode(t, nodeConfig{
+			id:        "node-2",
+			addr:      srvs[1].Address,
+			publisher: record("node-2"),
+		}, srvs),
+		newClusterNode(t, nodeConfig{
+			id:        "node-3",
+			addr:      srvs[2].Address,
+			publisher: record("node-3"),
+		}, srvs),
+	}
+	if len(nodes) != 3 {
+		return
+	}
+
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+	follower := firstFollower(nodes, leader)
+	if !assert.NotNil(t, follower) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "publisher")
+	ts := time.Unix(1_700_000_000, 0).UTC()
+
+	err := follower.store.AppendEvents(id, 0, []*timebox.Event{
+		indexedEvent(id, "active", "prod", ts),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got["node-1"]) == 1 &&
+			len(got["node-2"]) == 1 &&
+			len(got["node-3"]) == 1
+	}, 15*time.Second, 100*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, node := range []string{"node-1", "node-2", "node-3"} {
+		evs := got[node]
+		if assert.Len(t, evs, 1) {
+			assert.Equal(t, id, evs[0].AggregateID)
+			assert.Equal(t, int64(0), evs[0].Sequence)
+			assert.Equal(t, testEventType, evs[0].Type)
+		}
+	}
 }
 
 func TestReadySingle(t *testing.T) {

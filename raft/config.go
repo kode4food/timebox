@@ -26,7 +26,12 @@ type (
 		// CompactMinStep is the minimum number of new log entries required
 		// before a compaction is triggered. Defaults to 16,384
 		CompactMinStep uint64
+
+		Publisher Publisher
 	}
+
+	// Publisher is a callback that can be used to report committed events
+	Publisher func(...*timebox.Event)
 
 	// Server identifies one voter in the bootstrap configuration
 	Server struct {
@@ -86,6 +91,9 @@ func (c Config) With(other Config) Config {
 	}
 	if other.CompactMinStep != 0 {
 		c.CompactMinStep = other.CompactMinStep
+	}
+	if other.Publisher != nil {
+		c.Publisher = other.Publisher
 	}
 	return c
 }

@@ -85,9 +85,9 @@ func TestAppendLoadEvents(t *testing.T) {
 		res, err := p.Append(timebox.AppendRequest{
 			ID:               id,
 			ExpectedSequence: 0,
-			Events: []string{
-				`{"type":"created"}`, `{"type":"updated"}`,
-			},
+			Events: testEvents(
+				"created", "updated",
+			),
 		})
 		assert.NoError(t, err)
 		assert.Nil(t, res)
@@ -95,22 +95,19 @@ func TestAppendLoadEvents(t *testing.T) {
 		evs, err := p.LoadEvents(id, 0)
 		assert.NoError(t, err)
 		assert.Equal(t, int64(0), evs.StartSequence)
-		assert.Equal(t, []json.RawMessage{
-			json.RawMessage(`{"type":"created"}`),
-			json.RawMessage(`{"type":"updated"}`),
-		}, evs.Events)
+		assert.Equal(t,
+			[]timebox.EventType{"created", "updated"}, eventTypes(evs.Events),
+		)
 
 		res, err = p.Append(timebox.AppendRequest{
 			ID:               id,
 			ExpectedSequence: 1,
-			Events:           []string{`{"type":"stale"}`},
+			Events:           testEvents("stale"),
 		})
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, int64(2), res.ActualSequence)
-		assert.Equal(t, []json.RawMessage{
-			json.RawMessage(`{"type":"updated"}`),
-		}, res.NewEvents)
+		assert.Equal(t, []timebox.EventType{"updated"}, eventTypes(res.NewEvents))
 	})
 }
 
@@ -126,7 +123,7 @@ func TestSnapshotListAggregates(t *testing.T) {
 		_, err := p.Append(timebox.AppendRequest{
 			ID:               id,
 			ExpectedSequence: 0,
-			Events:           []string{`{"type":"one"}`, `{"type":"two"}`},
+			Events:           testEvents("one", "two"),
 		})
 		assert.NoError(t, err)
 
@@ -135,7 +132,7 @@ func TestSnapshotListAggregates(t *testing.T) {
 		_, err = p.Append(timebox.AppendRequest{
 			ID:               other,
 			ExpectedSequence: 0,
-			Events:           []string{`{"type":"created"}`},
+			Events:           testEvents("created"),
 		})
 		assert.NoError(t, err)
 		err = p.SaveSnapshot(other, []byte(`{"value":2}`), 1)
@@ -145,9 +142,7 @@ func TestSnapshotListAggregates(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, json.RawMessage(`{"value":1}`), snap.Data)
 		assert.Equal(t, int64(1), snap.Sequence)
-		assert.Equal(t, []json.RawMessage{
-			json.RawMessage(`{"type":"two"}`),
-		}, snap.Events)
+		assert.Equal(t, []timebox.EventType{"two"}, eventTypes(snap.Events))
 
 		evs, err := p.LoadEvents(id, 0)
 		assert.NoError(t, err)
@@ -178,7 +173,7 @@ func TestPersistenceIndexQueries(t *testing.T) {
 			Labels: map[string]string{
 				"env:prod": `eu\west%1`,
 			},
-			Events: []string{`{"type":"created"}`},
+			Events: testEvents("created"),
 		})
 		assert.NoError(t, err)
 
@@ -222,7 +217,7 @@ func TestArchiveLifecycle(t *testing.T) {
 		_, err := p.Append(timebox.AppendRequest{
 			ID:               id,
 			ExpectedSequence: 0,
-			Events:           []string{`{"type":"created"}`},
+			Events:           testEvents("created"),
 		})
 		assert.NoError(t, err)
 		err = p.SaveSnapshot(id, []byte(`{"value":1}`), 1)
@@ -309,9 +304,7 @@ func TestArchivePayloadBytes(t *testing.T) {
 	withPersistence(t, nil, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
-		payload := []byte(
-			`{"id":"order:bytes","snap":"","seq":0,"events":["{}"]}`,
-		)
+		payload := []byte(`{"id":"order:bytes","snap":"","seq":0,"events":[]}`)
 		streamKey := tbredis.DefaultPrefix + ":archive"
 		_, err := client.XAdd(ctx, &redis.XAddArgs{
 			Stream: streamKey,
@@ -342,7 +335,7 @@ func TestArchiveHandlerError(t *testing.T) {
 		_, err := p.Append(timebox.AppendRequest{
 			ID:               id,
 			ExpectedSequence: 0,
-			Events:           []string{`{"type":"created"}`},
+			Events:           testEvents("created"),
 		})
 		assert.NoError(t, err)
 		assert.NoError(t, p.Archive(id))
@@ -375,12 +368,8 @@ func TestPersistenceCorruptEvents(t *testing.T) {
 		).Err()
 		assert.NoError(t, err)
 
-		evs, err := p.LoadEvents(id, 0)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(0), evs.StartSequence)
-		assert.Equal(t, []json.RawMessage{
-			json.RawMessage("not-json"),
-		}, evs.Events)
+		_, err = p.LoadEvents(id, 0)
+		assert.Error(t, err)
 	})
 }
 
@@ -400,4 +389,24 @@ func TestCorruptSnapshot(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, json.RawMessage("not-json"), snap.Data)
 	})
+}
+
+func testEvents(types ...timebox.EventType) []*timebox.Event {
+	res := make([]*timebox.Event, len(types))
+	for i, typ := range types {
+		res[i] = &timebox.Event{
+			Timestamp: time.Unix(int64(i), 0).UTC(),
+			Type:      typ,
+			Data:      json.RawMessage(`{}`),
+		}
+	}
+	return res
+}
+
+func eventTypes(evs []*timebox.Event) []timebox.EventType {
+	res := make([]timebox.EventType, 0, len(evs))
+	for _, ev := range evs {
+		res = append(res, ev.Type)
+	}
+	return res
 }

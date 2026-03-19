@@ -66,7 +66,13 @@ func MakeCompactCommand(proposalID, index uint64) Command {
 	return c
 }
 
-func MakeAppendCommand(proposalID uint64, req *timebox.AppendRequest) Command {
+func MakeAppendCommand(
+	proposalID uint64, req *timebox.AppendRequest,
+) (Command, error) {
+	evs, err := encodeEvents(req.Events)
+	if err != nil {
+		return nil, err
+	}
 	c := make(Command, 0, cmdHeaderSize+128)
 	c = append(c, CmdTypeAppend)
 	c = binary.BigEndian.AppendUint64(c, proposalID)
@@ -75,8 +81,8 @@ func MakeAppendCommand(proposalID uint64, req *timebox.AppendRequest) Command {
 	c = bin.AppendOptString(c, req.Status)
 	c = bin.AppendString(c, req.StatusAt)
 	c = appendStrMap(c, req.Labels)
-	c = appendStrSlice(c, req.Events)
-	return c
+	c = appendBytesSlice(c, evs)
+	return c, nil
 }
 
 func MakeSnapshotCommand(proposalID uint64, sc *SnapshotCommand) Command {
@@ -145,7 +151,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	events, _, err := readStrSlice(data)
+	events, _, err := readBytesSlice(data)
 	if err != nil {
 		return nil, err
 	}
@@ -183,10 +189,10 @@ func appendAggregateID(buf []byte, id timebox.AggregateID) []byte {
 	return buf
 }
 
-func appendStrSlice(buf []byte, ss []string) []byte {
-	buf = bin.AppendUint32(buf, uint32(len(ss)))
-	for _, s := range ss {
-		buf = bin.AppendString(buf, s)
+func appendBytesSlice(buf []byte, items [][]byte) []byte {
+	buf = bin.AppendUint32(buf, uint32(len(items)))
+	for _, item := range items {
+		buf = bin.AppendBytes(buf, item)
 	}
 	return buf
 }
@@ -217,19 +223,24 @@ func readAggregateID(data []byte) (timebox.AggregateID, []byte, error) {
 	return id, data, nil
 }
 
-func readStrSlice(data []byte) ([]string, []byte, error) {
+func readBytesSlice(data []byte) ([]*timebox.Event, []byte, error) {
 	n, data, err := bin.ReadUint32(data)
 	if err != nil {
 		return nil, nil, err
 	}
-	ss := make([]string, n)
-	for i := range ss {
-		ss[i], data, err = bin.ReadString(data)
+	evs := make([]*timebox.Event, n)
+	for i := range evs {
+		var item []byte
+		item, data, err = bin.ReadBytes(data)
+		if err != nil {
+			return nil, nil, err
+		}
+		evs[i], err = decodeEvent(item)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	return ss, data, nil
+	return evs, data, nil
 }
 
 func readStrMap(data []byte) (map[string]string, []byte, error) {
@@ -258,6 +269,22 @@ func (r *ApplyResult) Err() error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", ErrUnexpectedApplyResult, r.Message)
+}
+
+func encodeEvents(evs []*timebox.Event) ([][]byte, error) {
+	res := make([][]byte, 0, len(evs))
+	for _, ev := range evs {
+		data, err := timebox.BinEvent.Encode(ev)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, data)
+	}
+	return res, nil
+}
+
+func decodeEvent(data []byte) (*timebox.Event, error) {
+	return timebox.BinEvent.Decode(data)
 }
 
 func marshalMeta(meta *AggregateMeta) []byte {

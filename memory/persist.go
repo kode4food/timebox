@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -30,7 +29,7 @@ type (
 	aggregate struct {
 		id      timebox.AggregateID
 		baseSeq int64
-		events  []json.RawMessage
+		events  []*timebox.Event
 
 		snapshotData json.RawMessage
 		snapshotSeq  int64
@@ -90,8 +89,8 @@ func (p *Persistence) Append(
 	a, ok := p.aggs[key]
 	if !ok {
 		a = &aggregate{
-			id:     slices.Clone(req.ID),
-			events: []json.RawMessage{},
+			id:     req.ID,
+			events: []*timebox.Event{},
 			labels: map[string]string{},
 		}
 		p.aggs[key] = a
@@ -105,12 +104,12 @@ func (p *Persistence) Append(
 		)
 		return &timebox.AppendResult{
 			ActualSequence: seq,
-			NewEvents:      cloneMessages(a.events[start:]),
+			NewEvents:      a.events[start:],
 		}, nil
 	}
 
 	for _, e := range req.Events {
-		a.events = append(a.events, json.RawMessage(e))
+		a.events = append(a.events, e)
 	}
 	if req.Status != nil {
 		a.status = *req.Status
@@ -143,14 +142,14 @@ func (p *Persistence) LoadEvents(
 	if !ok {
 		return &timebox.EventsResult{
 			StartSequence: fromSeq,
-			Events:        []json.RawMessage{},
+			Events:        []*timebox.Event{},
 		}, nil
 	}
 
 	start := max(fromSeq, a.baseSeq)
 	return &timebox.EventsResult{
 		StartSequence: start,
-		Events:        cloneMessages(a.events[start-a.baseSeq:]),
+		Events:        a.events[start-a.baseSeq:],
 	}, nil
 }
 
@@ -172,9 +171,9 @@ func (p *Persistence) LoadSnapshot(
 
 	start := max(a.snapshotSeq-a.baseSeq, 0)
 	return &timebox.SnapshotRecord{
-		Data:     cloneMessage(a.snapshotData),
+		Data:     a.snapshotData,
 		Sequence: a.snapshotSeq,
-		Events:   cloneMessages(a.events[start:]),
+		Events:   a.events[start:],
 	}, nil
 }
 
@@ -193,8 +192,8 @@ func (p *Persistence) SaveSnapshot(
 	a, ok := p.aggs[key]
 	if !ok {
 		a = &aggregate{
-			id:     slices.Clone(id),
-			events: []json.RawMessage{},
+			id:     id,
+			events: []*timebox.Event{},
 			labels: map[string]string{},
 		}
 		p.aggs[key] = a
@@ -203,11 +202,11 @@ func (p *Persistence) SaveSnapshot(
 		return nil
 	}
 
-	a.snapshotData = append(json.RawMessage{}, data...)
+	a.snapshotData = data
 	a.snapshotSeq = sequence
 	if p.Snapshot.TrimEvents && sequence > a.baseSeq {
 		trim := min(sequence-a.baseSeq, int64(len(a.events)))
-		a.events = cloneMessages(a.events[trim:])
+		a.events = a.events[trim:]
 		a.baseSeq += trim
 	}
 	return nil
@@ -227,7 +226,7 @@ func (p *Persistence) ListAggregates(
 	var res []timebox.AggregateID
 	for _, a := range p.aggs {
 		if a.id.HasPrefix(id) {
-			res = append(res, slices.Clone(a.id))
+			res = append(res, a.id)
 		}
 	}
 	return res, nil
@@ -268,7 +267,7 @@ func (p *Persistence) ListAggregatesByStatus(
 			continue
 		}
 		res = append(res, timebox.StatusEntry{
-			ID:        slices.Clone(a.id),
+			ID:        a.id,
 			Timestamp: a.statusAt,
 		})
 	}
@@ -292,7 +291,7 @@ func (p *Persistence) ListAggregatesByLabel(
 	var res []timebox.AggregateID
 	for _, a := range p.aggs {
 		if a.labels[label] == value {
-			res = append(res, slices.Clone(a.id))
+			res = append(res, a.id)
 		}
 	}
 	return res, nil
@@ -339,10 +338,10 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	p.nextID++
 	rec := &timebox.ArchiveRecord{
 		StreamID:         time.Now().UTC().Format(time.RFC3339Nano),
-		AggregateID:      slices.Clone(a.id),
-		SnapshotData:     cloneMessage(a.snapshotData),
+		AggregateID:      a.id,
+		SnapshotData:     a.snapshotData,
 		SnapshotSequence: a.snapshotSeq,
-		Events:           cloneMessages(a.events),
+		Events:           a.events,
 	}
 	if p.nextID > 0 {
 		rec.StreamID = rec.StreamID + "-" + time.Duration(p.nextID).String()
@@ -368,7 +367,7 @@ func (p *Persistence) ConsumeArchive(
 			return err
 		}
 		if rec != nil {
-			if err := h(ctx, cloneArchive(rec)); err != nil {
+			if err := h(ctx, rec); err != nil {
 				return err
 			}
 			return p.consumeArchive(rec.StreamID)
@@ -421,31 +420,6 @@ func (p *Persistence) checkClosed() error {
 		return ErrClosed
 	}
 	return nil
-}
-
-func cloneArchive(r *timebox.ArchiveRecord) *timebox.ArchiveRecord {
-	return &timebox.ArchiveRecord{
-		StreamID:         r.StreamID,
-		AggregateID:      slices.Clone(r.AggregateID),
-		SnapshotData:     cloneMessage(r.SnapshotData),
-		SnapshotSequence: r.SnapshotSequence,
-		Events:           cloneMessages(r.Events),
-	}
-}
-
-func cloneMessages(in []json.RawMessage) []json.RawMessage {
-	out := make([]json.RawMessage, 0, len(in))
-	for _, m := range in {
-		out = append(out, cloneMessage(m))
-	}
-	return out
-}
-
-func cloneMessage(in json.RawMessage) json.RawMessage {
-	if len(in) == 0 {
-		return nil
-	}
-	return append(json.RawMessage{}, in...)
 }
 
 func keyFor(id timebox.AggregateID) string {

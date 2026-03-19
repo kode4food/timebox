@@ -3,10 +3,10 @@ package raft
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,7 +53,7 @@ type (
 
 		// Proposal tracking
 		pendingMu    sync.Mutex
-		pending      map[uint64]chan proposalResult
+		pending      map[uint64]proposalState
 		nextProposal atomic.Uint64
 	}
 
@@ -132,7 +132,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		readyCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),
 
-		pending: map[uint64]chan proposalResult{},
+		pending: map[uint64]proposalState{},
 	}
 	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents)
 
@@ -185,8 +185,15 @@ func (p *Persistence) Append(
 	req timebox.AppendRequest,
 ) (*timebox.AppendResult, error) {
 	propID := p.newProposalID()
+	cmd, err := MakeAppendCommand(propID, &req)
+	if err != nil {
+		return nil, err
+	}
 	res, err := p.applyWithTimeout(
-		context.Background(), MakeAppendCommand(propID, &req), propID,
+		context.Background(),
+		cmd,
+		propID,
+		req.Events,
 	)
 	if err != nil {
 		return nil, err
@@ -209,14 +216,14 @@ func (p *Persistence) LoadEvents(
 		if !ok {
 			res = &timebox.EventsResult{
 				StartSequence: fromSeq,
-				Events:        []json.RawMessage{},
+				Events:        []*timebox.Event{},
 			}
 			return nil
 		}
 
 		startSeq := max(fromSeq, meta.BaseSequence)
 
-		evs, err := loadRawEventsTx(tx.Bucket(bucketName), encodedID, startSeq)
+		evs, err := loadEventsTx(tx.Bucket(bucketName), encodedID, startSeq)
 		if err != nil {
 			return err
 		}
@@ -252,12 +259,12 @@ func (p *Persistence) LoadSnapshot(
 
 		startSeq := max(meta.SnapshotSequence, meta.BaseSequence)
 
-		evs, err := loadRawEventsTx(b, encodedID, startSeq)
+		evs, err := loadEventsTx(b, encodedID, startSeq)
 		if err != nil {
 			return err
 		}
 		rec = &timebox.SnapshotRecord{
-			Data:     cloneBytes(b.Get(aggregateSnapshotKey(encodedID))),
+			Data:     slices.Clone(b.Get(aggregateSnapshotKey(encodedID))),
 			Sequence: meta.SnapshotSequence,
 			Events:   evs,
 		}
@@ -282,6 +289,7 @@ func (p *Persistence) SaveSnapshot(
 			Sequence: sequence,
 		}),
 		propID,
+		nil,
 	)
 	return err
 }
@@ -372,7 +380,7 @@ func (p *Persistence) restoreMaterializedState(ents []raftpb.Entry) error {
 }
 
 func (p *Persistence) applyWithTimeout(
-	ctx context.Context, data []byte, proposalID uint64,
+	ctx context.Context, data []byte, proposalID uint64, events []*timebox.Event,
 ) (*ApplyResult, error) {
 	timeout, err := p.commandTimeout(ctx)
 	if err != nil {
@@ -380,7 +388,7 @@ func (p *Persistence) applyWithTimeout(
 	}
 	proposeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return p.propose(proposeCtx, data, proposalID)
+	return p.propose(proposeCtx, data, proposalID, events)
 }
 
 func (p *Persistence) commandTimeout(

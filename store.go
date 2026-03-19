@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"time"
 )
 
 type (
@@ -90,6 +89,7 @@ func (s *Store) Close() error {
 // AppendEvents atomically appends events for an aggregate if the expected
 // sequence matches the current log sequence
 func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
+	evs = sequenceEvents(id, atSeq, evs)
 	if len(evs) == 0 {
 		return nil
 	}
@@ -114,30 +114,13 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 		statusAt = fmt.Sprintf("%d", evs[len(evs)-1].Timestamp.UnixMilli())
 	}
 
-	var re struct {
-		Timestamp time.Time       `json:"timestamp"`
-		Type      EventType       `json:"type"`
-		Data      json.RawMessage `json:"data"`
-	}
-	data := make([]string, 0, len(evs))
-	for _, ev := range evs {
-		re.Timestamp = ev.Timestamp
-		re.Type = ev.Type
-		re.Data = ev.Data
-		reData, err := json.Marshal(&re)
-		if err != nil {
-			return err
-		}
-		data = append(data, string(reData))
-	}
-
 	res, err := s.persistence.Append(AppendRequest{
 		ID:               id,
 		ExpectedSequence: atSeq,
 		Status:           status,
 		StatusAt:         statusAt,
 		Labels:           lbls,
-		Events:           data,
+		Events:           evs,
 	})
 	if err != nil {
 		return err
@@ -159,7 +142,7 @@ func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
 	if len(res.Events) == 0 {
 		return []*Event{}, nil
 	}
-	return s.decodeEvents(id, res.StartSequence, res.Events)
+	return res.Events, nil
 }
 
 // GetSnapshot loads the latest snapshot into target and returns any events
@@ -178,14 +161,11 @@ func (s *Store) GetSnapshot(
 		}
 	}
 
-	events, err := s.decodeEvents(id, rec.Sequence, rec.Events)
-	if err != nil {
-		return nil, err
-	}
+	events := rec.Events
 
 	eventsSize := 0
 	for _, item := range rec.Events {
-		eventsSize += len(item)
+		eventsSize += len(item.Data)
 	}
 
 	return &SnapshotResult{
@@ -248,13 +228,8 @@ func (e *VersionConflictError) Error() string {
 }
 
 func (s *Store) handleVersionConflict(
-	id AggregateID, rawEvents []json.RawMessage, expectedSeq, actualSeq int64,
+	_ AggregateID, newEvs []*Event, expectedSeq, actualSeq int64,
 ) error {
-	newEvs, err := s.decodeEvents(id, expectedSeq, rawEvents)
-	if err != nil {
-		return err
-	}
-
 	return &VersionConflictError{
 		ExpectedSequence: expectedSeq,
 		ActualSequence:   actualSeq,
@@ -262,18 +237,17 @@ func (s *Store) handleVersionConflict(
 	}
 }
 
-func (s *Store) decodeEvents(
-	id AggregateID, startSeq int64, data []json.RawMessage,
-) ([]*Event, error) {
-	events := make([]*Event, 0, len(data))
-	for i, item := range data {
-		ev := &Event{}
-		if err := json.Unmarshal(item, ev); err != nil {
-			return nil, err
+func sequenceEvents(id AggregateID, atSeq int64, evs []*Event) []*Event {
+	res := make([]*Event, len(evs))
+	for idx, ev := range evs {
+		res[idx] = &Event{
+			Timestamp:   ev.Timestamp,
+			Sequence:    atSeq + int64(idx),
+			Type:        ev.Type,
+			AggregateID: id,
+			Data:        ev.Data,
+			value:       ev.value,
 		}
-		ev.Sequence = startSeq + int64(i)
-		ev.AggregateID = id
-		events = append(events, ev)
 	}
-	return events, nil
+	return res
 }

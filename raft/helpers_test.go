@@ -32,6 +32,7 @@ type (
 		dataDir        string
 		trimEvents     bool
 		compactMinStep uint64
+		publisher      raft.Publisher
 	}
 )
 
@@ -59,6 +60,7 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 		dataDir:        dataDir,
 		trimEvents:     cfg.trimEvents,
 		compactMinStep: cfg.compactMinStep,
+		publisher:      cfg.publisher,
 	})
 
 	persistence, err := raft.NewPersistence(tbCfg)
@@ -175,9 +177,10 @@ func newCluster(t *testing.T, n int) []*node {
 
 	for _, cfg := range cfgs {
 		tbCfg := testRaftConfig(nodeConfig{
-			id:      cfg.id,
-			addr:    cfg.addr,
-			dataDir: t.TempDir(),
+			id:        cfg.id,
+			addr:      cfg.addr,
+			dataDir:   t.TempDir(),
+			publisher: cfg.publisher,
 		})
 		tbCfg.Servers = srvs
 
@@ -214,9 +217,10 @@ func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 	t.Helper()
 
 	tbCfg := testRaftConfig(nodeConfig{
-		id:      cfg.id,
-		addr:    cfg.addr,
-		dataDir: t.TempDir(),
+		id:        cfg.id,
+		addr:      cfg.addr,
+		dataDir:   t.TempDir(),
+		publisher: cfg.publisher,
 	})
 	tbCfg.Servers = srvs
 
@@ -270,6 +274,7 @@ func testRaftConfig(cfg nodeConfig) raft.Config {
 				TrimEvents: cfg.trimEvents,
 			},
 		},
+		Publisher: cfg.publisher,
 	}
 }
 

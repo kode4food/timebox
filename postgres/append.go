@@ -64,6 +64,10 @@ func (p *Persistence) Append(
 	if err != nil {
 		return nil, err
 	}
+	raw, err := p.encodeEvents(req.Events)
+	if err != nil {
+		return nil, err
+	}
 
 	var status any
 	var statusAt int64
@@ -96,22 +100,22 @@ func (p *Persistence) Append(
 	case req.Status != nil && len(req.Labels) > 0:
 		err = p.pool.QueryRow(ctx, appendStatusLabelsQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
-			status, statusAt, lblJSON, req.Events,
+			status, statusAt, lblJSON, raw,
 		).Scan(&success, &actualSeq, &newEvents)
 	case req.Status != nil:
 		err = p.pool.QueryRow(ctx, appendStatusQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
-			status, statusAt, req.Events,
+			status, statusAt, raw,
 		).Scan(&success, &actualSeq, &newEvents)
 	case len(req.Labels) > 0:
 		err = p.pool.QueryRow(ctx, appendLabelsQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
-			lblJSON, req.Events,
+			lblJSON, raw,
 		).Scan(&success, &actualSeq, &newEvents)
 	default:
 		err = p.pool.QueryRow(ctx, appendPlainQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
-			req.Events,
+			raw,
 		).Scan(&success, &actualSeq, &newEvents)
 	}
 	if err != nil {
@@ -120,10 +124,38 @@ func (p *Persistence) Append(
 	if success {
 		return nil, nil
 	}
+	res, err := p.decodeEvents(newEvents)
+	if err != nil {
+		return nil, err
+	}
 	return &timebox.AppendResult{
 		ActualSequence: actualSeq,
-		NewEvents:      rawMessages(newEvents),
+		NewEvents:      res,
 	}, nil
+}
+
+func (p *Persistence) encodeEvents(evs []*timebox.Event) ([]string, error) {
+	res := make([]string, 0, len(evs))
+	for _, ev := range evs {
+		data, err := timebox.JSONEvent.Encode(ev)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, string(data))
+	}
+	return res, nil
+}
+
+func (p *Persistence) decodeEvents(data []string) ([]*timebox.Event, error) {
+	evs := make([]*timebox.Event, 0, len(data))
+	for _, s := range data {
+		ev, err := timebox.JSONEvent.Decode([]byte(s))
+		if err != nil {
+			return nil, err
+		}
+		evs = append(evs, ev)
+	}
+	return evs, nil
 }
 
 func buildAppendFunctionSQL(spec appendFunctionSpec) string {

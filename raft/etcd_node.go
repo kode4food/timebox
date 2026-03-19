@@ -9,6 +9,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/kode4food/timebox"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/quorum"
 	"go.etcd.io/raft/v3/raftpb"
@@ -17,6 +18,11 @@ import (
 
 type proposalResult struct {
 	res *ApplyResult
+}
+
+type proposalState struct {
+	ch     chan proposalResult
+	events []*timebox.Event
 }
 
 const (
@@ -104,10 +110,10 @@ func (p *Persistence) serveReady() {
 				if err := p.handleReady(rd); err != nil {
 					p.pendingMu.Lock()
 					pending := p.pending
-					p.pending = map[uint64]chan proposalResult{}
+					p.pending = map[uint64]proposalState{}
 					p.pendingMu.Unlock()
-					for _, ch := range pending {
-						ch <- proposalResult{
+					for _, st := range pending {
+						st.ch <- proposalResult{
 							res: &ApplyResult{
 								Code:    applyCodeInternal,
 								Message: err.Error(),
@@ -238,15 +244,43 @@ func (p *Persistence) flushBatch(
 	if err != nil {
 		return err
 	}
+	var published []*timebox.Event
 	for i := range batch {
 		res := results[i]
 		p.resolveProposal(propIDs[i], res)
 		if err := res.Err(); err != nil {
 			return err
 		}
+		if p.Publisher != nil {
+			evs, err := p.committedEvents(batch[i].cmd, propIDs[i])
+			if err != nil {
+				return err
+			}
+			published = append(published, evs...)
+		}
 		p.appliedIndex = batch[i].index
 	}
+	if p.Publisher != nil && len(published) > 0 {
+		p.Publisher(published...)
+	}
 	return nil
+}
+
+func (p *Persistence) committedEvents(
+	cmd Command, proposalID uint64,
+) ([]*timebox.Event, error) {
+	if evs := p.proposalEvents(proposalID); len(evs) > 0 {
+		return evs, nil
+	}
+	if cmd.Type() != CmdTypeAppend {
+		return nil, nil
+	}
+
+	req, err := cmd.AppendRequest()
+	if err != nil {
+		return nil, err
+	}
+	return req.Events, nil
 }
 
 func (p *Persistence) sendMessages(msgs []raftpb.Message) {
@@ -314,10 +348,10 @@ func (p *Persistence) applyCompact(cmd Command) error {
 }
 
 func (p *Persistence) propose(
-	ctx context.Context, data []byte, proposalID uint64,
+	ctx context.Context, data []byte, proposalID uint64, events []*timebox.Event,
 ) (*ApplyResult, error) {
-	ch := p.registerProposal(proposalID)
-	defer p.unregisterProposal(proposalID, ch)
+	st := p.registerProposal(proposalID, events)
+	defer p.unregisterProposal(proposalID, st)
 
 	if err := p.node.Propose(ctx, data); err != nil {
 		return nil, err
@@ -326,7 +360,7 @@ func (p *Persistence) propose(
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case res := <-ch:
+	case res := <-st.ch:
 		if err := res.res.Err(); err != nil {
 			return nil, err
 		}
@@ -334,17 +368,22 @@ func (p *Persistence) propose(
 	}
 }
 
-func (p *Persistence) registerProposal(id uint64) chan proposalResult {
-	ch := make(chan proposalResult, 1)
+func (p *Persistence) registerProposal(
+	id uint64, events []*timebox.Event,
+) proposalState {
+	st := proposalState{
+		ch:     make(chan proposalResult, 1),
+		events: append([]*timebox.Event(nil), events...),
+	}
 	p.pendingMu.Lock()
-	p.pending[id] = ch
+	p.pending[id] = st
 	p.pendingMu.Unlock()
-	return ch
+	return st
 }
 
-func (p *Persistence) unregisterProposal(id uint64, ch chan proposalResult) {
+func (p *Persistence) unregisterProposal(id uint64, st proposalState) {
 	p.pendingMu.Lock()
-	if cur, ok := p.pending[id]; ok && cur == ch {
+	if cur, ok := p.pending[id]; ok && cur.ch == st.ch {
 		delete(p.pending, id)
 	}
 	p.pendingMu.Unlock()
@@ -357,14 +396,30 @@ func (p *Persistence) resolveProposal(
 		return
 	}
 	p.pendingMu.Lock()
-	ch, ok := p.pending[proposalID]
+	st, ok := p.pending[proposalID]
 	if ok {
 		delete(p.pending, proposalID)
 	}
 	p.pendingMu.Unlock()
 	if ok {
-		ch <- proposalResult{res: res}
+		st.ch <- proposalResult{res: res}
 	}
+}
+
+func (p *Persistence) proposalEvents(proposalID uint64) []*timebox.Event {
+	if proposalID == 0 {
+		return nil
+	}
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	st, ok := p.pending[proposalID]
+	if !ok || len(st.events) == 0 {
+		return nil
+	}
+	evs := st.events
+	st.events = nil
+	p.pending[proposalID] = st
+	return evs
 }
 
 func (p *Persistence) beginCompaction(index uint64) bool {

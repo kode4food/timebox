@@ -117,13 +117,18 @@ func (p *Persistence) Close() error {
 func (p *Persistence) Append(
 	req timebox.AppendRequest,
 ) (*timebox.AppendResult, error) {
+	evs, err := p.encodeEvents(req.Events)
+	if err != nil {
+		return nil, err
+	}
+
 	call := buildLuaAppendCall(p, luaAppendInput{
 		id:       req.ID,
 		atSeq:    req.ExpectedSequence,
 		status:   req.Status,
 		statusAt: req.StatusAt,
 		labels:   req.Labels,
-		events:   req.Events,
+		events:   evs,
 	})
 
 	result, err := p.appendScripts[call.spec].Run(
@@ -140,7 +145,7 @@ func (p *Persistence) Append(
 		return nil, nil
 	}
 
-	newEvents, err := toRawMessages(res[2].([]any))
+	newEvents, err := p.decodeEvents(res[2].([]any))
 	if err != nil {
 		return nil, err
 	}
@@ -184,23 +189,24 @@ func (p *Persistence) LoadEvents(
 			)
 		}
 
-		rawMessages, err := toRawMessages(res[1].([]any))
+		start := max(fromSeq, offset)
+		evs, err := p.decodeEvents(res[1].([]any))
 		if err != nil {
 			return nil, err
 		}
 		return &timebox.EventsResult{
-			StartSequence: max(fromSeq, offset),
-			Events:        rawMessages,
+			StartSequence: start,
+			Events:        evs,
 		}, nil
 	}
 
-	rawMessages, err := toRawMessages(result.([]any))
+	evs, err := p.decodeEvents(result.([]any))
 	if err != nil {
 		return nil, err
 	}
 	return &timebox.EventsResult{
 		StartSequence: fromSeq,
-		Events:        rawMessages,
+		Events:        evs,
 	}, nil
 }
 
@@ -241,7 +247,7 @@ func (p *Persistence) LoadSnapshot(
 		)
 	}
 
-	newMessages, err := toRawMessages(resultSlice[2].([]any))
+	newEvents, err := p.decodeEvents(resultSlice[2].([]any))
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +255,7 @@ func (p *Persistence) LoadSnapshot(
 	return &timebox.SnapshotRecord{
 		Data:     json.RawMessage(snapData),
 		Sequence: snapSeq,
-		Events:   newMessages,
+		Events:   newEvents,
 	}, nil
 }
 
@@ -341,8 +347,20 @@ func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {
 	return p.ParseKey(str)
 }
 
-func toRawMessages(data []any) ([]json.RawMessage, error) {
-	messages := make([]json.RawMessage, 0, len(data))
+func (p *Persistence) encodeEvents(evs []*timebox.Event) ([]string, error) {
+	res := make([]string, 0, len(evs))
+	for _, ev := range evs {
+		data, err := timebox.JSONEvent.Encode(ev)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, string(data))
+	}
+	return res, nil
+}
+
+func (p *Persistence) decodeEvents(data []any) ([]*timebox.Event, error) {
+	evs := make([]*timebox.Event, 0, len(data))
 	for _, item := range data {
 		str, ok := item.(string)
 		if !ok {
@@ -350,9 +368,13 @@ func toRawMessages(data []any) ([]json.RawMessage, error) {
 				timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
 			)
 		}
-		messages = append(messages, json.RawMessage(str))
+		ev, err := timebox.JSONEvent.Decode([]byte(str))
+		if err != nil {
+			return nil, err
+		}
+		evs = append(evs, ev)
 	}
-	return messages, nil
+	return evs, nil
 }
 
 func escapeKeyPart(s string) string {

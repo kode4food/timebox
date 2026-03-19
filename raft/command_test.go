@@ -1,6 +1,7 @@
 package raft_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -22,9 +23,10 @@ func TestCommandType(t *testing.T) {
 	})
 
 	t.Run("append", func(t *testing.T) {
-		c := raft.MakeAppendCommand(1, &timebox.AppendRequest{
+		c, err := raft.MakeAppendCommand(1, &timebox.AppendRequest{
 			ID: timebox.NewAggregateID("ns", "id"),
 		})
+		assert.NoError(t, err)
 		assert.Equal(t, raft.CmdTypeAppend, c.Type())
 	})
 
@@ -63,15 +65,22 @@ func TestCommandCompactIndex(t *testing.T) {
 
 func TestCommandAppendRoundtrip(t *testing.T) {
 	status := "active"
+	id := timebox.NewAggregateID("ns", "id1")
+	evs := testEvents()
+	for i, ev := range evs {
+		ev.AggregateID = append(timebox.AggregateID(nil), id...)
+		ev.Sequence = 7 + int64(i)
+	}
 	req := &timebox.AppendRequest{
-		ID:               timebox.NewAggregateID("ns", "id1"),
+		ID:               id,
 		ExpectedSequence: 7,
 		Status:           &status,
 		StatusAt:         time.Now().UTC().Format(time.RFC3339),
 		Labels:           map[string]string{"env": "prod"},
-		Events:           []string{"event.one", "event.two"},
+		Events:           evs,
 	}
-	c := raft.MakeAppendCommand(99, req)
+	c, err := raft.MakeAppendCommand(99, req)
+	assert.NoError(t, err)
 
 	pid, err := c.ProposalID()
 	assert.NoError(t, err)
@@ -130,4 +139,19 @@ func TestCommandCorrupt(t *testing.T) {
 		_, err := c.SnapshotRequest()
 		assert.True(t, errors.Is(err, raft.ErrCorruptState))
 	})
+}
+
+func testEvents() []*timebox.Event {
+	return []*timebox.Event{
+		{
+			Timestamp: time.Unix(1, 0).UTC(),
+			Type:      "event.one",
+			Data:      json.RawMessage(`1`),
+		},
+		{
+			Timestamp: time.Unix(2, 0).UTC(),
+			Type:      "event.two",
+			Data:      json.RawMessage(`2`),
+		},
+	}
 }

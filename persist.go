@@ -73,28 +73,28 @@ type (
 		Status           *string           `json:"status,omitempty"`
 		StatusAt         string            `json:"status_at,omitempty"`
 		Labels           map[string]string `json:"labels,omitempty"`
-		Events           []string          `json:"events"`
+		Events           []*Event          `json:"-"`
 	}
 
 	// AppendResult describes an optimistic concurrency conflict. A nil result
 	// means the append succeeded
 	AppendResult struct {
-		ActualSequence int64             `json:"actual_seq"`
-		NewEvents      []json.RawMessage `json:"new_events,omitempty"`
+		ActualSequence int64    `json:"actual_seq"`
+		NewEvents      []*Event `json:"-"`
 	}
 
 	// EventsResult contains raw persisted events and the sequence to assign to
 	// the first event in the slice
 	EventsResult struct {
 		StartSequence int64
-		Events        []json.RawMessage
+		Events        []*Event
 	}
 
 	// SnapshotRecord contains raw snapshot data and any raw trailing events
 	SnapshotRecord struct {
 		Data     json.RawMessage
 		Sequence int64
-		Events   []json.RawMessage
+		Events   []*Event
 	}
 
 	// Index stores optional projection metadata derived from an event
@@ -123,7 +123,7 @@ type (
 		AggregateID      AggregateID
 		SnapshotData     json.RawMessage
 		SnapshotSequence int64
-		Events           []json.RawMessage
+		Events           []*Event
 	}
 
 	// ArchiveHandler handles a single archive record

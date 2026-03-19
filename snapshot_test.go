@@ -23,84 +23,6 @@ type snapshotGatePersistence struct {
 	mu        sync.Mutex
 }
 
-func (p *snapshotGatePersistence) Close() error {
-	return nil
-}
-
-func (p *snapshotGatePersistence) Append(
-	timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) LoadEvents(
-	timebox.AggregateID, int64,
-) (*timebox.EventsResult, error) {
-	return &timebox.EventsResult{}, nil
-}
-
-func (p *snapshotGatePersistence) LoadSnapshot(
-	timebox.AggregateID,
-) (*timebox.SnapshotRecord, error) {
-	return &timebox.SnapshotRecord{
-		Events: []json.RawMessage{snapshotGateEvent(1)},
-	}, nil
-}
-
-func (p *snapshotGatePersistence) SaveSnapshot(
-	timebox.AggregateID, []byte, int64,
-) error {
-	if p.startedCh != nil {
-		select {
-		case p.startedCh <- struct{}{}:
-		default:
-		}
-	}
-	if p.blockCh != nil {
-		<-p.blockCh
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	select {
-	case p.saveCh <- struct{}{}:
-	default:
-	}
-	return p.saveErr
-}
-
-func (p *snapshotGatePersistence) ListAggregates(
-	timebox.AggregateID,
-) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) GetAggregateStatus(
-	timebox.AggregateID,
-) (string, error) {
-	return "", nil
-}
-
-func (p *snapshotGatePersistence) ListAggregatesByStatus(
-	string,
-) ([]timebox.StatusEntry, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) ListAggregatesByLabel(
-	string, string,
-) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) ListLabelValues(string) ([]string, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) CanSaveSnapshot() bool {
-	return p.canSave
-}
-
 func TestWithoutSnapshotWorker(t *testing.T) {
 	server, store, executor := setupTestExecutorWithoutSnapshotWorker(t)
 	defer func() { _ = server.Close() }()
@@ -533,11 +455,89 @@ func newSnapshotGateStore(
 	return store
 }
 
-func snapshotGateEvent(delta int) json.RawMessage {
-	data, _ := json.Marshal(map[string]any{
-		"timestamp": time.Now().UTC(),
-		"type":      EventIncremented,
-		"data":      delta,
-	})
-	return data
+func snapshotGateEvent(delta int) *timebox.Event {
+	data, _ := json.Marshal(delta)
+	return &timebox.Event{
+		Timestamp: time.Now().UTC(),
+		Type:      EventIncremented,
+		Data:      data,
+	}
+}
+
+func (p *snapshotGatePersistence) Close() error {
+	return nil
+}
+
+func (p *snapshotGatePersistence) Append(
+	timebox.AppendRequest,
+) (*timebox.AppendResult, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) LoadEvents(
+	timebox.AggregateID, int64,
+) (*timebox.EventsResult, error) {
+	return &timebox.EventsResult{}, nil
+}
+
+func (p *snapshotGatePersistence) LoadSnapshot(
+	timebox.AggregateID,
+) (*timebox.SnapshotRecord, error) {
+	return &timebox.SnapshotRecord{
+		Events: []*timebox.Event{snapshotGateEvent(1)},
+	}, nil
+}
+
+func (p *snapshotGatePersistence) SaveSnapshot(
+	timebox.AggregateID, []byte, int64,
+) error {
+	if p.startedCh != nil {
+		select {
+		case p.startedCh <- struct{}{}:
+		default:
+		}
+	}
+	if p.blockCh != nil {
+		<-p.blockCh
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	select {
+	case p.saveCh <- struct{}{}:
+	default:
+	}
+	return p.saveErr
+}
+
+func (p *snapshotGatePersistence) ListAggregates(
+	timebox.AggregateID,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) GetAggregateStatus(
+	timebox.AggregateID,
+) (string, error) {
+	return "", nil
+}
+
+func (p *snapshotGatePersistence) ListAggregatesByStatus(
+	string,
+) ([]timebox.StatusEntry, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) ListAggregatesByLabel(
+	string, string,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) ListLabelValues(string) ([]string, error) {
+	return nil, nil
+}
+
+func (p *snapshotGatePersistence) CanSaveSnapshot() bool {
+	return p.canSave
 }

@@ -314,7 +314,7 @@ func (p *Persistence) insertAggregate(
 
 func (p *Persistence) loadEvents(
 	ctx context.Context, key string, fromSeq int64,
-) ([]json.RawMessage, error) {
+) ([]*timebox.Event, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT data
 		FROM timebox_events
@@ -328,13 +328,17 @@ func (p *Persistence) loadEvents(
 	}
 	defer rows.Close()
 
-	var res []json.RawMessage
+	var res []*timebox.Event
 	for rows.Next() {
 		var msg string
 		if err := rows.Scan(&msg); err != nil {
 			return nil, err
 		}
-		res = append(res, json.RawMessage(msg))
+		ev, err := timebox.JSONEvent.Decode([]byte(msg))
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, ev)
 	}
 	return res, rows.Err()
 }
@@ -362,12 +366,4 @@ func aggregateID(parts []string) timebox.AggregateID {
 		res = append(res, timebox.ID(part))
 	}
 	return res
-}
-
-func rawMessages(in []string) []json.RawMessage {
-	out := make([]json.RawMessage, 0, len(in))
-	for _, s := range in {
-		out = append(out, json.RawMessage(s))
-	}
-	return out
 }

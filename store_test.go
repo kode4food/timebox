@@ -12,74 +12,16 @@ import (
 	"github.com/kode4food/timebox/memory"
 )
 
-type fakePersistence struct {
-	timebox.AlwaysReady
-}
+type (
+	fakePersistence struct {
+		timebox.AlwaysReady
+	}
 
-type fakeReadyPersistence struct {
-	fakePersistence
-	readyCh chan struct{}
-}
-
-func (f *fakePersistence) Close() error {
-	return nil
-}
-
-func (f *fakePersistence) Append(
-	timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
-	return nil, nil
-}
-
-func (f *fakePersistence) LoadEvents(
-	timebox.AggregateID, int64,
-) (*timebox.EventsResult, error) {
-	return &timebox.EventsResult{}, nil
-}
-
-func (f *fakePersistence) LoadSnapshot(
-	timebox.AggregateID,
-) (*timebox.SnapshotRecord, error) {
-	return &timebox.SnapshotRecord{}, nil
-}
-
-func (f *fakePersistence) SaveSnapshot(
-	timebox.AggregateID, []byte, int64,
-) error {
-	return nil
-}
-
-func (f *fakePersistence) ListAggregates(
-	timebox.AggregateID,
-) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
-func (f *fakePersistence) GetAggregateStatus(
-	timebox.AggregateID,
-) (string, error) {
-	return "", nil
-}
-
-func (f *fakePersistence) ListAggregatesByStatus(
-	string,
-) ([]timebox.StatusEntry, error) {
-	return nil, nil
-}
-
-func (f *fakePersistence) ListAggregatesByLabel(
-	string, string,
-) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
-func (f *fakePersistence) ListLabelValues(string) ([]string, error) {
-	return nil, nil
-}
-
-func (f *fakeReadyPersistence) Ready() <-chan struct{} {
-	return f.readyCh
-}
+	fakeReadyPersistence struct {
+		fakePersistence
+		readyCh chan struct{}
+	}
+)
 
 func TestVersionConflictError(t *testing.T) {
 	err := &timebox.VersionConflictError{
@@ -154,7 +96,11 @@ func TestStoreConfigAndStatus(t *testing.T) {
 		ExpectedSequence: 0,
 		Status:           &status,
 		StatusAt:         "1700000000000",
-		Events:           []string{`{"type":"created"}`},
+		Events: []*timebox.Event{{
+			Timestamp: time.Unix(0, 0).UTC(),
+			Type:      "created",
+			Data:      json.RawMessage(`{}`),
+		}},
 	})
 	assert.NoError(t, err)
 
@@ -185,6 +131,46 @@ func TestStore(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, events, 1)
 	assert.Equal(t, EventIncremented, events[0].Type)
+}
+
+func TestAppendCopy(t *testing.T) {
+	server, store, err := newMemoryStore(timebox.Config{})
+	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("order", "1")
+	other := timebox.NewAggregateID("other", "2")
+	ev1 := &timebox.Event{
+		Timestamp:   time.Now(),
+		Sequence:    41,
+		Type:        "event.first",
+		AggregateID: other,
+		Data:        json.RawMessage(`{"value":1}`),
+	}
+	ev2 := &timebox.Event{
+		Timestamp:   time.Now(),
+		Sequence:    42,
+		Type:        "event.second",
+		AggregateID: other,
+		Data:        json.RawMessage(`{"value":2}`),
+	}
+
+	err = store.AppendEvents(id, 0, []*timebox.Event{ev1, ev2})
+	assert.NoError(t, err)
+
+	assert.Equal(t, int64(41), ev1.Sequence)
+	assert.Equal(t, other, ev1.AggregateID)
+	assert.Equal(t, int64(42), ev2.Sequence)
+	assert.Equal(t, other, ev2.AggregateID)
+
+	evs, err := store.GetEvents(id, 0)
+	assert.NoError(t, err)
+	assert.Len(t, evs, 2)
+	assert.Equal(t, int64(0), evs[0].Sequence)
+	assert.Equal(t, int64(1), evs[1].Sequence)
+	assert.Equal(t, id, evs[0].AggregateID)
+	assert.Equal(t, id, evs[1].AggregateID)
 }
 
 func TestNewStoreInvalidConfig(t *testing.T) {
@@ -412,4 +398,64 @@ func combinedIndexer(events []*timebox.Event) []*timebox.Index {
 		})
 	}
 	return res
+}
+
+func (f *fakePersistence) Close() error {
+	return nil
+}
+
+func (f *fakePersistence) Append(
+	timebox.AppendRequest,
+) (*timebox.AppendResult, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) LoadEvents(
+	timebox.AggregateID, int64,
+) (*timebox.EventsResult, error) {
+	return &timebox.EventsResult{}, nil
+}
+
+func (f *fakePersistence) LoadSnapshot(
+	timebox.AggregateID,
+) (*timebox.SnapshotRecord, error) {
+	return &timebox.SnapshotRecord{}, nil
+}
+
+func (f *fakePersistence) SaveSnapshot(
+	timebox.AggregateID, []byte, int64,
+) error {
+	return nil
+}
+
+func (f *fakePersistence) ListAggregates(
+	timebox.AggregateID,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) GetAggregateStatus(
+	timebox.AggregateID,
+) (string, error) {
+	return "", nil
+}
+
+func (f *fakePersistence) ListAggregatesByStatus(
+	string,
+) ([]timebox.StatusEntry, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) ListAggregatesByLabel(
+	string, string,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
+func (f *fakePersistence) ListLabelValues(string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakeReadyPersistence) Ready() <-chan struct{} {
+	return f.readyCh
 }

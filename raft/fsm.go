@@ -2,7 +2,6 @@ package raft
 
 import (
 	"bytes"
-	"encoding/json"
 	"slices"
 
 	"go.etcd.io/bbolt"
@@ -101,7 +100,7 @@ func (f *fsm) applyAppendTx(
 	}
 
 	if err := writeEventsTx(
-		b, aggregateEventPrefix(encodedID), currentSeq, req.Events,
+		b, aggregateEventPrefix(encodedID), req.Events,
 	); err != nil {
 		return nil, err
 	}
@@ -164,11 +163,15 @@ func (f *fsm) applySnapshotTx(
 }
 
 func writeEventsTx(
-	b *bbolt.Bucket, evtPrefix []byte, baseSeq int64, events []string,
+	b *bbolt.Bucket, evtPrefix []byte, events []*timebox.Event,
 ) error {
-	for i, event := range events {
-		key := aggregateEventKeyFromPrefix(evtPrefix, baseSeq+int64(i))
-		if err := b.Put(key, []byte(event)); err != nil {
+	for _, ev := range events {
+		event, err := timebox.BinEvent.Encode(ev)
+		if err != nil {
+			return err
+		}
+		key := aggregateEventKeyFromPrefix(evtPrefix, ev.Sequence)
+		if err := b.Put(key, event); err != nil {
 			return err
 		}
 	}
@@ -321,7 +324,7 @@ func conflictResultTx(
 	}
 	if expectedSeq < meta.CurrentSequence {
 		startSeq := max(expectedSeq, meta.BaseSequence)
-		evs, err := loadRawEventsTx(b, encodedID, startSeq)
+		evs, err := loadEventsTx(b, encodedID, startSeq)
 		if err != nil {
 			return nil, err
 		}
@@ -330,29 +333,25 @@ func conflictResultTx(
 	return &ApplyResult{Conflict: conflict}, nil
 }
 
-func loadRawEventsTx(
+func loadEventsTx(
 	b *bbolt.Bucket, encodedID string, fromSeq int64,
-) ([]json.RawMessage, error) {
+) ([]*timebox.Event, error) {
 	if fromSeq < 0 {
 		fromSeq = 0
 	}
-
 	c := b.Cursor()
 	pfx := aggregateEventPrefix(encodedID)
-	var events []json.RawMessage
+	var events []*timebox.Event
 	for k, v := c.Seek(aggregateEventKeyFromPrefix(pfx, fromSeq)); k != nil; {
 		if !bytes.HasPrefix(k, pfx) {
 			break
 		}
-		events = append(events, slices.Clone(v))
+		ev, err := decodeEvent(slices.Clone(v))
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, ev)
 		k, v = c.Next()
 	}
 	return events, nil
-}
-
-func cloneBytes(data []byte) []byte {
-	if len(data) == 0 {
-		return nil
-	}
-	return slices.Clone(data)
 }

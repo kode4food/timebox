@@ -171,11 +171,15 @@ func (p *Persistence) parseArchiveRecord(
 		AggregateID:      p.ParseKey(payload.AggregateID),
 		SnapshotData:     json.RawMessage(payload.SnapshotData),
 		SnapshotSequence: payload.SnapshotSequence,
-		Events:           make([]json.RawMessage, 0, len(payload.Events)),
+		Events:           make([]*timebox.Event, 0, len(payload.Events)),
 	}
 
-	for _, ev := range payload.Events {
-		record.Events = append(record.Events, json.RawMessage(ev))
+	for _, item := range payload.Events {
+		ev, err := timebox.JSONEvent.Decode([]byte(item))
+		if err != nil {
+			return nil, err
+		}
+		record.Events = append(record.Events, ev)
 	}
 
 	return record, nil

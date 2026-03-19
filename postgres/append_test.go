@@ -200,7 +200,9 @@ func TestStatusOnlyAppend(t *testing.T) {
 			ID:               id,
 			ExpectedSequence: 0,
 			Status:           &s,
-			Events:           []string{`{}`},
+			Events: []*timebox.Event{
+				testEvent(t, time.Unix(0, 0).UTC(), "", "", 0),
+			},
 		})
 		assert.NoError(t, err)
 
@@ -224,7 +226,9 @@ func TestAppendBadStatusAt(t *testing.T) {
 			ExpectedSequence: 0,
 			Status:           &s,
 			StatusAt:         "not-a-number",
-			Events:           []string{`{}`},
+			Events: []*timebox.Event{
+				testEvent(t, time.Unix(0, 0).UTC(), "", "", 0),
+			},
 		})
 		assert.Error(t, err)
 	})

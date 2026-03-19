@@ -36,7 +36,7 @@ func TestAppendAndLoadEvents(t *testing.T) {
 	res, err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
-		Events:           []string{`{"type":"created"}`, `{"type":"updated"}`},
+		Events:           testEvents("created", "updated"),
 	})
 	assert.NoError(t, err)
 	assert.Nil(t, res)
@@ -44,10 +44,9 @@ func TestAppendAndLoadEvents(t *testing.T) {
 	got, err := p.LoadEvents(id, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), got.StartSequence)
-	assert.Equal(t, []json.RawMessage{
-		json.RawMessage(`{"type":"created"}`),
-		json.RawMessage(`{"type":"updated"}`),
-	}, got.Events)
+	assert.Equal(t,
+		[]timebox.EventType{"created", "updated"}, eventTypes(got.Events),
+	)
 }
 
 func TestAppendConflictTrailing(t *testing.T) {
@@ -57,21 +56,19 @@ func TestAppendConflictTrailing(t *testing.T) {
 	_, err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
-		Events:           []string{`{"type":"created"}`, `{"type":"updated"}`},
+		Events:           testEvents("created", "updated"),
 	})
 	assert.NoError(t, err)
 
 	res, err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 1,
-		Events:           []string{`{"type":"stale"}`},
+		Events:           testEvents("stale"),
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
 	assert.Equal(t, int64(2), res.ActualSequence)
-	assert.Equal(t, []json.RawMessage{
-		json.RawMessage(`{"type":"updated"}`),
-	}, res.NewEvents)
+	assert.Equal(t, []timebox.EventType{"updated"}, eventTypes(res.NewEvents))
 }
 
 func TestAppendStatusNoAt(t *testing.T) {
@@ -82,7 +79,7 @@ func TestAppendStatusNoAt(t *testing.T) {
 		ID:               id,
 		ExpectedSequence: 0,
 		Status:           &status,
-		Events:           []string{`{"type":"created"}`},
+		Events:           testEvents("created"),
 	})
 	assert.NoError(t, err)
 	got, err := p.GetAggregateStatus(id)
@@ -97,14 +94,14 @@ func TestAppendLabelDeletion(t *testing.T) {
 		ID:               id,
 		ExpectedSequence: 0,
 		Labels:           map[string]string{"env": "prod"},
-		Events:           []string{`{"type":"created"}`},
+		Events:           testEvents("created"),
 	})
 	assert.NoError(t, err)
 	_, err = p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 1,
 		Labels:           map[string]string{"env": ""},
-		Events:           []string{`{"type":"updated"}`},
+		Events:           testEvents("updated"),
 	})
 	assert.NoError(t, err)
 	vals, err := p.ListLabelValues("env")
@@ -121,7 +118,7 @@ func TestSaveSnapshotTrimsEvents(t *testing.T) {
 	_, err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
-		Events:           []string{`{"type":"one"}`, `{"type":"two"}`},
+		Events:           testEvents("one", "two"),
 	})
 	assert.NoError(t, err)
 
@@ -132,16 +129,12 @@ func TestSaveSnapshotTrimsEvents(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, json.RawMessage(`{"value":1}`), snap.Data)
 	assert.Equal(t, int64(1), snap.Sequence)
-	assert.Equal(t, []json.RawMessage{
-		json.RawMessage(`{"type":"two"}`),
-	}, snap.Events)
+	assert.Equal(t, []timebox.EventType{"two"}, eventTypes(snap.Events))
 
 	evs, err := p.LoadEvents(id, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), evs.StartSequence)
-	assert.Equal(t, []json.RawMessage{
-		json.RawMessage(`{"type":"two"}`),
-	}, evs.Events)
+	assert.Equal(t, []timebox.EventType{"two"}, eventTypes(evs.Events))
 }
 
 func TestSaveSnapshotStale(t *testing.T) {
@@ -150,7 +143,7 @@ func TestSaveSnapshotStale(t *testing.T) {
 	_, err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
-		Events:           []string{`{"type":"one"}`, `{"type":"two"}`},
+		Events:           testEvents("one", "two"),
 	})
 	assert.NoError(t, err)
 	err = p.SaveSnapshot(id, []byte(`{"v":2}`), 2)
@@ -194,7 +187,7 @@ func TestAggregateQueries(t *testing.T) {
 			"env":    "prod",
 			"region": "eu",
 		},
-		Events: []string{`{"type":"created"}`},
+		Events: testEvents("created"),
 	})
 	assert.NoError(t, err)
 
@@ -202,7 +195,7 @@ func TestAggregateQueries(t *testing.T) {
 		ID:               second,
 		ExpectedSequence: 0,
 		Labels:           map[string]string{"env": "stage"},
-		Events:           []string{`{"type":"created"}`},
+		Events:           testEvents("created"),
 	})
 	assert.NoError(t, err)
 
@@ -237,7 +230,7 @@ func TestArchiveLifecycle(t *testing.T) {
 	_, err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
-		Events:           []string{`{"type":"created"}`},
+		Events:           testEvents("created"),
 	})
 	assert.NoError(t, err)
 	assert.NoError(t, p.SaveSnapshot(id, []byte(`{"value":1}`), 1))
@@ -255,9 +248,7 @@ func TestArchiveLifecycle(t *testing.T) {
 	assert.Equal(t, id, got.AggregateID)
 	assert.Equal(t, json.RawMessage(`{"value":1}`), got.SnapshotData)
 	assert.Equal(t, int64(1), got.SnapshotSequence)
-	assert.Equal(t, []json.RawMessage{
-		json.RawMessage(`{"type":"created"}`),
-	}, got.Events)
+	assert.Equal(t, []timebox.EventType{"created"}, eventTypes(got.Events))
 
 	aggs, err := p.ListAggregates(timebox.NewAggregateID("order"))
 	assert.NoError(t, err)
@@ -307,7 +298,7 @@ func TestArchiveHandlerErrorKeeps(t *testing.T) {
 	_, err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
-		Events:           []string{`{"type":"created"}`},
+		Events:           testEvents("created"),
 	})
 	assert.NoError(t, err)
 	assert.NoError(t, p.Archive(id))
@@ -350,7 +341,7 @@ func TestClosedMethods(t *testing.T) {
 	_, err = p.Append(timebox.AppendRequest{
 		ID:               timebox.NewAggregateID("order", "1"),
 		ExpectedSequence: 0,
-		Events:           []string{`{}`},
+		Events:           testEvents("created"),
 	})
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
@@ -368,4 +359,24 @@ func TestClosedMethods(t *testing.T) {
 
 	_, err = p.ListAggregates(nil)
 	assert.ErrorIs(t, err, memory.ErrClosed)
+}
+
+func testEvents(types ...timebox.EventType) []*timebox.Event {
+	res := make([]*timebox.Event, len(types))
+	for i, typ := range types {
+		res[i] = &timebox.Event{
+			Timestamp: time.Unix(int64(i), 0).UTC(),
+			Type:      typ,
+			Data:      json.RawMessage(`{}`),
+		}
+	}
+	return res
+}
+
+func eventTypes(evs []*timebox.Event) []timebox.EventType {
+	res := make([]timebox.EventType, 0, len(evs))
+	for _, ev := range evs {
+		res = append(res, ev.Type)
+	}
+	return res
 }
