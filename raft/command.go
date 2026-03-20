@@ -272,15 +272,7 @@ func (r *ApplyResult) Err() error {
 }
 
 func encodeEvents(evs []*timebox.Event) ([][]byte, error) {
-	res := make([][]byte, 0, len(evs))
-	for _, ev := range evs {
-		data, err := timebox.BinEvent.Encode(ev)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, data)
-	}
-	return res, nil
+	return timebox.EncodeAll(timebox.BinEvent, evs)
 }
 
 func decodeEvent(data []byte) (*timebox.Event, error) {

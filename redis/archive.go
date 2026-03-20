@@ -175,7 +175,7 @@ func (p *Persistence) parseArchiveRecord(
 	}
 
 	for _, item := range payload.Events {
-		ev, err := timebox.JSONEvent.Decode([]byte(item))
+		ev, err := timebox.JSONEvent.Decode(item)
 		if err != nil {
 			return nil, err
 		}

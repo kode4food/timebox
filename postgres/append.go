@@ -135,27 +135,11 @@ func (p *Persistence) Append(
 }
 
 func (p *Persistence) encodeEvents(evs []*timebox.Event) ([]string, error) {
-	res := make([]string, 0, len(evs))
-	for _, ev := range evs {
-		data, err := timebox.JSONEvent.Encode(ev)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, string(data))
-	}
-	return res, nil
+	return timebox.EncodeAll(timebox.JSONEvent, evs)
 }
 
 func (p *Persistence) decodeEvents(data []string) ([]*timebox.Event, error) {
-	evs := make([]*timebox.Event, 0, len(data))
-	for _, s := range data {
-		ev, err := timebox.JSONEvent.Decode([]byte(s))
-		if err != nil {
-			return nil, err
-		}
-		evs = append(evs, ev)
-	}
-	return evs, nil
+	return timebox.DecodeAll(timebox.JSONEvent, data)
 }
 
 func buildAppendFunctionSQL(spec appendFunctionSpec) string {

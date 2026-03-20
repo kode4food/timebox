@@ -334,7 +334,7 @@ func (p *Persistence) loadEvents(
 		if err := rows.Scan(&msg); err != nil {
 			return nil, err
 		}
-		ev, err := timebox.JSONEvent.Decode([]byte(msg))
+		ev, err := timebox.JSONEvent.Decode(msg)
 		if err != nil {
 			return nil, err
 		}

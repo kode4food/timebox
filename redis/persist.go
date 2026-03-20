@@ -348,33 +348,19 @@ func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {
 }
 
 func (p *Persistence) encodeEvents(evs []*timebox.Event) ([]string, error) {
-	res := make([]string, 0, len(evs))
-	for _, ev := range evs {
-		data, err := timebox.JSONEvent.Encode(ev)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, string(data))
-	}
-	return res, nil
+	return timebox.EncodeAll(timebox.JSONEvent, evs)
 }
 
 func (p *Persistence) decodeEvents(data []any) ([]*timebox.Event, error) {
-	evs := make([]*timebox.Event, 0, len(data))
+	vals := make([]string, 0, len(data))
 	for _, item := range data {
 		str, ok := item.(string)
 		if !ok {
-			return nil, errors.Join(
-				timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-			)
+			return nil, timebox.ErrUnexpectedResult
 		}
-		ev, err := timebox.JSONEvent.Decode([]byte(str))
-		if err != nil {
-			return nil, err
-		}
-		evs = append(evs, ev)
+		vals = append(vals, str)
 	}
-	return evs, nil
+	return timebox.DecodeAll(timebox.JSONEvent, vals)
 }
 
 func escapeKeyPart(s string) string {

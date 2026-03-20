@@ -8,10 +8,15 @@ import (
 )
 
 type (
+	// Codec encodes and decodes a value to and from its representation
+	Codec[Value any, Repr any] interface {
+		Encode(Value) (Repr, error)
+		Decode(Repr) (Value, error)
+	}
+
 	// EventCodec encodes and decodes complete events
-	EventCodec[T any] interface {
-		Encode(*Event) (T, error)
-		Decode(T) (*Event, error)
+	EventCodec[Repr any] interface {
+		Codec[*Event, Repr]
 	}
 
 	jsonCodec struct{}
@@ -20,21 +25,55 @@ type (
 
 var (
 	// JSONEvent encodes complete events as JSON
-	JSONEvent EventCodec[[]byte] = jsonCodec{}
+	JSONEvent EventCodec[string] = jsonCodec{}
 
 	// BinEvent encodes complete events using the internal binary format
 	BinEvent EventCodec[[]byte] = binCodec{}
 )
 
+// EncodeAll encodes a batch of values using the provided codec
+func EncodeAll[Value any, Repr any](
+	codec Codec[Value, Repr], vals []Value,
+) ([]Repr, error) {
+	res := make([]Repr, 0, len(vals))
+	for _, val := range vals {
+		repr, err := codec.Encode(val)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, repr)
+	}
+	return res, nil
+}
+
+// DecodeAll decodes a batch of representations using the provided codec
+func DecodeAll[Value any, Repr any](
+	codec Codec[Value, Repr], vals []Repr,
+) ([]Value, error) {
+	res := make([]Value, 0, len(vals))
+	for _, val := range vals {
+		decoded, err := codec.Decode(val)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, decoded)
+	}
+	return res, nil
+}
+
 // Encode converts an Event to JSON using its struct tags
-func (jsonCodec) Encode(ev *Event) ([]byte, error) {
-	return json.Marshal(ev)
+func (jsonCodec) Encode(ev *Event) (string, error) {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // Decode converts JSON into an Event using its struct tags
-func (jsonCodec) Decode(data []byte) (*Event, error) {
+func (jsonCodec) Decode(data string) (*Event, error) {
 	var ev Event
-	if err := json.Unmarshal(data, &ev); err != nil {
+	if err := json.Unmarshal([]byte(data), &ev); err != nil {
 		return nil, err
 	}
 	return &ev, nil
