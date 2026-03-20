@@ -2,7 +2,7 @@
 
 ![Build Status](https://github.com/kode4food/timebox/actions/workflows/build.yml/badge.svg) [![Code Coverage](https://qlty.sh/gh/kode4food/projects/timebox/coverage.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![Maintainability](https://qlty.sh/gh/kode4food/projects/timebox/maintainability.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![GitHub](https://img.shields.io/github/license/kode4food/timebox)](https://github.com/kode4food/timebox/blob/main/LICENSE.md)
 
-Timebox is a small, opinionated event sourcing library for Go with pluggable persistence backends including Redis/Valkey, PostgreSQL, and etcd Raft + bbolt. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
+Timebox is a small, opinionated event sourcing library for Go with pluggable persistence backends including Redis/Valkey, PostgreSQL, and a Raft backend. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
 
 ## Backends
 
@@ -11,7 +11,7 @@ Timebox currently ships with:
 - `memory` for tests and single-process use
 - `redis` for Redis or Valkey deployments
 - `postgres` for PostgreSQL-backed persistence
-- `raft` for multi-node consensus via etcd Raft + bbolt
+- `raft` for multi-node consensus
 
 ## Core Concepts
 

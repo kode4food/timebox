@@ -11,7 +11,7 @@ import (
 )
 
 type (
-	// Config defines one opinionated etcd Raft + bbolt persistence node
+	// Config defines one opinionated Raft persistence node
 	Config struct {
 		Timebox timebox.Config
 

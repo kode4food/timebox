@@ -206,7 +206,9 @@ func TestFollower(t *testing.T) {
 		return
 	}
 	assert.True(t, leader.persistence.CanSaveSnapshot())
+	assert.True(t, leader.persistence.IsLeader())
 	assert.False(t, follower.persistence.CanSaveSnapshot())
+	assert.False(t, follower.persistence.IsLeader())
 
 	id := timebox.NewAggregateID("order", "replicated")
 	err := follower.store.AppendEvents(
@@ -249,6 +251,21 @@ func TestFollower(t *testing.T) {
 			len(snap.AdditionalEvents) == 1 &&
 			snap.AdditionalEvents[0].Sequence == 1
 	}, 15*time.Second, 100*time.Millisecond)
+}
+
+func TestIsLeaderSingle(t *testing.T) {
+	n := newNode(t, nodeConfig{
+		id: "node-1",
+	})
+	if n == nil {
+		return
+	}
+
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	assert.True(t, n.persistence.IsLeader())
 }
 
 func TestFollowerStatus(t *testing.T) {

@@ -1,6 +1,6 @@
-// Package raft implements Timebox persistence semantics using etcd Raft as
-// the replicated commit path, the etcd WAL as the durable log, and bbolt as
-// the local materialized read store
+// Package raft implements Timebox persistence semantics using Raft for the
+// replicated commit path, a durable write-ahead log, and a local materialized
+// read store
 //
 // The core correctness boundary remains the Timebox append contract:
 // aggregate-local optimistic concurrency, atomic event-batch append, and

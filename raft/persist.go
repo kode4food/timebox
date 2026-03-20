@@ -20,8 +20,8 @@ import (
 )
 
 type (
-	// Persistence applies Timebox writes through etcd raft
-	// and serves reads from bbolt
+	// Persistence applies Timebox writes through Raft and serves reads from
+	// local materialized state
 	Persistence struct {
 		Config
 
@@ -76,7 +76,8 @@ const (
 
 var _ timebox.Backend = (*Persistence)(nil)
 
-// NewStore opens a Timebox store backed by etcd raft quorum commits and bbolt
+// NewStore opens a Timebox store backed by Raft quorum commits and local
+// durable state
 func NewStore(cfgs ...Config) (*timebox.Store, error) {
 	p, err := NewPersistence(cfgs...)
 	if err != nil {
@@ -87,7 +88,7 @@ func NewStore(cfgs ...Config) (*timebox.Store, error) {
 	return timebox.NewStore(p, cfg.Timebox)
 }
 
-// NewPersistence opens one etcd raft + bbolt persistence node
+// NewPersistence opens one Raft persistence node
 func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	cfg := timebox.Configure(DefaultConfig(), cfgs...)
 	if err := cfg.Validate(); err != nil {
@@ -300,10 +301,15 @@ func (p *Persistence) CanSaveSnapshot() bool {
 	if len(p.peers) <= 1 {
 		return true
 	}
+	return p.IsLeader()
+}
+
+// IsLeader reports whether the local Raft node is the current leader
+func (p *Persistence) IsLeader() bool {
 	return p.State() == StateLeader
 }
 
-// State reports the local etcd raft node state
+// State reports the local Raft node state
 func (p *Persistence) State() State {
 	switch p.node.Status().RaftState {
 	case raft.StateLeader:
