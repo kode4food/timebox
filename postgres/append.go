@@ -64,7 +64,7 @@ func (p *Persistence) Append(
 	if err != nil {
 		return nil, err
 	}
-	raw, err := p.encodeEvents(req.Events)
+	raw, err := timebox.EncodeJSONEvents(req.Events)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (p *Persistence) Append(
 	if success {
 		return nil, nil
 	}
-	res, err := p.decodeEvents(newEvents)
+	res, err := timebox.DecodeJSONEvents(newEvents)
 	if err != nil {
 		return nil, err
 	}
@@ -132,14 +132,6 @@ func (p *Persistence) Append(
 		ActualSequence: actualSeq,
 		NewEvents:      res,
 	}, nil
-}
-
-func (p *Persistence) encodeEvents(evs []*timebox.Event) ([]string, error) {
-	return timebox.EncodeAll(timebox.JSONEvent, evs)
-}
-
-func (p *Persistence) decodeEvents(data []string) ([]*timebox.Event, error) {
-	return timebox.DecodeAll(timebox.JSONEvent, data)
 }
 
 func buildAppendFunctionSQL(spec appendFunctionSpec) string {

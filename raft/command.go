@@ -69,7 +69,7 @@ func MakeCompactCommand(proposalID, index uint64) Command {
 func MakeAppendCommand(
 	proposalID uint64, req *timebox.AppendRequest,
 ) (Command, error) {
-	evs, err := encodeEvents(req.Events)
+	evs, err := timebox.EncodeBinEvents(req.Events)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func readBytesSlice(data []byte) ([]*timebox.Event, []byte, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		evs[i], err = decodeEvent(item)
+		evs[i], err = timebox.BinEvent.Decode(item)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -269,14 +269,6 @@ func (r *ApplyResult) Err() error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", ErrUnexpectedApplyResult, r.Message)
-}
-
-func encodeEvents(evs []*timebox.Event) ([][]byte, error) {
-	return timebox.EncodeAll(timebox.BinEvent, evs)
-}
-
-func decodeEvent(data []byte) (*timebox.Event, error) {
-	return timebox.BinEvent.Decode(data)
 }
 
 func marshalMeta(meta *AggregateMeta) []byte {

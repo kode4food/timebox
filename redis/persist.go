@@ -117,7 +117,7 @@ func (p *Persistence) Close() error {
 func (p *Persistence) Append(
 	req timebox.AppendRequest,
 ) (*timebox.AppendResult, error) {
-	evs, err := p.encodeEvents(req.Events)
+	evs, err := timebox.EncodeJSONEvents(req.Events)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (p *Persistence) Append(
 		return nil, nil
 	}
 
-	newEvents, err := p.decodeEvents(res[2].([]any))
+	newEvents, err := decodeEvents(res[2].([]any))
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (p *Persistence) LoadEvents(
 		}
 
 		start := max(fromSeq, offset)
-		evs, err := p.decodeEvents(res[1].([]any))
+		evs, err := decodeEvents(res[1].([]any))
 		if err != nil {
 			return nil, err
 		}
@@ -200,7 +200,7 @@ func (p *Persistence) LoadEvents(
 		}, nil
 	}
 
-	evs, err := p.decodeEvents(result.([]any))
+	evs, err := decodeEvents(result.([]any))
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (p *Persistence) LoadSnapshot(
 		)
 	}
 
-	newEvents, err := p.decodeEvents(resultSlice[2].([]any))
+	newEvents, err := decodeEvents(resultSlice[2].([]any))
 	if err != nil {
 		return nil, err
 	}
@@ -347,22 +347,6 @@ func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {
 	return p.ParseKey(str)
 }
 
-func (p *Persistence) encodeEvents(evs []*timebox.Event) ([]string, error) {
-	return timebox.EncodeAll(timebox.JSONEvent, evs)
-}
-
-func (p *Persistence) decodeEvents(data []any) ([]*timebox.Event, error) {
-	vals := make([]string, 0, len(data))
-	for _, item := range data {
-		str, ok := item.(string)
-		if !ok {
-			return nil, timebox.ErrUnexpectedResult
-		}
-		vals = append(vals, str)
-	}
-	return timebox.DecodeAll(timebox.JSONEvent, vals)
-}
-
 func escapeKeyPart(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, "%", `\%`)
@@ -401,4 +385,20 @@ func unescapeKeyPart(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func decodeEvents(items []any) ([]*timebox.Event, error) {
+	res := make([]*timebox.Event, 0, len(items))
+	for _, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil, timebox.ErrUnexpectedResult
+		}
+		ev, err := timebox.JSONEvent.Decode(s)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, ev)
+	}
+	return res, nil
 }

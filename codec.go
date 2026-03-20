@@ -29,36 +29,52 @@ var (
 
 	// BinEvent encodes complete events using the internal binary format
 	BinEvent EventCodec[[]byte] = binCodec{}
+
+	// EncodeJSONEvents encodes complete events as JSON strings
+	EncodeJSONEvents = MakeEncodeAll(JSONEvent)
+
+	// DecodeJSONEvents decodes complete events from JSON strings
+	DecodeJSONEvents = MakeDecodeAll(JSONEvent)
+
+	// EncodeBinEvents encodes complete events to the internal binary format
+	EncodeBinEvents = MakeEncodeAll(BinEvent)
+
+	// DecodeBinEvents decodes complete events from the internal binary format
+	DecodeBinEvents = MakeDecodeAll(BinEvent)
 )
 
-// EncodeAll encodes a batch of values using the provided codec
-func EncodeAll[Value any, Repr any](
-	codec Codec[Value, Repr], vals []Value,
-) ([]Repr, error) {
-	res := make([]Repr, 0, len(vals))
-	for _, val := range vals {
-		repr, err := codec.Encode(val)
-		if err != nil {
-			return nil, err
+// MakeEncodeAll returns a batch encoder for the provided codec
+func MakeEncodeAll[Value any, Repr any](
+	codec Codec[Value, Repr],
+) func([]Value) ([]Repr, error) {
+	return func(vals []Value) ([]Repr, error) {
+		res := make([]Repr, 0, len(vals))
+		for _, val := range vals {
+			repr, err := codec.Encode(val)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, repr)
 		}
-		res = append(res, repr)
+		return res, nil
 	}
-	return res, nil
 }
 
-// DecodeAll decodes a batch of representations using the provided codec
-func DecodeAll[Value any, Repr any](
-	codec Codec[Value, Repr], vals []Repr,
-) ([]Value, error) {
-	res := make([]Value, 0, len(vals))
-	for _, val := range vals {
-		decoded, err := codec.Decode(val)
-		if err != nil {
-			return nil, err
+// MakeDecodeAll returns a batch decoder for the provided codec
+func MakeDecodeAll[Value any, Repr any](
+	codec Codec[Value, Repr],
+) func([]Repr) ([]Value, error) {
+	return func(vals []Repr) ([]Value, error) {
+		res := make([]Value, 0, len(vals))
+		for _, val := range vals {
+			decoded, err := codec.Decode(val)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, decoded)
 		}
-		res = append(res, decoded)
+		return res, nil
 	}
-	return res, nil
 }
 
 // Encode converts an Event to JSON using its struct tags

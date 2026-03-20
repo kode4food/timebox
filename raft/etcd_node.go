@@ -9,11 +9,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/kode4food/timebox"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/quorum"
 	"go.etcd.io/raft/v3/raftpb"
 	"go.etcd.io/raft/v3/tracker"
+
+	"github.com/kode4food/timebox"
 )
 
 type proposalResult struct {

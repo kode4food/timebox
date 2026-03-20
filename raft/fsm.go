@@ -346,7 +346,7 @@ func loadEventsTx(
 		if !bytes.HasPrefix(k, pfx) {
 			break
 		}
-		ev, err := decodeEvent(slices.Clone(v))
+		ev, err := timebox.BinEvent.Decode(slices.Clone(v))
 		if err != nil {
 			return nil, err
 		}

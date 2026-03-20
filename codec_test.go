@@ -13,7 +13,7 @@ import (
 )
 
 func TestJSONCodec(t *testing.T) {
-	var codec timebox.EventCodec[string] = timebox.JSONEvent
+	codec := timebox.JSONEvent
 
 	ev := codecEvent()
 	data, err := codec.Encode(ev)
@@ -25,7 +25,7 @@ func TestJSONCodec(t *testing.T) {
 }
 
 func TestBinCodec(t *testing.T) {
-	var codec timebox.EventCodec[[]byte] = timebox.BinEvent
+	codec := timebox.BinEvent
 
 	ev := codecEvent()
 	data, err := codec.Encode(ev)
@@ -41,20 +41,20 @@ func TestBinCodecCorrupt(t *testing.T) {
 	assert.True(t, errors.Is(err, bin.ErrCorruptState))
 }
 
-func TestEncodeAll(t *testing.T) {
+func TestEncodeJSONEvents(t *testing.T) {
 	evs := []*timebox.Event{codecEvent(), codecEvent()}
 
-	data, err := timebox.EncodeAll(timebox.JSONEvent, evs)
+	data, err := timebox.EncodeJSONEvents(evs)
 	assert.NoError(t, err)
 	assert.Len(t, data, 2)
 }
 
-func TestDecodeAll(t *testing.T) {
+func TestDecodeJSONEvents(t *testing.T) {
 	ev := codecEvent()
 	data, err := timebox.JSONEvent.Encode(ev)
 	assert.NoError(t, err)
 
-	evs, err := timebox.DecodeAll(timebox.JSONEvent, []string{data, data})
+	evs, err := timebox.DecodeJSONEvents([]string{data, data})
 	assert.NoError(t, err)
 	assert.Len(t, evs, 2)
 	assert.Equal(t, ev, evs[0])
