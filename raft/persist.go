@@ -407,21 +407,17 @@ func (p *Persistence) commandTimeout(
 	return timeout, nil
 }
 
-func (p *Persistence) markReadyIfPossible() {
-	if p.State() == StateLeader {
-		p.markReady()
-		return
-	}
-	addr, _ := p.LeaderWithID()
-	if addr != "" {
-		p.markReady()
-	}
-}
-
 func (p *Persistence) markReady() {
 	p.readyOnce.Do(func() {
 		close(p.readyCh)
 	})
+}
+
+func (p *Persistence) markReadyFollower() {
+	addr, _ := p.LeaderWithID()
+	if addr != "" {
+		p.markReady()
+	}
 }
 
 func (p *Persistence) markAppliedEntry(index uint64) error {

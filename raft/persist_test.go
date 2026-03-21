@@ -509,6 +509,70 @@ func TestDelayedJoin(t *testing.T) {
 	}
 }
 
+func TestDelayedJoinFollowerReady(t *testing.T) {
+	srvs := make([]raft.Server, 0, 3)
+	cfgs := make([]nodeConfig, 0, 3)
+	for i := range 3 {
+		id := fmt.Sprintf("node-%d", i+1)
+		addr := freeAddr(t)
+		if !assert.NotEmpty(t, addr) {
+			return
+		}
+		srvs = append(srvs, raft.Server{
+			ID:      id,
+			Address: addr,
+		})
+		cfgs = append(cfgs, nodeConfig{
+			id:   id,
+			addr: addr,
+		})
+	}
+
+	n2 := newClusterNode(t, cfgs[1], srvs)
+	n3 := newClusterNode(t, cfgs[2], srvs)
+	if n2 == nil || n3 == nil {
+		return
+	}
+
+	nodes := []*node{n2, n3}
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+
+	n1 := newClusterNode(t, cfgs[0], srvs)
+	if n1 == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	assert.NoError(t, n1.store.WaitReady(ctx))
+
+	id := timebox.NewAggregateID("order", "delayed-join-ready")
+	err := n1.store.AppendEvents(id, 0, []*timebox.Event{
+		numberEvent(id, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	for _, n := range append(nodes, n1) {
+		assert.Eventually(t, func() bool {
+			evs, err := n.store.GetEvents(id, 0)
+			return err == nil &&
+				len(evs) == 1 &&
+				evs[0].Sequence == 0
+		}, 15*time.Second, 100*time.Millisecond)
+	}
+
+	status, err := leader.store.GetAggregateStatus(id)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, "", status)
+}
+
 func TestRestart(t *testing.T) {
 	addr := freeAddr(t)
 	if addr == "" {

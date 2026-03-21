@@ -149,7 +149,11 @@ func (p *Persistence) handleReady(rd raft.Ready) error {
 	if err := p.applyBatch(rd.CommittedEntries); err != nil {
 		return err
 	}
-	p.markReadyIfPossible()
+	if p.State() == StateLeader {
+		p.markReady()
+	} else if len(rd.CommittedEntries) != 0 {
+		p.markReadyFollower()
+	}
 	p.node.Advance()
 	return p.maybeProposeCompaction()
 }
