@@ -3,6 +3,7 @@ package raft_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -1191,6 +1192,248 @@ func TestLeaderRestart(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 }
 
+func TestFollowerRestartSnapshot(t *testing.T) {
+	const count = 128
+
+	srvs := make([]raft.Server, 0, 3)
+	cfgs := make([]nodeConfig, 0, 3)
+	for i := range 3 {
+		id := fmt.Sprintf("node-%d", i+1)
+		addr := freeAddr(t)
+		if !assert.NotEmpty(t, addr) {
+			return
+		}
+		srvs = append(srvs, raft.Server{
+			ID:      id,
+			Address: addr,
+		})
+		cfgs = append(cfgs, nodeConfig{
+			id:             id,
+			addr:           addr,
+			dataDir:        t.TempDir(),
+			compactMinStep: 32,
+		})
+	}
+
+	nodes := []*node{
+		newClusterNode(t, cfgs[0], srvs),
+		newClusterNode(t, cfgs[1], srvs),
+		newClusterNode(t, cfgs[2], srvs),
+	}
+	if len(nodes) != 3 ||
+		nodes[0] == nil ||
+		nodes[1] == nil ||
+		nodes[2] == nil {
+		return
+	}
+
+	for _, n := range nodes {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 15*time.Second,
+		)
+		err := n.store.WaitReady(ctx)
+		cancel()
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+
+	var down *node
+	var downCfg nodeConfig
+	alive := make([]*node, 0, 2)
+	for i, n := range nodes {
+		if n.id == leader.id {
+			continue
+		}
+		down = n
+		downCfg = cfgs[i]
+		break
+	}
+	if !assert.NotNil(t, down) {
+		return
+	}
+	for _, n := range nodes {
+		if n.id != down.id {
+			alive = append(alive, n)
+		}
+	}
+
+	closeNode(t, down)
+
+	id := timebox.NewAggregateID("order", "restart-follower-snapshot")
+	for i := range count {
+		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	snapDirs := []string{
+		filepath.Join(cfgs[0].dataDir, "raft-snap"),
+		filepath.Join(cfgs[1].dataDir, "raft-snap"),
+		filepath.Join(cfgs[2].dataDir, "raft-snap"),
+	}
+	assert.Eventually(t, func() bool {
+		for _, dir := range snapDirs {
+			n, err := countSnapshotFiles(dir)
+			if err == nil && n != 0 {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 100*time.Millisecond)
+
+	down = newClusterNode(t, downCfg, srvs)
+	if down == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	err := down.store.WaitReady(ctx)
+	cancel()
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	for _, n := range append(alive, down) {
+		assert.Eventually(t, func() bool {
+			evs, err := n.store.GetEvents(id, 0)
+			return err == nil &&
+				len(evs) == count &&
+				evs[0].Sequence == 0 &&
+				evs[count-1].Sequence == int64(count-1)
+		}, 15*time.Second, 100*time.Millisecond)
+	}
+
+	err = down.store.AppendEvents(id, int64(count), []*timebox.Event{
+		numberEvent(id, count+1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	for _, n := range append(alive, down) {
+		assert.Eventually(t, func() bool {
+			evs, err := n.store.GetEvents(id, 0)
+			return err == nil &&
+				len(evs) == count+1 &&
+				evs[count].Sequence == int64(count)
+		}, 15*time.Second, 100*time.Millisecond)
+	}
+}
+
+func TestDeadPeerSnapshot(t *testing.T) {
+	const count = 128
+
+	fakeAddr := freeAddr(t)
+	if fakeAddr == "" {
+		return
+	}
+
+	ln, err := net.Listen("tcp", fakeAddr)
+	if !assert.NoError(t, err) {
+		return
+	}
+	t.Cleanup(func() {
+		_ = ln.Close()
+	})
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+
+	srvs := []raft.Server{
+		{ID: "node-1", Address: freeAddr(t)},
+		{ID: "node-2", Address: freeAddr(t)},
+		{ID: "node-3", Address: fakeAddr},
+	}
+
+	cfgs := []nodeConfig{
+		{
+			id:             "node-1",
+			addr:           srvs[0].Address,
+			dataDir:        t.TempDir(),
+			compactMinStep: 32,
+		},
+		{
+			id:             "node-2",
+			addr:           srvs[1].Address,
+			dataDir:        t.TempDir(),
+			compactMinStep: 32,
+		},
+	}
+
+	n1 := newClusterNode(t, cfgs[0], srvs)
+	n2 := newClusterNode(t, cfgs[1], srvs)
+	if n1 == nil || n2 == nil {
+		return
+	}
+
+	nodes := []*node{n1, n2}
+	for _, n := range nodes {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 15*time.Second,
+		)
+		err := n.store.WaitReady(ctx)
+		cancel()
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "dead-peer-snapshot")
+	for i := range count {
+		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	snapDirs := []string{
+		filepath.Join(cfgs[0].dataDir, "raft-snap"),
+		filepath.Join(cfgs[1].dataDir, "raft-snap"),
+	}
+	assert.Eventually(t, func() bool {
+		for _, dir := range snapDirs {
+			n, err := countSnapshotFiles(dir)
+			if err == nil && n != 0 {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 100*time.Millisecond)
+
+	for _, n := range nodes {
+		assert.Eventually(t, func() bool {
+			evs, err := n.store.GetEvents(id, 0)
+			return err == nil &&
+				len(evs) == count &&
+				evs[0].Sequence == 0 &&
+				evs[count-1].Sequence == int64(count-1)
+		}, 15*time.Second, 100*time.Millisecond)
+	}
+}
+
 func TestCorruptMeta(t *testing.T) {
 	cfg := nodeConfig{
 		id:      "node-1",
@@ -1244,6 +1487,46 @@ func TestCorruptBoltDB(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestBadSnapDir(t *testing.T) {
+	dataDir := t.TempDir()
+
+	snapDir := filepath.Join(dataDir, "raft-snap")
+	if err := os.WriteFile(snapDir, []byte("bad-snap-dir"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: dataDir,
+	}
+	_, err := raft.NewPersistence(testRaftConfig(cfg))
+	assert.Error(t, err)
+}
+
+func TestBusyRaftAddr(t *testing.T) {
+	addr := freeAddr(t)
+	if addr == "" {
+		return
+	}
+
+	ln, err := net.Listen("tcp", addr)
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() {
+		_ = ln.Close()
+	}()
+
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    addr,
+		dataDir: t.TempDir(),
+	}
+	_, err = raft.NewPersistence(testRaftConfig(cfg))
+	assert.Error(t, err)
+}
+
 func TestCorruptWAL(t *testing.T) {
 	cfg := nodeConfig{
 		id:      "node-1",
@@ -1272,4 +1555,90 @@ func TestCorruptWAL(t *testing.T) {
 
 	_, err = raft.NewPersistence(testRaftConfig(cfg))
 	assert.Error(t, err)
+}
+
+func TestAppendClosed(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	p := n.persistence
+	closeNode(t, n)
+
+	id := timebox.NewAggregateID("order", "append-closed")
+	_, err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []*timebox.Event{numberEvent(id, 1)},
+	})
+	assert.Error(t, err)
+}
+
+func TestBrokenRaftSnapshot(t *testing.T) {
+	const count = 256
+
+	cfg := nodeConfig{
+		id:             "node-1",
+		addr:           freeAddr(t),
+		dataDir:        t.TempDir(),
+		compactMinStep: 64,
+	}
+
+	n := newNode(t, cfg)
+	if n == nil {
+		return
+	}
+	if !waitForWrite(t, n.store) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "corrupt-raft-snapshot")
+	for i := range count {
+		err := n.store.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	snapDir := filepath.Join(cfg.dataDir, "raft-snap")
+	var snapPath string
+	assert.Eventually(t, func() bool {
+		matches, err := filepath.Glob(filepath.Join(snapDir, "*.snap"))
+		if err != nil || len(matches) == 0 {
+			return false
+		}
+		snapPath = matches[0]
+		return true
+	}, 30*time.Second, 100*time.Millisecond)
+
+	closeNode(t, n)
+	assert.NoError(t, os.WriteFile(snapPath, []byte("bad-snap"), 0o600))
+
+	p, err := raft.NewPersistence(testRaftConfig(cfg))
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() { _ = p.Close() }()
+
+	res, err := p.LoadEvents(id, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+	if !assert.Len(t, res.Events, count) {
+		return
+	}
+	assert.Equal(t, int64(0), res.Events[0].Sequence)
+	assert.Equal(t, int64(count-1), res.Events[count-1].Sequence)
 }

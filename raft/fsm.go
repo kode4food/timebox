@@ -110,7 +110,9 @@ func (f *fsm) applyAppendTx(
 	}
 
 	meta.CurrentSequence = currentSeq + int64(len(req.Events))
-	if err := b.Put(AggregateMetaKey(encodedID), marshalMeta(meta)); err != nil {
+	if err := b.Put(
+		AggregateMetaKey(encodedID), marshalMeta(meta),
+	); err != nil {
 		return nil, err
 	}
 
