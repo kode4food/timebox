@@ -301,11 +301,6 @@ func (p *Persistence) CanSaveSnapshot() bool {
 	if len(p.peers) <= 1 {
 		return true
 	}
-	return p.IsLeader()
-}
-
-// IsLeader reports whether the local Raft node is the current leader
-func (p *Persistence) IsLeader() bool {
 	return p.State() == StateLeader
 }
 

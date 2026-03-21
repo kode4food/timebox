@@ -206,9 +206,9 @@ func TestFollower(t *testing.T) {
 		return
 	}
 	assert.True(t, leader.persistence.CanSaveSnapshot())
-	assert.True(t, leader.persistence.IsLeader())
+	assert.Equal(t, leader.persistence.State(), raft.StateLeader)
 	assert.False(t, follower.persistence.CanSaveSnapshot())
-	assert.False(t, follower.persistence.IsLeader())
+	assert.Equal(t, follower.persistence.State(), raft.StateFollower)
 
 	id := timebox.NewAggregateID("order", "replicated")
 	err := follower.store.AppendEvents(
@@ -265,7 +265,7 @@ func TestIsLeaderSingle(t *testing.T) {
 		return
 	}
 
-	assert.True(t, n.persistence.IsLeader())
+	assert.Equal(t, n.persistence.State(), raft.StateLeader)
 }
 
 func TestFollowerStatus(t *testing.T) {
