@@ -17,11 +17,6 @@ func TestCommandType(t *testing.T) {
 		assert.Equal(t, -1, raft.Command(nil).Type())
 	})
 
-	t.Run("compact", func(t *testing.T) {
-		c := raft.MakeCompactCommand(1, 2)
-		assert.Equal(t, raft.CmdTypeCompact, c.Type())
-	})
-
 	t.Run("append", func(t *testing.T) {
 		c, err := raft.MakeAppendCommand(1, &timebox.AppendRequest{
 			ID: timebox.NewAggregateID("ns", "id"),
@@ -40,7 +35,9 @@ func TestCommandType(t *testing.T) {
 
 func TestCommandProposalID(t *testing.T) {
 	t.Run("roundtrip", func(t *testing.T) {
-		c := raft.MakeCompactCommand(42, 0)
+		c := raft.MakeSnapshotCommand(42, &raft.SnapshotCommand{
+			ID: timebox.NewAggregateID("ns", "id"),
+		})
 		pid, err := c.ProposalID()
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(42), pid)
@@ -49,17 +46,6 @@ func TestCommandProposalID(t *testing.T) {
 	t.Run("too short", func(t *testing.T) {
 		_, err := raft.Command([]byte{0x01}).ProposalID()
 		assert.True(t, errors.Is(err, raft.ErrCorruptState))
-	})
-}
-
-func TestCommandCompactIndex(t *testing.T) {
-	t.Run("roundtrip", func(t *testing.T) {
-		c := raft.MakeCompactCommand(0, 100)
-		assert.Equal(t, uint64(100), c.CompactIndex())
-	})
-
-	t.Run("too short returns zero", func(t *testing.T) {
-		assert.Equal(t, uint64(0), raft.Command([]byte{0x00}).CompactIndex())
 	})
 }
 
@@ -117,7 +103,7 @@ func TestCommandSnapshotRoundtrip(t *testing.T) {
 
 func TestCommandCorrupt(t *testing.T) {
 	t.Run("append too short", func(t *testing.T) {
-		_, err := raft.Command([]byte{0x01}).AppendRequest()
+		_, err := raft.Command([]byte{raft.CmdTypeAppend}).AppendRequest()
 		assert.True(t, errors.Is(err, raft.ErrCorruptState))
 	})
 

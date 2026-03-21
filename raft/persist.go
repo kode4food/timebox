@@ -36,10 +36,7 @@ type (
 		transport    *raftTransport
 		applyTimeout time.Duration
 		appliedIndex uint64
-
-		// Raft compaction
-		compactMu      sync.Mutex
-		compactPending uint64
+		flushBatch   func([]decodedEntry, []uint64) error
 
 		// Cluster routing
 		peers map[uint64]peerInfo
@@ -136,6 +133,13 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		pending: map[uint64]proposalState{},
 	}
 	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents)
+	p.flushBatch = p.flushBatchNoPublish
+	if err := p.restoreSnapshot(log.snapshot); err != nil {
+		_ = tr.Close()
+		_ = log.Close()
+		_ = db.Close()
+		return nil, err
+	}
 
 	if err := p.restoreMaterializedState(log.CommittedEntries()); err != nil {
 		_ = tr.Close()
@@ -380,8 +384,40 @@ func (p *Persistence) restoreMaterializedState(ents []raftpb.Entry) error {
 	return nil
 }
 
+func (p *Persistence) restoreSnapshot(sn raftpb.Snapshot) error {
+	if raft.IsEmptySnap(sn) {
+		return nil
+	}
+
+	applied, err := loadLastApplied(p.db)
+	if err != nil {
+		return err
+	}
+	if applied >= sn.Metadata.Index {
+		return nil
+	}
+
+	src, err := bbolt.Open(snapshotPath(
+		p.raftLog.snapshotDir, sn.Metadata.Index,
+	), 0o600, &bbolt.Options{
+		ReadOnly: true,
+		Timeout:  time.Second,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = src.Close() }()
+
+	if err := copySnapshot(p.db, src); err != nil {
+		return err
+	}
+	p.appliedIndex = sn.Metadata.Index
+	return os.Remove(snapshotPath(p.raftLog.snapshotDir, sn.Metadata.Index))
+}
+
 func (p *Persistence) applyWithTimeout(
-	ctx context.Context, data []byte, proposalID uint64, events []*timebox.Event,
+	ctx context.Context, data []byte, proposalID uint64,
+	events []*timebox.Event,
 ) (*ApplyResult, error) {
 	timeout, err := p.commandTimeout(ctx)
 	if err != nil {
@@ -408,6 +444,9 @@ func (p *Persistence) commandTimeout(
 }
 
 func (p *Persistence) markReady() {
+	if p.Publisher != nil {
+		p.flushBatch = p.flushBatchPublish
+	}
 	p.readyOnce.Do(func() {
 		close(p.readyCh)
 	})

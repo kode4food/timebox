@@ -216,11 +216,18 @@ func newCluster(t *testing.T, n int) []*node {
 func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 	t.Helper()
 
+	dataDir := cfg.dataDir
+	if dataDir == "" {
+		dataDir = t.TempDir()
+	}
+
 	tbCfg := testRaftConfig(nodeConfig{
-		id:        cfg.id,
-		addr:      cfg.addr,
-		dataDir:   t.TempDir(),
-		publisher: cfg.publisher,
+		id:             cfg.id,
+		addr:           cfg.addr,
+		dataDir:        dataDir,
+		trimEvents:     cfg.trimEvents,
+		compactMinStep: cfg.compactMinStep,
+		publisher:      cfg.publisher,
 	})
 	tbCfg.Servers = srvs
 

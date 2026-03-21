@@ -46,7 +46,7 @@ func (p *Persistence) ListAggregatesByStatus(
 			if err != nil {
 				return err
 			}
-			ts, err := decodeInt64(v)
+			ts, err := decodeOptionalInt64(v)
 			if err != nil {
 				return err
 			}

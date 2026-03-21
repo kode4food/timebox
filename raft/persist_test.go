@@ -573,6 +573,363 @@ func TestDelayedJoinFollowerReady(t *testing.T) {
 	assert.Equal(t, "", status)
 }
 
+func TestDelayedJoinViaSnapshot(t *testing.T) {
+	const count = 128
+
+	srvs := make([]raft.Server, 0, 3)
+	cfgs := make([]nodeConfig, 0, 3)
+	for i := range 3 {
+		id := fmt.Sprintf("node-%d", i+1)
+		addr := freeAddr(t)
+		if !assert.NotEmpty(t, addr) {
+			return
+		}
+		srvs = append(srvs, raft.Server{
+			ID:      id,
+			Address: addr,
+		})
+		cfgs = append(cfgs, nodeConfig{
+			id:             id,
+			addr:           addr,
+			dataDir:        t.TempDir(),
+			compactMinStep: 32,
+		})
+	}
+
+	n2 := newClusterNode(t, cfgs[1], srvs)
+	n3 := newClusterNode(t, cfgs[2], srvs)
+	if n2 == nil || n3 == nil {
+		return
+	}
+
+	nodes := []*node{n2, n3}
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "delayed-join-snapshot")
+	for i := range count {
+		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	snapDirs := []string{
+		filepath.Join(cfgs[1].dataDir, "raft-snap"),
+		filepath.Join(cfgs[2].dataDir, "raft-snap"),
+	}
+	assert.Eventually(t, func() bool {
+		for _, dir := range snapDirs {
+			n, err := countSnapshotFiles(dir)
+			if err == nil && n != 0 {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 100*time.Millisecond)
+
+	n1 := newClusterNode(t, cfgs[0], srvs)
+	if n1 == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	assert.NoError(t, n1.store.WaitReady(ctx))
+
+	for _, n := range append(nodes, n1) {
+		assert.Eventually(t, func() bool {
+			evs, err := n.store.GetEvents(id, 0)
+			return err == nil &&
+				len(evs) == count &&
+				evs[0].Sequence == 0 &&
+				evs[count-1].Sequence == int64(count-1)
+		}, 15*time.Second, 100*time.Millisecond)
+	}
+}
+
+func TestSnapshotJoinPublish(t *testing.T) {
+	const count = 128
+
+	var mu sync.Mutex
+	got := map[string][]*timebox.Event{}
+
+	record := func(node string) raft.Publisher {
+		return func(evs ...*timebox.Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			got[node] = append(got[node], evs...)
+		}
+	}
+
+	srvs := make([]raft.Server, 0, 3)
+	cfgs := make([]nodeConfig, 0, 3)
+	for i := range 3 {
+		id := fmt.Sprintf("node-%d", i+1)
+		addr := freeAddr(t)
+		if !assert.NotEmpty(t, addr) {
+			return
+		}
+		srvs = append(srvs, raft.Server{
+			ID:      id,
+			Address: addr,
+		})
+		cfgs = append(cfgs, nodeConfig{
+			id:             id,
+			addr:           addr,
+			dataDir:        t.TempDir(),
+			compactMinStep: 32,
+			publisher:      record(id),
+		})
+	}
+
+	n2 := newClusterNode(t, cfgs[1], srvs)
+	n3 := newClusterNode(t, cfgs[2], srvs)
+	if n2 == nil || n3 == nil {
+		return
+	}
+
+	nodes := []*node{n2, n3}
+	for _, n := range nodes {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 15*time.Second,
+		)
+		err := n.store.WaitReady(ctx)
+		cancel()
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "delayed-join-publisher")
+	for i := range count {
+		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got["node-2"]) == count &&
+			len(got["node-3"]) == count
+	}, 15*time.Second, 100*time.Millisecond)
+
+	snapDirs := []string{
+		filepath.Join(cfgs[1].dataDir, "raft-snap"),
+		filepath.Join(cfgs[2].dataDir, "raft-snap"),
+	}
+	assert.Eventually(t, func() bool {
+		for _, dir := range snapDirs {
+			n, err := countSnapshotFiles(dir)
+			if err == nil && n != 0 {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 100*time.Millisecond)
+
+	n1 := newClusterNode(t, cfgs[0], srvs)
+	if n1 == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	err := n1.store.WaitReady(ctx)
+	cancel()
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Eventually(t, func() bool {
+		evs, err := n1.store.GetEvents(id, 0)
+		return err == nil &&
+			len(evs) == count &&
+			evs[count-1].Sequence == int64(count-1)
+	}, 15*time.Second, 100*time.Millisecond)
+
+	mu.Lock()
+	assert.Empty(t, got["node-1"])
+	mu.Unlock()
+
+	snapDB := filepath.Join(cfgs[0].dataDir, "raft-snap", "*.snap.db")
+	assert.Eventually(t, func() bool {
+		matches, err := filepath.Glob(snapDB)
+		return err == nil && len(matches) == 0
+	}, 15*time.Second, 100*time.Millisecond)
+
+	err = n1.store.AppendEvents(id, int64(count), []*timebox.Event{
+		numberEvent(id, count+1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	for _, n := range append(nodes, n1) {
+		assert.Eventually(t, func() bool {
+			evs, err := n.store.GetEvents(id, 0)
+			return err == nil &&
+				len(evs) == count+1 &&
+				evs[count].Sequence == int64(count)
+		}, 15*time.Second, 100*time.Millisecond)
+	}
+
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got["node-1"]) == 1 &&
+			len(got["node-2"]) == count+1 &&
+			len(got["node-3"]) == count+1
+	}, 15*time.Second, 100*time.Millisecond)
+
+	mu.Lock()
+	evs := got["node-1"]
+	mu.Unlock()
+	if assert.Len(t, evs, 1) {
+		assert.Equal(t, id, evs[0].AggregateID)
+		assert.Equal(t, int64(count), evs[0].Sequence)
+	}
+}
+
+func TestSnapshotJoinRestart(t *testing.T) {
+	const count = 128
+
+	srvs := make([]raft.Server, 0, 3)
+	cfgs := make([]nodeConfig, 0, 3)
+	for i := range 3 {
+		id := fmt.Sprintf("node-%d", i+1)
+		addr := freeAddr(t)
+		if !assert.NotEmpty(t, addr) {
+			return
+		}
+		srvs = append(srvs, raft.Server{
+			ID:      id,
+			Address: addr,
+		})
+		cfgs = append(cfgs, nodeConfig{
+			id:             id,
+			addr:           addr,
+			dataDir:        t.TempDir(),
+			compactMinStep: 32,
+		})
+	}
+
+	n2 := newClusterNode(t, cfgs[1], srvs)
+	n3 := newClusterNode(t, cfgs[2], srvs)
+	if n2 == nil || n3 == nil {
+		return
+	}
+
+	nodes := []*node{n2, n3}
+	for _, n := range nodes {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 15*time.Second,
+		)
+		err := n.store.WaitReady(ctx)
+		cancel()
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	leader, ok := findLeader(t, nodes)
+	if !ok {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "restart-snapshot-join")
+	for i := range count {
+		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	snapDirs := []string{
+		filepath.Join(cfgs[1].dataDir, "raft-snap"),
+		filepath.Join(cfgs[2].dataDir, "raft-snap"),
+	}
+	assert.Eventually(t, func() bool {
+		for _, dir := range snapDirs {
+			n, err := countSnapshotFiles(dir)
+			if err == nil && n != 0 {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 100*time.Millisecond)
+
+	n1 := newClusterNode(t, cfgs[0], srvs)
+	if n1 == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	err := n1.store.WaitReady(ctx)
+	cancel()
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Eventually(t, func() bool {
+		evs, err := n1.store.GetEvents(id, 0)
+		return err == nil &&
+			len(evs) == count &&
+			evs[count-1].Sequence == int64(count-1)
+	}, 15*time.Second, 100*time.Millisecond)
+
+	closeNode(t, n1)
+
+	n1 = newClusterNode(t, cfgs[0], srvs)
+	if n1 == nil {
+		return
+	}
+
+	assert.Eventually(t, func() bool {
+		evs, err := n1.store.GetEvents(id, 0)
+		return err == nil &&
+			len(evs) == count &&
+			evs[0].Sequence == 0 &&
+			evs[count-1].Sequence == int64(count-1)
+	}, 15*time.Second, 100*time.Millisecond)
+
+	err = leader.store.AppendEvents(id, int64(count), []*timebox.Event{
+		numberEvent(id, count+1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+	err = n1.store.WaitReady(ctx)
+	cancel()
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Eventually(t, func() bool {
+		evs, err := n1.store.GetEvents(id, 0)
+		return err == nil &&
+			len(evs) == count+1 &&
+			evs[0].Sequence == 0 &&
+			evs[count].Sequence == int64(count)
+	}, 15*time.Second, 100*time.Millisecond)
+}
+
 func TestRestart(t *testing.T) {
 	addr := freeAddr(t)
 	if addr == "" {

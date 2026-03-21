@@ -7,6 +7,7 @@ import (
 	"go.etcd.io/bbolt"
 
 	"github.com/kode4food/timebox"
+	bin "github.com/kode4food/timebox/internal/binary"
 )
 
 type (
@@ -200,7 +201,7 @@ func applyMutationsTx(
 			meta.StatusAt = statusAt
 			if err := b.Put(
 				statusIndexKey(status, encodedID),
-				encodeInt64(statusAt),
+				bin.AppendInt64(nil, statusAt),
 			); err != nil {
 				return err
 			}
@@ -254,7 +255,7 @@ func updateLabelValueCount(
 	b *bbolt.Bucket, label, value string, delta int64,
 ) error {
 	key := labelValueKey(label, value)
-	current, err := decodeInt64(b.Get(key))
+	current, err := decodeOptionalInt64(b.Get(key))
 	if err != nil {
 		return err
 	}
@@ -263,7 +264,7 @@ func updateLabelValueCount(
 	if next <= 0 {
 		return b.Delete(key)
 	}
-	return b.Put(key, encodeInt64(next))
+	return b.Put(key, bin.AppendInt64(nil, next))
 }
 
 func loadOrCreateMetaTx(
@@ -305,15 +306,15 @@ func loadLastApplied(db *bbolt.DB) (uint64, error) {
 }
 
 func loadLastAppliedTx(b *bbolt.Bucket) (uint64, error) {
-	decoded, err := decodeInt64(b.Get(lastAppliedKey()))
+	applied, err := decodeOptionalInt64(b.Get(lastAppliedKey()))
 	if err != nil {
 		return 0, err
 	}
-	return uint64(decoded), nil
+	return uint64(applied), nil
 }
 
 func markApplied(b *bbolt.Bucket, logIndex uint64) error {
-	return b.Put(lastAppliedKey(), encodeInt64(int64(logIndex)))
+	return b.Put(lastAppliedKey(), bin.AppendInt64(nil, int64(logIndex)))
 }
 
 func conflictResultTx(

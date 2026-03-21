@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"hash/fnv"
+	"io"
 	"log/slog"
 	"net"
 	"time"
@@ -12,19 +13,20 @@ import (
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/quorum"
 	"go.etcd.io/raft/v3/raftpb"
-	"go.etcd.io/raft/v3/tracker"
 
 	"github.com/kode4food/timebox"
 )
 
-type proposalResult struct {
-	res *ApplyResult
-}
+type (
+	proposalResult struct {
+		res *ApplyResult
+	}
 
-type proposalState struct {
-	ch     chan proposalResult
-	events []*timebox.Event
-}
+	proposalState struct {
+		ch     chan proposalResult
+		events []*timebox.Event
+	}
+)
 
 const (
 	tickInterval   = 100 * time.Millisecond
@@ -84,15 +86,20 @@ func (p *Persistence) handleTransportConn(conn net.Conn) {
 
 	rd := bufio.NewReader(conn)
 	for {
-		msg, err := readTransportMessage(rd)
+		msg, snapSize, err := readTransportMessage(rd)
 		if err != nil {
-			if isClosedConn(err) {
-				return
-			}
 			return
 		}
-		if err := p.node.Step(context.Background(), msg); err != nil &&
-			!errors.Is(err, raft.ErrStopped) {
+		if msg.Type == raftpb.MsgSnap {
+			if err := saveSnapshot(
+				p.raftLog.snapshotDir, io.LimitReader(rd, int64(snapSize)),
+				msg.Snapshot.Metadata.Index,
+			); err != nil {
+				return
+			}
+		}
+		err = p.node.Step(context.Background(), msg)
+		if err != nil && !errors.Is(err, raft.ErrStopped) {
 			return
 		}
 	}
@@ -133,29 +140,54 @@ func (p *Persistence) serveReady() {
 }
 
 func (p *Persistence) handleReady(rd raft.Ready) error {
+	if !raft.IsEmptySnap(rd.Snapshot) {
+		if err := p.raftLog.ApplySnapshot(rd.Snapshot); err != nil {
+			return err
+		}
+	}
 	if err := p.raftLog.Save(rd); err != nil {
 		return err
-	}
-
-	if !raft.IsEmptySnap(rd.Snapshot) {
-		return errors.New("raft snapshots are unsupported")
 	}
 	if len(rd.Entries) != 0 {
 		if err := p.raftLog.AppendEntries(rd.Entries); err != nil {
 			return err
 		}
 	}
-	p.sendMessages(rd.Messages)
+	msgs, snapMsgs := splitSnapMsgs(rd.Messages)
+	p.sendMessages(msgs)
+	if err := p.restoreSnapshot(rd.Snapshot); err != nil {
+		return err
+	}
 	if err := p.applyBatch(rd.CommittedEntries); err != nil {
+		return err
+	}
+	if err := p.maybeCompactLog(); err != nil {
+		return err
+	}
+	if err := p.sendSnapshots(snapMsgs); err != nil {
 		return err
 	}
 	if p.State() == StateLeader {
 		p.markReady()
-	} else if len(rd.CommittedEntries) != 0 {
+	} else if !raft.IsEmptySnap(rd.Snapshot) ||
+		len(rd.CommittedEntries) != 0 {
 		p.markReadyFollower()
 	}
 	p.node.Advance()
-	return p.maybeProposeCompaction()
+	return nil
+}
+
+func splitSnapMsgs(msgs []raftpb.Message) ([]raftpb.Message, []raftpb.Message) {
+	var out []raftpb.Message
+	var snaps []raftpb.Message
+	for _, msg := range msgs {
+		if msg.Type == raftpb.MsgSnap {
+			snaps = append(snaps, msg)
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out, snaps
 }
 
 func (p *Persistence) applyBatch(ents []raftpb.Entry) error {
@@ -206,18 +238,6 @@ func (p *Persistence) applyCommittedEntries(
 				continue
 			}
 			cmd := Command(ent.Data)
-			if cmd.Type() == CmdTypeCompact {
-				if err := flushAndReset(); err != nil {
-					return err
-				}
-				if err := p.applyCompact(cmd); err != nil {
-					return err
-				}
-				if err := p.markAppliedEntry(ent.Index); err != nil {
-					return err
-				}
-				continue
-			}
 			propID, err := cmd.ProposalID()
 			if err != nil {
 				return err
@@ -239,7 +259,28 @@ func (p *Persistence) applyCommittedEntries(
 	return p.flushBatch(batch, propIDs)
 }
 
-func (p *Persistence) flushBatch(
+func (p *Persistence) flushBatchNoPublish(
+	batch []decodedEntry, propIDs []uint64,
+) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	results, err := p.fsm.applyEntries(batch)
+	if err != nil {
+		return err
+	}
+	for i := range batch {
+		res := results[i]
+		p.resolveProposal(propIDs[i], res)
+		if err := res.Err(); err != nil {
+			return err
+		}
+		p.appliedIndex = batch[i].index
+	}
+	return nil
+}
+
+func (p *Persistence) flushBatchPublish(
 	batch []decodedEntry, propIDs []uint64,
 ) error {
 	if len(batch) == 0 {
@@ -256,16 +297,14 @@ func (p *Persistence) flushBatch(
 		if err := res.Err(); err != nil {
 			return err
 		}
-		if p.Publisher != nil {
-			evs, err := p.committedEvents(batch[i].cmd, propIDs[i])
-			if err != nil {
-				return err
-			}
-			published = append(published, evs...)
+		evs, err := p.committedEvents(batch[i].cmd, propIDs[i])
+		if err != nil {
+			return err
 		}
+		published = append(published, evs...)
 		p.appliedIndex = batch[i].index
 	}
-	if p.Publisher != nil && len(published) > 0 {
+	if len(published) != 0 {
 		p.Publisher(published...)
 	}
 	return nil
@@ -304,6 +343,65 @@ func (p *Persistence) sendMessages(msgs []raftpb.Message) {
 	}
 }
 
+func (p *Persistence) sendSnapshots(msgs []raftpb.Message) error {
+	for _, msg := range msgs {
+		if msg.To == 0 {
+			continue
+		}
+		peer, ok := p.peers[msg.To]
+		if !ok || peer.RaftAddr == "" {
+			p.node.ReportUnreachable(msg.To)
+			p.node.ReportSnapshot(msg.To, raft.SnapshotFailure)
+			continue
+		}
+
+		snapMsg, snap, err := p.makeSnapMsg(msg)
+		if err != nil {
+			return err
+		}
+		if err := p.transport.SendSnapshot(
+			peer.RaftAddr, snapMsg, snap,
+		); err != nil {
+			_ = snap.Close()
+			p.node.ReportUnreachable(msg.To)
+			p.node.ReportSnapshot(msg.To, raft.SnapshotFailure)
+			continue
+		}
+		if err := snap.Close(); err != nil {
+			return err
+		}
+		p.node.ReportSnapshot(msg.To, raft.SnapshotFinish)
+	}
+	return nil
+}
+
+func (p *Persistence) makeSnapMsg(
+	msg raftpb.Message,
+) (raftpb.Message, *snapshot, error) {
+	index := p.appliedIndex
+	cs := p.confState()
+	sn, err := p.storage.CreateSnapshot(index, &cs, nil)
+	switch {
+	case err == nil:
+	case errors.Is(err, raft.ErrSnapOutOfDate):
+		sn, err = p.storage.Snapshot()
+	default:
+		return raftpb.Message{}, nil, err
+	}
+	if err != nil {
+		return raftpb.Message{}, nil, err
+	}
+	if sn.Metadata.Index != index {
+		return raftpb.Message{}, nil, ErrCorruptState
+	}
+	snap, err := openSnapshot(p.db, index)
+	if err != nil {
+		return raftpb.Message{}, nil, err
+	}
+	msg.Snapshot = &sn
+	return msg, snap, nil
+}
+
 func (p *Persistence) applyConfChange(
 	ent raftpb.Entry,
 ) error {
@@ -318,42 +416,26 @@ func (p *Persistence) applyConfChange(
 	return p.markAppliedEntry(ent.Index)
 }
 
-func (p *Persistence) maybeProposeCompaction() error {
-	if p.State() != StateLeader {
-		p.clearPendingCompaction()
+func (p *Persistence) maybeCompactLog() error {
+	applied := p.appliedIndex
+	snapshot := p.raftLog.snapshot.Metadata.Index
+	if applied == 0 || applied <= snapshot {
+		return nil
+	}
+	if applied-snapshot < p.CompactMinStep {
 		return nil
 	}
 
-	compactTo := p.safeCompactIndex()
-	current := p.raftLog.CompactedIndex()
-	if compactTo == 0 || compactTo <= current {
-		return nil
+	compactTo := uint64(1)
+	if applied > p.CompactMinStep {
+		compactTo = applied - p.CompactMinStep
 	}
-	if compactTo-current < p.CompactMinStep {
-		return nil
-	}
-	if !p.beginCompaction(compactTo) {
-		return nil
-	}
-	if err := p.proposeCompaction(compactTo); err != nil {
-		p.clearPendingCompaction()
-		return err
-	}
-	return nil
-}
-
-func (p *Persistence) applyCompact(cmd Command) error {
-	if err := p.raftLog.Compact(
-		cmd.CompactIndex(), p.confState(),
-	); err != nil {
-		return err
-	}
-	p.clearPendingCompaction()
-	return nil
+	return p.raftLog.Compact(applied, compactTo, p.confState())
 }
 
 func (p *Persistence) propose(
-	ctx context.Context, data []byte, proposalID uint64, events []*timebox.Event,
+	ctx context.Context, data []byte, proposalID uint64,
+	events []*timebox.Event,
 ) (*ApplyResult, error) {
 	st := p.registerProposal(proposalID, events)
 	defer p.unregisterProposal(proposalID, st)
@@ -427,23 +509,6 @@ func (p *Persistence) proposalEvents(proposalID uint64) []*timebox.Event {
 	return evs
 }
 
-func (p *Persistence) beginCompaction(index uint64) bool {
-	p.compactMu.Lock()
-	defer p.compactMu.Unlock()
-
-	if p.compactPending != 0 {
-		return false
-	}
-	p.compactPending = index
-	return true
-}
-
-func (p *Persistence) clearPendingCompaction() {
-	p.compactMu.Lock()
-	p.compactPending = 0
-	p.compactMu.Unlock()
-}
-
 func (p *Persistence) confState() raftpb.ConfState {
 	cfg := p.node.Status().Config
 	return raftpb.ConfState{
@@ -455,42 +520,6 @@ func (p *Persistence) confState() raftpb.ConfState {
 		).Slice(),
 		AutoLeave: cfg.AutoLeave,
 	}
-}
-
-func (p *Persistence) proposeCompaction(index uint64) error {
-	ctx, cancel := context.WithTimeout(
-		context.Background(), p.applyTimeout,
-	)
-	defer cancel()
-	return p.node.Propose(ctx, MakeCompactCommand(0, index))
-}
-
-func (p *Persistence) safeCompactIndex() uint64 {
-	if p.appliedIndex == 0 {
-		return 0
-	}
-
-	st := p.node.Status()
-	if st.RaftState != raft.StateLeader {
-		return 0
-	}
-
-	floor := p.appliedIndex
-	ids := voterIDs(st.Config)
-	if len(ids) == 0 {
-		return floor
-	}
-
-	for _, id := range ids {
-		pr, ok := st.Progress[id]
-		if !ok {
-			return 0
-		}
-		if pr.Match < floor {
-			floor = pr.Match
-		}
-	}
-	return floor
 }
 
 func newRaftNodeConfig(
@@ -515,22 +544,6 @@ func newRaftNodeConfig(
 		CheckQuorum:     true,
 		Logger:          raftLogger,
 	}
-}
-
-func voterIDs(cfg tracker.Config) []uint64 {
-	ids := make(map[uint64]struct{})
-	for _, id := range cfg.Voters[0].Slice() {
-		ids[id] = struct{}{}
-	}
-	for _, id := range cfg.Voters[1].Slice() {
-		ids[id] = struct{}{}
-	}
-
-	res := make([]uint64, 0, len(ids))
-	for id := range ids {
-		res = append(res, id)
-	}
-	return res
 }
 
 func nodeID(id string) uint64 {

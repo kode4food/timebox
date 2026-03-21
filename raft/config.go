@@ -23,8 +23,10 @@ type (
 		Address string
 		Servers []Server
 
-		// CompactMinStep is the minimum number of new log entries required
-		// before a compaction is triggered. Defaults to 16,384
+		// CompactMinStep is the minimum number of newly applied log entries
+		// between local snapshot/compaction points. The same window is
+		// retained after compaction so slow followers can catch up without
+		// immediately requiring a snapshot transfer. Defaults to 16,384
 		CompactMinStep uint64
 
 		Publisher Publisher

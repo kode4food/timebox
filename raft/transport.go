@@ -30,8 +30,9 @@ type (
 )
 
 const (
-	defaultNetworkDialTimeout  = 10 * time.Second
-	defaultNetworkWriteTimeout = 200 * time.Millisecond
+	defaultDialTimeout      = 10 * time.Second
+	defaultWriteTimeout     = 200 * time.Millisecond
+	defaultSnapWriteTimeout = 30 * time.Second
 )
 
 var ErrTransportClosed = errors.New("transport closed")
@@ -99,6 +100,30 @@ func (t *raftTransport) Send(addr ServerAddress, msgs ...raftpb.Message) error {
 		return err
 	}
 	if err := peer.Send(msgs...); err != nil {
+		t.dropPeer(addr, peer)
+		return err
+	}
+	return nil
+}
+
+func (t *raftTransport) SendSnapshot(
+	addr ServerAddress, msg raftpb.Message, snap *snapshot,
+) error {
+	peer, err := t.peer(addr)
+	if err != nil {
+		return err
+	}
+
+	if err := peer.SendSnapshot(msg, snap); err == nil {
+		return nil
+	}
+	t.dropPeer(addr, peer)
+
+	peer, err = t.peer(addr)
+	if err != nil {
+		return err
+	}
+	if err := peer.SendSnapshot(msg, snap); err != nil {
 		t.dropPeer(addr, peer)
 		return err
 	}
@@ -177,8 +202,12 @@ func (p *raftPeerConn) Send(msgs ...raftpb.Message) error {
 	if p.conn == nil || p.wr == nil {
 		return ErrTransportClosed
 	}
-	_ = p.conn.SetDeadline(time.Now().Add(defaultNetworkWriteTimeout))
 	for _, msg := range msgs {
+		timeout := defaultWriteTimeout
+		if msg.Type == raftpb.MsgSnap {
+			timeout = defaultSnapWriteTimeout
+		}
+		_ = p.conn.SetDeadline(time.Now().Add(timeout))
 		data, err := msg.Marshal()
 		if err != nil {
 			return err
@@ -188,6 +217,36 @@ func (p *raftPeerConn) Send(msgs ...raftpb.Message) error {
 		}
 	}
 	return p.wr.Flush()
+}
+
+func (p *raftPeerConn) SendSnapshot(
+	msg raftpb.Message, snap *snapshot,
+) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.conn == nil || p.wr == nil {
+		return ErrTransportClosed
+	}
+	_ = p.conn.SetDeadline(time.Now().Add(defaultSnapWriteTimeout))
+
+	data, err := msg.Marshal()
+	if err != nil {
+		return err
+	}
+	if err := writeFrame(p.wr, data); err != nil {
+		return err
+	}
+	if err := binary.Write(
+		p.wr, binary.BigEndian, uint64(snap.Size()),
+	); err != nil {
+		return err
+	}
+	if err := p.wr.Flush(); err != nil {
+		return err
+	}
+	_, err = snap.WriteTo(p.conn)
+	return err
 }
 
 func newRaftTransport(cfg Config) (*raftTransport, error) {
@@ -211,7 +270,7 @@ func newRaftTransport(cfg Config) (*raftTransport, error) {
 
 func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
 	conn, err := net.DialTimeout(
-		"tcp", string(addr), defaultNetworkDialTimeout,
+		"tcp", string(addr), defaultDialTimeout,
 	)
 	if err != nil {
 		return nil, err
@@ -225,16 +284,23 @@ func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
 	}, nil
 }
 
-func readTransportMessage(r *bufio.Reader) (raftpb.Message, error) {
+func readTransportMessage(r *bufio.Reader) (raftpb.Message, uint64, error) {
 	data, err := readFrame(r)
 	if err != nil {
-		return raftpb.Message{}, err
+		return raftpb.Message{}, 0, err
 	}
 	var msg raftpb.Message
 	if err := msg.Unmarshal(data); err != nil {
-		return raftpb.Message{}, err
+		return raftpb.Message{}, 0, err
 	}
-	return msg, nil
+	if msg.Type != raftpb.MsgSnap {
+		return msg, 0, nil
+	}
+	var size uint64
+	if err := binary.Read(r, binary.BigEndian, &size); err != nil {
+		return raftpb.Message{}, 0, err
+	}
+	return msg, size, nil
 }
 
 func writeFrame(w *bufio.Writer, data []byte) error {
@@ -264,10 +330,4 @@ func readFrame(r *bufio.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
-}
-
-func isClosedConn(err error) bool {
-	return errors.Is(err, net.ErrClosed) ||
-		errors.Is(err, io.EOF) ||
-		errors.Is(err, io.ErrUnexpectedEOF)
 }

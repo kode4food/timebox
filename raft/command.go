@@ -37,12 +37,10 @@ type (
 )
 
 const (
-	CmdTypeCompact  = 0
-	CmdTypeAppend   = 1
-	CmdTypeSnapshot = 2
+	CmdTypeAppend   = 0
+	CmdTypeSnapshot = 1
 
-	cmdHeaderSize  = 9  // 1 type byte + 8 proposalID bytes
-	cmdCompactSize = 17 // header + 8 index bytes
+	cmdHeaderSize = 9 // 1 type byte + 8 proposalID bytes
 
 	applyCodeInternal = "internal"
 )
@@ -57,14 +55,6 @@ var (
 	// ErrCommandTypeUnknown indicates the FSM received an unknown command type
 	ErrCommandTypeUnknown = errors.New("unknown command type")
 )
-
-func MakeCompactCommand(proposalID, index uint64) Command {
-	c := make(Command, cmdCompactSize)
-	c[0] = CmdTypeCompact
-	binary.BigEndian.PutUint64(c[1:9], proposalID)
-	binary.BigEndian.PutUint64(c[9:17], index)
-	return c
-}
 
 func MakeAppendCommand(
 	proposalID uint64, req *timebox.AppendRequest,
@@ -107,13 +97,6 @@ func (c Command) ProposalID() (uint64, error) {
 		return 0, ErrCorruptState
 	}
 	return binary.BigEndian.Uint64(c[1:9]), nil
-}
-
-func (c Command) CompactIndex() uint64 {
-	if len(c) < cmdCompactSize {
-		return 0
-	}
-	return binary.BigEndian.Uint64(c[9:17])
 }
 
 func (c Command) AppendRequest() (*timebox.AppendRequest, error) {
@@ -322,11 +305,7 @@ func parseStatusAt(value string) int64 {
 	return ts
 }
 
-func encodeInt64(value int64) []byte {
-	return bin.AppendInt64(nil, value)
-}
-
-func decodeInt64(value []byte) (int64, error) {
+func decodeOptionalInt64(value []byte) (int64, error) {
 	if len(value) == 0 {
 		return 0, nil
 	}

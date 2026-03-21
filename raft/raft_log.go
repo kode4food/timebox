@@ -24,6 +24,7 @@ type raftLog struct {
 	memory         *raft.MemoryStorage
 	hardState      raftpb.HardState
 	entries        []raftpb.Entry
+	snapshot       raftpb.Snapshot
 	snapshotDir    string
 	snapshotRetain int
 }
@@ -56,12 +57,14 @@ func (r *raftLog) AppendEntries(ents []raftpb.Entry) error {
 	return nil
 }
 
-func (r *raftLog) Compact(index uint64, cs raftpb.ConfState) error {
-	if index == 0 || index <= r.CompactedIndex() {
+func (r *raftLog) Compact(
+	snapshotIndex, compactIndex uint64, cs raftpb.ConfState,
+) error {
+	if snapshotIndex == 0 || snapshotIndex <= r.snapshot.Metadata.Index {
 		return nil
 	}
 
-	sn, err := r.memory.CreateSnapshot(index, &cs, nil)
+	sn, err := r.memory.CreateSnapshot(snapshotIndex, &cs, nil)
 	switch {
 	case err == nil:
 	case errors.Is(err, raft.ErrSnapOutOfDate):
@@ -73,24 +76,46 @@ func (r *raftLog) Compact(index uint64, cs raftpb.ConfState) error {
 	if err := r.log.SaveSnap(sn); err != nil {
 		return err
 	}
-	if err := r.memory.Compact(index); err != nil &&
+	if err := r.memory.Compact(compactIndex); err != nil &&
 		!errors.Is(err, raft.ErrCompacted) {
+		return err
+	}
+	if err := r.log.Sync(); err != nil {
 		return err
 	}
 	if err := r.log.Release(sn); err != nil {
 		return err
 	}
 
-	r.entries = filterEntriesAfter(r.entries, index)
+	r.snapshot = sn
+	r.entries = filterEntriesAfter(r.entries, compactIndex)
 	return r.pruneSnapshots()
 }
 
-func (r *raftLog) CompactedIndex() uint64 {
-	first, err := r.memory.FirstIndex()
-	if err != nil || first == 0 {
-		return 0
+func (r *raftLog) ApplySnapshot(sn raftpb.Snapshot) error {
+	if raft.IsEmptySnap(sn) {
+		return nil
 	}
-	return first - 1
+	if err := r.log.SaveSnap(sn); err != nil {
+		return err
+	}
+	switch err := r.memory.ApplySnapshot(sn); {
+	case err == nil:
+	case errors.Is(err, raft.ErrSnapOutOfDate):
+		return nil
+	default:
+		return err
+	}
+	if err := r.log.Sync(); err != nil {
+		return err
+	}
+	if err := r.log.Release(sn); err != nil {
+		return err
+	}
+
+	r.snapshot = sn
+	r.entries = filterEntriesAfter(r.entries, sn.Metadata.Index)
+	return r.pruneSnapshots()
 }
 
 func (r *raftLog) CommittedEntries() []raftpb.Entry {
@@ -180,6 +205,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		memory:         ms,
 		hardState:      hs,
 		entries:        filterEntriesAfter(ents, snapData.Metadata.Index),
+		snapshot:       snapData,
 		snapshotDir:    snapDir,
 		snapshotRetain: defaultSnapshotRetain,
 	}
