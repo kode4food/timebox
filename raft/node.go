@@ -37,9 +37,59 @@ const (
 )
 
 func (p *Persistence) startLoops() {
+	p.serveCompaction()
+	p.servePeerSends()
 	p.serveTransport()
 	p.serveTicks()
 	p.serveReady()
+}
+
+func (p *Persistence) serveCompaction() {
+	p.bgWG.Go(func() {
+		for {
+			select {
+			case <-p.stopCh:
+				return
+			case <-p.compactCh:
+				if err := p.compactLog(); err != nil {
+					p.stopWithError(err)
+					return
+				}
+			}
+		}
+	})
+}
+
+func (p *Persistence) servePeerSends() {
+	localID := nodeID(p.LocalID)
+	for id, peer := range p.peers {
+		if id == localID || peer.RaftAddr == "" {
+			continue
+		}
+		ch := make(chan []raftpb.Message, maxInflightMsg)
+		p.sendChs[id] = ch
+
+		id := id
+		peer := peer
+		p.bgWG.Go(func() {
+			p.servePeerSend(id, peer, ch)
+		})
+	}
+}
+
+func (p *Persistence) servePeerSend(
+	id uint64, peer peerInfo, ch <-chan []raftpb.Message,
+) {
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case msgs := <-ch:
+			if err := p.transport.Send(peer.RaftAddr, msgs...); err != nil {
+				p.reportUnreachable(id)
+			}
+		}
+	}
 }
 
 func (p *Persistence) serveTicks() {
@@ -116,22 +166,7 @@ func (p *Persistence) serveReady() {
 					return
 				}
 				if err := p.handleReady(rd); err != nil {
-					p.pendingMu.Lock()
-					pending := p.pending
-					p.pending = map[uint64]proposalState{}
-					p.pendingMu.Unlock()
-					for _, st := range pending {
-						st.ch <- proposalResult{
-							res: &ApplyResult{
-								Code:    applyCodeInternal,
-								Message: err.Error(),
-							},
-						}
-					}
-					p.stopOnce.Do(func() {
-						close(p.stopCh)
-					})
-					p.node.Stop()
+					p.stopWithError(err)
 					return
 				}
 			}
@@ -161,8 +196,8 @@ func (p *Persistence) handleReady(rd raft.Ready) error {
 	if err := p.applyBatch(rd.CommittedEntries); err != nil {
 		return err
 	}
-	if err := p.maybeCompactLog(); err != nil {
-		return err
+	if len(rd.CommittedEntries) != 0 {
+		p.requestCompact()
 	}
 	if err := p.sendSnapshots(snapMsgs); err != nil {
 		return err
@@ -275,7 +310,7 @@ func (p *Persistence) flushBatchNoPublish(
 		if err := res.Err(); err != nil {
 			return err
 		}
-		p.appliedIndex = batch[i].index
+		p.appliedIndex.Store(batch[i].index)
 	}
 	return nil
 }
@@ -302,7 +337,7 @@ func (p *Persistence) flushBatchPublish(
 			return err
 		}
 		published = append(published, evs...)
-		p.appliedIndex = batch[i].index
+		p.appliedIndex.Store(batch[i].index)
 	}
 	if len(published) != 0 {
 		p.Publisher(published...)
@@ -328,17 +363,32 @@ func (p *Persistence) committedEvents(
 }
 
 func (p *Persistence) sendMessages(msgs []raftpb.Message) {
+	byPeer := map[uint64][]raftpb.Message{}
 	for _, msg := range msgs {
 		if msg.To == 0 {
 			continue
 		}
 		peer, ok := p.peers[msg.To]
 		if !ok || peer.RaftAddr == "" {
-			p.node.ReportUnreachable(msg.To)
+			p.reportUnreachable(msg.To)
 			continue
 		}
-		if err := p.transport.Send(peer.RaftAddr, msg); err != nil {
-			p.node.ReportUnreachable(msg.To)
+
+		byPeer[msg.To] = append(byPeer[msg.To], msg)
+	}
+
+	for id, batch := range byPeer {
+		ch, ok := p.sendChs[id]
+		if !ok {
+			p.reportUnreachable(id)
+			continue
+		}
+
+		msgs := append([]raftpb.Message(nil), batch...)
+		select {
+		case ch <- msgs:
+		default:
+			p.reportUnreachable(id)
 		}
 	}
 }
@@ -350,8 +400,8 @@ func (p *Persistence) sendSnapshots(msgs []raftpb.Message) error {
 		}
 		peer, ok := p.peers[msg.To]
 		if !ok || peer.RaftAddr == "" {
-			p.node.ReportUnreachable(msg.To)
-			p.node.ReportSnapshot(msg.To, raft.SnapshotFailure)
+			p.reportUnreachable(msg.To)
+			p.reportSnapshot(msg.To, raft.SnapshotFailure)
 			continue
 		}
 
@@ -359,26 +409,51 @@ func (p *Persistence) sendSnapshots(msgs []raftpb.Message) error {
 		if err != nil {
 			return err
 		}
-		if err := p.transport.SendSnapshot(
-			peer.RaftAddr, snapMsg, snap,
-		); err != nil {
-			_ = snap.Close()
-			p.node.ReportUnreachable(msg.To)
-			p.node.ReportSnapshot(msg.To, raft.SnapshotFailure)
-			continue
-		}
-		if err := snap.Close(); err != nil {
-			return err
-		}
-		p.node.ReportSnapshot(msg.To, raft.SnapshotFinish)
+
+		id := msg.To
+		addr := peer.RaftAddr
+		sm := snapMsg
+		sn := snap
+		p.bgWG.Go(func() {
+			defer func() {
+				_ = sn.Close()
+			}()
+
+			if err := p.transport.SendSnapshot(addr, sm, sn); err != nil {
+				p.reportUnreachable(id)
+				p.reportSnapshot(id, raft.SnapshotFailure)
+				return
+			}
+			p.reportSnapshot(id, raft.SnapshotFinish)
+		})
 	}
 	return nil
+}
+
+func (p *Persistence) reportUnreachable(id uint64) {
+	select {
+	case <-p.stopCh:
+		return
+	default:
+		p.node.ReportUnreachable(id)
+	}
+}
+
+func (p *Persistence) reportSnapshot(
+	id uint64, status raft.SnapshotStatus,
+) {
+	select {
+	case <-p.stopCh:
+		return
+	default:
+		p.node.ReportSnapshot(id, status)
+	}
 }
 
 func (p *Persistence) makeSnapMsg(
 	msg raftpb.Message,
 ) (raftpb.Message, *snapshot, error) {
-	index := p.appliedIndex
+	index := p.appliedIndex.Load()
 	cs := p.confState()
 	sn, err := p.storage.CreateSnapshot(index, &cs, nil)
 	switch {
@@ -416,9 +491,16 @@ func (p *Persistence) applyConfChange(
 	return p.markAppliedEntry(ent.Index)
 }
 
-func (p *Persistence) maybeCompactLog() error {
-	applied := p.appliedIndex
-	snapshot := p.raftLog.snapshot.Metadata.Index
+func (p *Persistence) requestCompact() {
+	select {
+	case p.compactCh <- struct{}{}:
+	default:
+	}
+}
+
+func (p *Persistence) compactLog() error {
+	applied := p.appliedIndex.Load()
+	snapshot := p.raftLog.snapshotIndex()
 	if applied == 0 || applied <= snapshot {
 		return nil
 	}
@@ -431,6 +513,26 @@ func (p *Persistence) maybeCompactLog() error {
 		compactTo = applied - p.CompactMinStep
 	}
 	return p.raftLog.Compact(applied, compactTo, p.confState())
+}
+
+func (p *Persistence) stopWithError(err error) {
+	p.pendingMu.Lock()
+	pending := p.pending
+	p.pending = map[uint64]proposalState{}
+	p.pendingMu.Unlock()
+
+	for _, st := range pending {
+		st.ch <- proposalResult{
+			res: &ApplyResult{
+				Code:    applyCodeInternal,
+				Message: err.Error(),
+			},
+		}
+	}
+	p.stopOnce.Do(func() {
+		close(p.stopCh)
+		p.node.Stop()
+	})
 }
 
 func (p *Persistence) propose(

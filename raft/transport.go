@@ -30,7 +30,8 @@ type (
 )
 
 const (
-	defaultDialTimeout      = 10 * time.Second
+	defaultDialTimeout      = time.Second
+	defaultKeepAlive        = 30 * time.Second
 	defaultWriteTimeout     = 200 * time.Millisecond
 	defaultSnapWriteTimeout = 30 * time.Second
 )
@@ -277,6 +278,8 @@ func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
 	}
 	if tcp, ok := conn.(*net.TCPConn); ok {
 		_ = tcp.SetNoDelay(true)
+		_ = tcp.SetKeepAlive(true)
+		_ = tcp.SetKeepAlivePeriod(defaultKeepAlive)
 	}
 	return &raftPeerConn{
 		conn: conn,

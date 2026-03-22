@@ -35,11 +35,12 @@ type (
 		raftLog      *raftLog
 		transport    *raftTransport
 		applyTimeout time.Duration
-		appliedIndex uint64
 		flushBatch   func([]decodedEntry, []uint64) error
 
 		// Cluster routing
-		peers map[uint64]peerInfo
+		peers     map[uint64]peerInfo
+		sendChs   map[uint64]chan []raftpb.Message
+		compactCh chan struct{}
 
 		// Background loops
 		bgWG      sync.WaitGroup
@@ -52,6 +53,7 @@ type (
 		pendingMu    sync.Mutex
 		pending      map[uint64]proposalState
 		nextProposal atomic.Uint64
+		appliedIndex atomic.Uint64
 	}
 
 	ServerID      string
@@ -125,7 +127,9 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		transport:    tr,
 		applyTimeout: defaultApplyTimeout,
 
-		peers: buildPeerMap(cfg, tr),
+		peers:     buildPeerMap(cfg, tr),
+		sendChs:   map[uint64]chan []raftpb.Message{},
+		compactCh: make(chan struct{}, 1),
 
 		readyCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),
@@ -154,7 +158,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	p.appliedIndex = applied
+	p.appliedIndex.Store(applied)
 
 	nodeCfg := newRaftNodeConfig(
 		nodeID(cfg.LocalID), log.memory, applied,
@@ -411,7 +415,7 @@ func (p *Persistence) restoreSnapshot(sn raftpb.Snapshot) error {
 	if err := copySnapshot(p.db, src); err != nil {
 		return err
 	}
-	p.appliedIndex = sn.Metadata.Index
+	p.appliedIndex.Store(sn.Metadata.Index)
 	return os.Remove(snapshotPath(p.raftLog.snapshotDir, sn.Metadata.Index))
 }
 
@@ -466,7 +470,7 @@ func (p *Persistence) markAppliedEntry(index uint64) error {
 	if err != nil {
 		return err
 	}
-	p.appliedIndex = index
+	p.appliedIndex.Store(index)
 	return nil
 }
 

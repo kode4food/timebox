@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -20,6 +21,7 @@ import (
 )
 
 type raftLog struct {
+	mu             sync.RWMutex
 	log            storage.Storage
 	memory         *raft.MemoryStorage
 	hardState      raftpb.HardState
@@ -44,7 +46,9 @@ func (r *raftLog) Save(rd raft.Ready) error {
 		return err
 	}
 	if !raft.IsEmptyHardState(rd.HardState) {
+		r.mu.Lock()
 		r.hardState = rd.HardState
+		r.mu.Unlock()
 	}
 	return nil
 }
@@ -53,14 +57,16 @@ func (r *raftLog) AppendEntries(ents []raftpb.Entry) error {
 	if err := r.memory.Append(ents); err != nil {
 		return err
 	}
+	r.mu.Lock()
 	r.entries = mergeEntries(r.entries, ents)
+	r.mu.Unlock()
 	return nil
 }
 
 func (r *raftLog) Compact(
 	snapshotIndex, compactIndex uint64, cs raftpb.ConfState,
 ) error {
-	if snapshotIndex == 0 || snapshotIndex <= r.snapshot.Metadata.Index {
+	if snapshotIndex == 0 || snapshotIndex <= r.snapshotIndex() {
 		return nil
 	}
 
@@ -87,8 +93,10 @@ func (r *raftLog) Compact(
 		return err
 	}
 
+	r.mu.Lock()
 	r.snapshot = sn
 	r.entries = filterEntriesAfter(r.entries, compactIndex)
+	r.mu.Unlock()
 	return r.pruneSnapshots()
 }
 
@@ -113,14 +121,18 @@ func (r *raftLog) ApplySnapshot(sn raftpb.Snapshot) error {
 		return err
 	}
 
+	r.mu.Lock()
 	r.snapshot = sn
 	r.entries = filterEntriesAfter(r.entries, sn.Metadata.Index)
+	r.mu.Unlock()
 	return r.pruneSnapshots()
 }
 
 func (r *raftLog) CommittedEntries() []raftpb.Entry {
+	r.mu.RLock()
 	commit := r.hardState.Commit
-	ents := r.entries
+	ents := append([]raftpb.Entry(nil), r.entries...)
+	r.mu.RUnlock()
 	if commit == 0 || len(ents) == 0 {
 		return nil
 	}
@@ -133,6 +145,12 @@ func (r *raftLog) CommittedEntries() []raftpb.Entry {
 		n++
 	}
 	return append([]raftpb.Entry(nil), ents[:n]...)
+}
+
+func (r *raftLog) snapshotIndex() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.snapshot.Metadata.Index
 }
 
 func primeConfState(
