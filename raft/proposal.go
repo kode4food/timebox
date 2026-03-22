@@ -45,17 +45,17 @@ func (p *Persistence) registerProposal(
 		events: append([]*timebox.Event(nil), events...),
 	}
 	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
 	p.pending[id] = st
-	p.pendingMu.Unlock()
 	return st
 }
 
 func (p *Persistence) unregisterProposal(id uint64, st proposalState) {
 	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
 	if cur, ok := p.pending[id]; ok && cur.ch == st.ch {
 		delete(p.pending, id)
 	}
-	p.pendingMu.Unlock()
 }
 
 func (p *Persistence) resolveProposal(proposalID uint64, res *ApplyResult) {

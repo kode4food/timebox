@@ -52,10 +52,10 @@ func resolveEventValue[T any](e *Event) (T, error) {
 	}
 
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.value == nil {
 		e.value = data
 	}
-	e.mu.Unlock()
 
 	return data, nil
 }

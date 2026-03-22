@@ -47,8 +47,8 @@ func (r *raftLog) Save(rd raft.Ready) error {
 	}
 	if !raft.IsEmptyHardState(rd.HardState) {
 		r.mu.Lock()
+		defer r.mu.Unlock()
 		r.hardState = rd.HardState
-		r.mu.Unlock()
 	}
 	return nil
 }
@@ -58,8 +58,8 @@ func (r *raftLog) AppendEntries(ents []raftpb.Entry) error {
 		return err
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.entries = mergeEntries(r.entries, ents)
-	r.mu.Unlock()
 	return nil
 }
 

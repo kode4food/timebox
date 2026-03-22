@@ -113,14 +113,14 @@ func (t *raftTransport) SendSnapshot(
 
 func (t *raftTransport) releaseConn(conn net.Conn) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	delete(t.conns, conn)
-	t.mu.Unlock()
 }
 
 func (t *raftTransport) trackConn(conn net.Conn) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.conns[conn] = struct{}{}
-	t.mu.Unlock()
 }
 
 func (t *raftTransport) peer(addr ServerAddress) (*raftPeerConn, error) {
@@ -156,10 +156,10 @@ func (t *raftTransport) peer(addr ServerAddress) (*raftPeerConn, error) {
 
 func (t *raftTransport) dropPeer(addr ServerAddress, peer *raftPeerConn) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if current, ok := t.peers[addr]; ok && current == peer {
 		delete(t.peers, addr)
 	}
-	t.mu.Unlock()
 	_ = peer.Close()
 }
 
