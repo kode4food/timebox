@@ -13,12 +13,7 @@ func TestIndexes(t *testing.T) {
 	n := newNode(t, nodeConfig{
 		id: "node-1",
 	})
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "indexes")
 	base := time.Unix(1_700_000_000, 0).UTC()
@@ -120,12 +115,7 @@ func TestQueries(t *testing.T) {
 				id:         "node-1",
 				trimEvents: trimEvents,
 			})
-			if n == nil {
-				return
-			}
-			if !waitForWrite(t, n.store) {
-				return
-			}
+			waitForWrite(t, n.store)
 
 			first := timebox.NewAggregateID("order", "1")
 			second := timebox.NewAggregateID("order", "2")
@@ -200,12 +190,7 @@ func TestRestartIndexes(t *testing.T) {
 	}
 
 	n := newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	first := timebox.NewAggregateID("order", "1")
 	second := timebox.NewAggregateID("order", "2")
@@ -221,12 +206,7 @@ func TestRestartIndexes(t *testing.T) {
 	closeNode(t, n)
 
 	n = newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	status, err := n.store.GetAggregateStatus(first)
 	if !assert.NoError(t, err) {

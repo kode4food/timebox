@@ -2,6 +2,7 @@ package raft_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 
 	"github.com/kode4food/timebox"
@@ -44,9 +46,6 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 	addr := cfg.addr
 	if addr == "" {
 		addr = freeAddr(t)
-		if addr == "" {
-			return nil
-		}
 	}
 
 	dataDir := cfg.dataDir
@@ -64,14 +63,10 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 	})
 
 	persistence, err := raft.NewPersistence(tbCfg)
-	if !assert.NoError(t, err) {
-		return nil
-	}
+	require.NoError(t, err)
 
 	store, err := timebox.NewStore(persistence, tbCfg.Timebox)
-	if !assert.NoError(t, err) {
-		return nil
-	}
+	require.NoError(t, err)
 
 	n := &node{
 		id:          cfg.id,
@@ -101,9 +96,7 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 	t.Helper()
 
 	db, err := bbolt.Open(filepath.Join(dataDir, "bbolt.db"), 0o600, nil)
-	if !assert.NoError(t, err) {
-		return
-	}
+	require.NoError(t, err)
 	defer func() {
 		_ = db.Close()
 	}()
@@ -126,12 +119,8 @@ func corruptWALFile(t *testing.T, dataDir string) {
 	matches, err := filepath.Glob(
 		filepath.Join(dataDir, "raft-wal", "*.wal"),
 	)
-	if !assert.NoError(t, err) {
-		return
-	}
-	if !assert.NotEmpty(t, matches) {
-		return
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, matches)
 	assert.NoError(t, os.WriteFile(matches[0], []byte("bad-wal"), 0o600))
 }
 
@@ -156,61 +145,8 @@ func countSnapshotFiles(dir string) (int, error) {
 func newCluster(t *testing.T, n int) []*node {
 	t.Helper()
 
-	nodes := make([]*node, 0, n)
-	srvs := make([]raft.Server, 0, n)
-	cfgs := make([]nodeConfig, 0, n)
-	for i := range n {
-		id := fmt.Sprintf("node-%d", i+1)
-		addr := freeAddr(t)
-		if !assert.NotEmpty(t, addr) {
-			return nil
-		}
-		srvs = append(srvs, raft.Server{
-			ID:      id,
-			Address: addr,
-		})
-		cfgs = append(cfgs, nodeConfig{
-			id:   id,
-			addr: addr,
-		})
-	}
-
-	for _, cfg := range cfgs {
-		tbCfg := testRaftConfig(nodeConfig{
-			id:        cfg.id,
-			addr:      cfg.addr,
-			dataDir:   t.TempDir(),
-			publisher: cfg.publisher,
-		})
-		tbCfg.Servers = srvs
-
-		persistence, err := raft.NewPersistence(tbCfg)
-		if !assert.NoError(t, err) {
-			return nil
-		}
-
-		store, err := timebox.NewStore(persistence, tbCfg.Timebox)
-		if !assert.NoError(t, err) {
-			return nil
-		}
-
-		nn := &node{
-			id:          cfg.id,
-			addr:        cfg.addr,
-			persistence: persistence,
-			store:       store,
-		}
-		nodes = append(nodes, nn)
-	}
-
-	t.Cleanup(func() {
-		for _, n := range nodes {
-			if n.store != nil {
-				_ = n.store.Close()
-			}
-		}
-	})
-	return nodes
+	srvs, cfgs := serverCfgs(t, n)
+	return startNodes(t, cfgs, srvs)
 }
 
 func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
@@ -232,14 +168,10 @@ func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 	tbCfg.Servers = srvs
 
 	p, err := raft.NewPersistence(tbCfg)
-	if !assert.NoError(t, err) {
-		return nil
-	}
+	require.NoError(t, err)
 
 	store, err := timebox.NewStore(p, tbCfg.Timebox)
-	if !assert.NoError(t, err) {
-		return nil
-	}
+	require.NoError(t, err)
 
 	n := &node{
 		id:          cfg.id,
@@ -255,7 +187,133 @@ func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 	return n
 }
 
-func waitForWrite(t *testing.T, store *timebox.Store) bool {
+func serverCfgs(t *testing.T, n int) ([]raft.Server, []nodeConfig) {
+	t.Helper()
+
+	srvs := make([]raft.Server, 0, n)
+	cfgs := make([]nodeConfig, 0, n)
+	for i := range n {
+		id := fmt.Sprintf("node-%d", i+1)
+		addr := freeAddr(t)
+		srvs = append(srvs, raft.Server{
+			ID:      id,
+			Address: addr,
+		})
+		cfgs = append(cfgs, nodeConfig{
+			id:      id,
+			addr:    addr,
+			dataDir: t.TempDir(),
+		})
+	}
+	require.Len(t, cfgs, n)
+	return srvs, cfgs
+}
+
+func startNodes(
+	t *testing.T, cfgs []nodeConfig, srvs []raft.Server, idxs ...int,
+) []*node {
+	t.Helper()
+
+	if len(idxs) == 0 {
+		idxs = make([]int, len(cfgs))
+		for i := range cfgs {
+			idxs[i] = i
+		}
+	}
+
+	nodes := make([]*node, 0, len(idxs))
+	for _, idx := range idxs {
+		n := newClusterNode(t, cfgs[idx], srvs)
+		nodes = append(nodes, n)
+	}
+	return nodes
+}
+
+func waitReady(t *testing.T, n *node) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 15*time.Second,
+	)
+	defer cancel()
+
+	err := n.store.WaitReady(ctx)
+	if err != nil {
+		addr, leaderID := n.persistence.LeaderWithID()
+		t.Logf(
+			"node %s state=%s leader=%s/%s readyErr=%v",
+			n.id,
+			n.persistence.State(),
+			leaderID,
+			addr,
+			err,
+		)
+	}
+	require.NoError(t, err)
+}
+
+func waitReadyAll(t *testing.T, nodes []*node) {
+	t.Helper()
+
+	for _, n := range nodes {
+		waitReady(t, n)
+	}
+}
+
+func appendN(
+	t *testing.T, s *timebox.Store, id timebox.AggregateID, n int,
+) {
+	t.Helper()
+
+	for i := range n {
+		err := s.AppendEvents(id, int64(i), []*timebox.Event{
+			numberEvent(id, i+1),
+		})
+		require.NoError(t, err)
+	}
+}
+
+func waitEvents(
+	t *testing.T, s *timebox.Store, id timebox.AggregateID, n int,
+) {
+	t.Helper()
+
+	ok := assert.Eventually(t, func() bool {
+		evs, err := s.GetEvents(id, 0)
+		return err == nil &&
+			len(evs) == n &&
+			evs[0].Sequence == 0 &&
+			evs[n-1].Sequence == int64(n-1)
+	}, 15*time.Second, 100*time.Millisecond)
+	require.True(t, ok)
+}
+
+func waitAllEvents(
+	t *testing.T, nodes []*node, id timebox.AggregateID, count int,
+) {
+	t.Helper()
+
+	for _, n := range nodes {
+		waitEvents(t, n.store, id, count)
+	}
+}
+
+func waitSnap(t *testing.T, dirs ...string) {
+	t.Helper()
+
+	ok := assert.Eventually(t, func() bool {
+		for _, dir := range dirs {
+			n, err := countSnapshotFiles(dir)
+			if err == nil && n != 0 {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 100*time.Millisecond)
+	require.True(t, ok)
+}
+
+func waitForWrite(t *testing.T, store *timebox.Store) {
 	t.Helper()
 
 	ok := assert.Eventually(t, func() bool {
@@ -266,7 +324,7 @@ func waitForWrite(t *testing.T, store *timebox.Store) bool {
 		err := store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
 		return err == nil
 	}, 15*time.Second, 100*time.Millisecond)
-	return ok
+	require.True(t, ok)
 }
 
 func testRaftConfig(cfg nodeConfig) raft.Config {
@@ -285,7 +343,7 @@ func testRaftConfig(cfg nodeConfig) raft.Config {
 	}
 }
 
-func findLeader(t *testing.T, nodes []*node) (*node, bool) {
+func findLeader(t *testing.T, nodes []*node) *node {
 	t.Helper()
 
 	var leader *node
@@ -299,7 +357,8 @@ func findLeader(t *testing.T, nodes []*node) (*node, bool) {
 		return false
 	}, 15*time.Second, 100*time.Millisecond)
 
-	return leader, ok
+	require.True(t, ok)
+	return leader
 }
 
 func firstFollower(nodes []*node, leader *node) *node {
@@ -315,9 +374,7 @@ func freeAddr(t *testing.T) string {
 	t.Helper()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if !assert.NoError(t, err) {
-		return ""
-	}
+	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
 	return ln.Addr().String()

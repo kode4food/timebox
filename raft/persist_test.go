@@ -1,8 +1,6 @@
 package raft_test
 
 import (
-	"context"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -20,13 +18,7 @@ func TestAppend(t *testing.T) {
 	n := newNode(t, nodeConfig{
 		id: "node-1",
 	})
-	if n == nil {
-		return
-	}
-
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "append")
 	firstTS := time.Unix(1_700_000_000, 0).UTC()
@@ -84,13 +76,7 @@ func TestSnapshot(t *testing.T) {
 		id:         "node-1",
 		trimEvents: true,
 	})
-	if n == nil {
-		return
-	}
-
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "snapshot")
 
@@ -156,12 +142,7 @@ func TestSnapshotFutureSeq(t *testing.T) {
 	n := newNode(t, nodeConfig{
 		id: "node-1",
 	})
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "future-snap")
 	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
@@ -194,14 +175,7 @@ func TestSnapshotFutureSeq(t *testing.T) {
 
 func TestFollower(t *testing.T) {
 	nodes := newCluster(t, 3)
-	if len(nodes) != 3 {
-		return
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	leader := findLeader(t, nodes)
 	follower := firstFollower(nodes, leader)
 	if !assert.NotNil(t, follower) {
 		return
@@ -254,31 +228,18 @@ func TestFollower(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 }
 
-func TestIsLeaderSingle(t *testing.T) {
+func TestSingleReady(t *testing.T) {
 	n := newNode(t, nodeConfig{
 		id: "node-1",
 	})
-	if n == nil {
-		return
-	}
+	waitReady(t, n)
 
-	if !waitForWrite(t, n.store) {
-		return
-	}
-
-	assert.Equal(t, n.persistence.State(), raft.StateLeader)
+	assert.Equal(t, raft.StateLeader, n.persistence.State())
 }
 
 func TestFollowerStatus(t *testing.T) {
 	nodes := newCluster(t, 3)
-	if len(nodes) != 3 {
-		return
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	leader := findLeader(t, nodes)
 	follower := firstFollower(nodes, leader)
 	if !assert.NotNil(t, follower) {
 		return
@@ -350,14 +311,7 @@ func TestCommittedPublisher(t *testing.T) {
 			publisher: record("node-3"),
 		}, srvs),
 	}
-	if len(nodes) != 3 {
-		return
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	leader := findLeader(t, nodes)
 	follower := firstFollower(nodes, leader)
 	if !assert.NotNil(t, follower) {
 		return
@@ -393,179 +347,27 @@ func TestCommittedPublisher(t *testing.T) {
 	}
 }
 
-func TestReadySingle(t *testing.T) {
-	n := newNode(t, nodeConfig{
-		id: "node-1",
-	})
-	if n == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
-	assert.NoError(t, n.store.WaitReady(ctx))
-}
-
 func TestReadyCluster(t *testing.T) {
 	nodes := newCluster(t, 3)
-	if len(nodes) != 3 {
-		return
-	}
-
-	for _, n := range nodes {
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
-		)
-		err := n.store.WaitReady(ctx)
-		if err != nil {
-			addr, leaderID := n.persistence.LeaderWithID()
-			t.Logf(
-				"node %s state=%s leader=%s/%s readyErr=%v",
-				n.id,
-				n.persistence.State(),
-				leaderID,
-				addr,
-				err,
-			)
-		}
-		assert.NoError(t, err)
-		cancel()
-	}
+	waitReadyAll(t, nodes)
 }
 
 func TestDelayedJoin(t *testing.T) {
-	srvs := make([]raft.Server, 0, 3)
-	cfgs := make([]nodeConfig, 0, 3)
-	for i := range 3 {
-		id := fmt.Sprintf("node-%d", i+1)
-		addr := freeAddr(t)
-		if !assert.NotEmpty(t, addr) {
-			return
-		}
-		srvs = append(srvs, raft.Server{
-			ID:      id,
-			Address: addr,
-		})
-		cfgs = append(cfgs, nodeConfig{
-			id:   id,
-			addr: addr,
-		})
-	}
+	srvs, cfgs := serverCfgs(t, 3)
+	nodes := startNodes(t, cfgs, srvs, 1, 2)
+	leader := findLeader(t, nodes)
 
-	n2 := newClusterNode(t, cfgs[1], srvs)
-	n3 := newClusterNode(t, cfgs[2], srvs)
-	if n2 == nil || n3 == nil {
-		return
-	}
-
-	nodes := []*node{n2, n3}
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
-
-	n1 := newClusterNode(t, cfgs[0], srvs)
-	if n1 == nil {
-		return
-	}
-	nodes = append(nodes, n1)
-
-	for _, n := range nodes {
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
-		)
-		err := n.store.WaitReady(ctx)
-		if err != nil {
-			addr, leaderID := n.persistence.LeaderWithID()
-			t.Logf(
-				"node %s state=%s leader=%s/%s readyErr=%v",
-				n.id,
-				n.persistence.State(),
-				leaderID,
-				addr,
-				err,
-			)
-		}
-		assert.NoError(t, err)
-		cancel()
-	}
+	late := newClusterNode(t, cfgs[0], srvs)
+	waitReady(t, late)
+	nodes = append(nodes, late)
 
 	id := timebox.NewAggregateID("order", "delayed-join")
-	err := leader.store.AppendEvents(
-		id,
-		0,
-		[]*timebox.Event{numberEvent(id, 1)},
-	)
+	err := late.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
 
-	for _, n := range nodes {
-		assert.Eventually(t, func() bool {
-			evs, err := n.store.GetEvents(id, 0)
-			return err == nil &&
-				len(evs) == 1 &&
-				evs[0].Sequence == 0
-		}, 15*time.Second, 100*time.Millisecond)
-	}
-}
-
-func TestDelayedJoinFollowerReady(t *testing.T) {
-	srvs := make([]raft.Server, 0, 3)
-	cfgs := make([]nodeConfig, 0, 3)
-	for i := range 3 {
-		id := fmt.Sprintf("node-%d", i+1)
-		addr := freeAddr(t)
-		if !assert.NotEmpty(t, addr) {
-			return
-		}
-		srvs = append(srvs, raft.Server{
-			ID:      id,
-			Address: addr,
-		})
-		cfgs = append(cfgs, nodeConfig{
-			id:   id,
-			addr: addr,
-		})
-	}
-
-	n2 := newClusterNode(t, cfgs[1], srvs)
-	n3 := newClusterNode(t, cfgs[2], srvs)
-	if n2 == nil || n3 == nil {
-		return
-	}
-
-	nodes := []*node{n2, n3}
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
-
-	n1 := newClusterNode(t, cfgs[0], srvs)
-	if n1 == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	assert.NoError(t, n1.store.WaitReady(ctx))
-
-	id := timebox.NewAggregateID("order", "delayed-join-ready")
-	err := n1.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	})
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	for _, n := range append(nodes, n1) {
-		assert.Eventually(t, func() bool {
-			evs, err := n.store.GetEvents(id, 0)
-			return err == nil &&
-				len(evs) == 1 &&
-				evs[0].Sequence == 0
-		}, 15*time.Second, 100*time.Millisecond)
-	}
+	waitAllEvents(t, nodes, id, 1)
 
 	status, err := leader.store.GetAggregateStatus(id)
 	if !assert.NoError(t, err) {
@@ -577,80 +379,27 @@ func TestDelayedJoinFollowerReady(t *testing.T) {
 func TestDelayedJoinViaSnapshot(t *testing.T) {
 	const count = 128
 
-	srvs := make([]raft.Server, 0, 3)
-	cfgs := make([]nodeConfig, 0, 3)
-	for i := range 3 {
-		id := fmt.Sprintf("node-%d", i+1)
-		addr := freeAddr(t)
-		if !assert.NotEmpty(t, addr) {
-			return
-		}
-		srvs = append(srvs, raft.Server{
-			ID:      id,
-			Address: addr,
-		})
-		cfgs = append(cfgs, nodeConfig{
-			id:             id,
-			addr:           addr,
-			dataDir:        t.TempDir(),
-			compactMinStep: 32,
-		})
+	srvs, cfgs := serverCfgs(t, 3)
+	for i := range cfgs {
+		cfgs[i].compactMinStep = 32
 	}
 
-	n2 := newClusterNode(t, cfgs[1], srvs)
-	n3 := newClusterNode(t, cfgs[2], srvs)
-	if n2 == nil || n3 == nil {
-		return
-	}
-
-	nodes := []*node{n2, n3}
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	nodes := startNodes(t, cfgs, srvs, 1, 2)
+	waitReadyAll(t, nodes)
+	leader := findLeader(t, nodes)
 
 	id := timebox.NewAggregateID("order", "delayed-join-snapshot")
-	for i := range count {
-		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
+	appendN(t, leader.store, id, count)
 
-	snapDirs := []string{
+	waitSnap(t,
 		filepath.Join(cfgs[1].dataDir, "raft-snap"),
 		filepath.Join(cfgs[2].dataDir, "raft-snap"),
-	}
-	assert.Eventually(t, func() bool {
-		for _, dir := range snapDirs {
-			n, err := countSnapshotFiles(dir)
-			if err == nil && n != 0 {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 100*time.Millisecond)
+	)
 
-	n1 := newClusterNode(t, cfgs[0], srvs)
-	if n1 == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	assert.NoError(t, n1.store.WaitReady(ctx))
-
-	for _, n := range append(nodes, n1) {
-		assert.Eventually(t, func() bool {
-			evs, err := n.store.GetEvents(id, 0)
-			return err == nil &&
-				len(evs) == count &&
-				evs[0].Sequence == 0 &&
-				evs[count-1].Sequence == int64(count-1)
-		}, 15*time.Second, 100*time.Millisecond)
-	}
+	late := newClusterNode(t, cfgs[0], srvs)
+	waitReady(t, late)
+	nodes = append(nodes, late)
+	waitAllEvents(t, nodes, id, count)
 }
 
 func TestSnapshotJoinPublish(t *testing.T) {
@@ -667,59 +416,18 @@ func TestSnapshotJoinPublish(t *testing.T) {
 		}
 	}
 
-	srvs := make([]raft.Server, 0, 3)
-	cfgs := make([]nodeConfig, 0, 3)
-	for i := range 3 {
-		id := fmt.Sprintf("node-%d", i+1)
-		addr := freeAddr(t)
-		if !assert.NotEmpty(t, addr) {
-			return
-		}
-		srvs = append(srvs, raft.Server{
-			ID:      id,
-			Address: addr,
-		})
-		cfgs = append(cfgs, nodeConfig{
-			id:             id,
-			addr:           addr,
-			dataDir:        t.TempDir(),
-			compactMinStep: 32,
-			publisher:      record(id),
-		})
+	srvs, cfgs := serverCfgs(t, 3)
+	for i := range cfgs {
+		cfgs[i].compactMinStep = 32
+		cfgs[i].publisher = record(cfgs[i].id)
 	}
 
-	n2 := newClusterNode(t, cfgs[1], srvs)
-	n3 := newClusterNode(t, cfgs[2], srvs)
-	if n2 == nil || n3 == nil {
-		return
-	}
-
-	nodes := []*node{n2, n3}
-	for _, n := range nodes {
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
-		)
-		err := n.store.WaitReady(ctx)
-		cancel()
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	nodes := startNodes(t, cfgs, srvs, 1, 2)
+	waitReadyAll(t, nodes)
+	leader := findLeader(t, nodes)
 
 	id := timebox.NewAggregateID("order", "delayed-join-publisher")
-	for i := range count {
-		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
+	appendN(t, leader.store, id, count)
 
 	assert.Eventually(t, func() bool {
 		mu.Lock()
@@ -728,38 +436,14 @@ func TestSnapshotJoinPublish(t *testing.T) {
 			len(got["node-3"]) == count
 	}, 15*time.Second, 100*time.Millisecond)
 
-	snapDirs := []string{
+	waitSnap(t,
 		filepath.Join(cfgs[1].dataDir, "raft-snap"),
 		filepath.Join(cfgs[2].dataDir, "raft-snap"),
-	}
-	assert.Eventually(t, func() bool {
-		for _, dir := range snapDirs {
-			n, err := countSnapshotFiles(dir)
-			if err == nil && n != 0 {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 100*time.Millisecond)
+	)
 
-	n1 := newClusterNode(t, cfgs[0], srvs)
-	if n1 == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	err := n1.store.WaitReady(ctx)
-	cancel()
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	assert.Eventually(t, func() bool {
-		evs, err := n1.store.GetEvents(id, 0)
-		return err == nil &&
-			len(evs) == count &&
-			evs[count-1].Sequence == int64(count-1)
-	}, 15*time.Second, 100*time.Millisecond)
+	late := newClusterNode(t, cfgs[0], srvs)
+	waitReady(t, late)
+	waitEvents(t, late.store, id, count)
 
 	mu.Lock()
 	assert.Empty(t, got["node-1"])
@@ -771,21 +455,15 @@ func TestSnapshotJoinPublish(t *testing.T) {
 		return err == nil && len(matches) == 0
 	}, 15*time.Second, 100*time.Millisecond)
 
-	err = n1.store.AppendEvents(id, int64(count), []*timebox.Event{
+	err := late.store.AppendEvents(id, int64(count), []*timebox.Event{
 		numberEvent(id, count+1),
 	})
 	if !assert.NoError(t, err) {
 		return
 	}
 
-	for _, n := range append(nodes, n1) {
-		assert.Eventually(t, func() bool {
-			evs, err := n.store.GetEvents(id, 0)
-			return err == nil &&
-				len(evs) == count+1 &&
-				evs[count].Sequence == int64(count)
-		}, 15*time.Second, 100*time.Millisecond)
-	}
+	nodes = append(nodes, late)
+	waitAllEvents(t, nodes, id, count+1)
 
 	assert.Eventually(t, func() bool {
 		mu.Lock()
@@ -807,151 +485,54 @@ func TestSnapshotJoinPublish(t *testing.T) {
 func TestSnapshotJoinRestart(t *testing.T) {
 	const count = 128
 
-	srvs := make([]raft.Server, 0, 3)
-	cfgs := make([]nodeConfig, 0, 3)
-	for i := range 3 {
-		id := fmt.Sprintf("node-%d", i+1)
-		addr := freeAddr(t)
-		if !assert.NotEmpty(t, addr) {
-			return
-		}
-		srvs = append(srvs, raft.Server{
-			ID:      id,
-			Address: addr,
-		})
-		cfgs = append(cfgs, nodeConfig{
-			id:             id,
-			addr:           addr,
-			dataDir:        t.TempDir(),
-			compactMinStep: 32,
-		})
+	srvs, cfgs := serverCfgs(t, 3)
+	for i := range cfgs {
+		cfgs[i].compactMinStep = 32
 	}
 
-	n2 := newClusterNode(t, cfgs[1], srvs)
-	n3 := newClusterNode(t, cfgs[2], srvs)
-	if n2 == nil || n3 == nil {
-		return
-	}
-
-	nodes := []*node{n2, n3}
-	for _, n := range nodes {
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
-		)
-		err := n.store.WaitReady(ctx)
-		cancel()
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	nodes := startNodes(t, cfgs, srvs, 1, 2)
+	waitReadyAll(t, nodes)
+	leader := findLeader(t, nodes)
 
 	id := timebox.NewAggregateID("order", "restart-snapshot-join")
-	for i := range count {
-		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
+	appendN(t, leader.store, id, count)
 
-	snapDirs := []string{
+	waitSnap(t,
 		filepath.Join(cfgs[1].dataDir, "raft-snap"),
 		filepath.Join(cfgs[2].dataDir, "raft-snap"),
-	}
-	assert.Eventually(t, func() bool {
-		for _, dir := range snapDirs {
-			n, err := countSnapshotFiles(dir)
-			if err == nil && n != 0 {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 100*time.Millisecond)
+	)
 
-	n1 := newClusterNode(t, cfgs[0], srvs)
-	if n1 == nil {
-		return
-	}
+	late := newClusterNode(t, cfgs[0], srvs)
+	waitReady(t, late)
+	waitEvents(t, late.store, id, count)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	err := n1.store.WaitReady(ctx)
-	cancel()
-	if !assert.NoError(t, err) {
-		return
-	}
+	closeNode(t, late)
 
-	assert.Eventually(t, func() bool {
-		evs, err := n1.store.GetEvents(id, 0)
-		return err == nil &&
-			len(evs) == count &&
-			evs[count-1].Sequence == int64(count-1)
-	}, 15*time.Second, 100*time.Millisecond)
+	late = newClusterNode(t, cfgs[0], srvs)
+	waitEvents(t, late.store, id, count)
 
-	closeNode(t, n1)
-
-	n1 = newClusterNode(t, cfgs[0], srvs)
-	if n1 == nil {
-		return
-	}
-
-	assert.Eventually(t, func() bool {
-		evs, err := n1.store.GetEvents(id, 0)
-		return err == nil &&
-			len(evs) == count &&
-			evs[0].Sequence == 0 &&
-			evs[count-1].Sequence == int64(count-1)
-	}, 15*time.Second, 100*time.Millisecond)
-
-	err = leader.store.AppendEvents(id, int64(count), []*timebox.Event{
+	err := leader.store.AppendEvents(id, int64(count), []*timebox.Event{
 		numberEvent(id, count+1),
 	})
 	if !assert.NoError(t, err) {
 		return
 	}
 
-	ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
-	err = n1.store.WaitReady(ctx)
-	cancel()
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	assert.Eventually(t, func() bool {
-		evs, err := n1.store.GetEvents(id, 0)
-		return err == nil &&
-			len(evs) == count+1 &&
-			evs[0].Sequence == 0 &&
-			evs[count].Sequence == int64(count)
-	}, 15*time.Second, 100*time.Millisecond)
+	waitReady(t, late)
+	waitEvents(t, late.store, id, count+1)
 }
 
 func TestRestart(t *testing.T) {
-	addr := freeAddr(t)
-	if addr == "" {
-		return
-	}
-
 	id := timebox.NewAggregateID("order", "restart")
 	cfg := nodeConfig{
 		id:         "node-1",
-		addr:       addr,
+		addr:       freeAddr(t),
 		dataDir:    t.TempDir(),
 		trimEvents: true,
 	}
 
 	n := newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	firstTS := time.Unix(1_700_000_000, 0).UTC()
 	secondTS := firstTS.Add(time.Minute)
@@ -978,12 +559,7 @@ func TestRestart(t *testing.T) {
 	n.store = nil
 
 	n = newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	var snapState map[string]int
 	snap, err := n.store.GetSnapshot(id, &snapState)
@@ -1026,26 +602,16 @@ func TestRestart(t *testing.T) {
 func TestRestartCompaction(t *testing.T) {
 	const count = 640
 
-	addr := freeAddr(t)
-	if addr == "" {
-		return
-	}
-
 	dataDir := t.TempDir()
 	cfg := nodeConfig{
 		id:             "node-1",
-		addr:           addr,
+		addr:           freeAddr(t),
 		dataDir:        dataDir,
 		compactMinStep: 512,
 	}
 
 	node := newNode(t, cfg)
-	if node == nil {
-		return
-	}
-	if !waitForWrite(t, node.store) {
-		return
-	}
+	waitForWrite(t, node.store)
 
 	id := timebox.NewAggregateID("order", "compacted-restart")
 	for i := range count {
@@ -1069,12 +635,7 @@ func TestRestartCompaction(t *testing.T) {
 	node.store = nil
 
 	node = newNode(t, cfg)
-	if node == nil {
-		return
-	}
-	if !waitForWrite(t, node.store) {
-		return
-	}
+	waitForWrite(t, node.store)
 
 	evs, err := node.store.GetEvents(id, 0)
 	if !assert.NoError(t, err) {
@@ -1098,12 +659,7 @@ func TestCompactionPrune(t *testing.T) {
 	}
 
 	n := newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "prune")
 	for i := range count {
@@ -1124,14 +680,7 @@ func TestCompactionPrune(t *testing.T) {
 
 func TestLeaderRestart(t *testing.T) {
 	nodes := newCluster(t, 3)
-	if len(nodes) != 3 {
-		return
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	leader := findLeader(t, nodes)
 
 	followers := make([]*node, 0, 2)
 	for _, n := range nodes {
@@ -1162,10 +711,7 @@ func TestLeaderRestart(t *testing.T) {
 	closeNode(t, leader)
 
 	alive := []*node{followers[0], followers[1]}
-	newLeader, ok := findLeader(t, alive)
-	if !ok {
-		return
-	}
+	newLeader := findLeader(t, alive)
 
 	var follower *node
 	for _, n := range alive {
@@ -1195,53 +741,14 @@ func TestLeaderRestart(t *testing.T) {
 func TestFollowerRestartSnapshot(t *testing.T) {
 	const count = 128
 
-	srvs := make([]raft.Server, 0, 3)
-	cfgs := make([]nodeConfig, 0, 3)
-	for i := range 3 {
-		id := fmt.Sprintf("node-%d", i+1)
-		addr := freeAddr(t)
-		if !assert.NotEmpty(t, addr) {
-			return
-		}
-		srvs = append(srvs, raft.Server{
-			ID:      id,
-			Address: addr,
-		})
-		cfgs = append(cfgs, nodeConfig{
-			id:             id,
-			addr:           addr,
-			dataDir:        t.TempDir(),
-			compactMinStep: 32,
-		})
+	srvs, cfgs := serverCfgs(t, 3)
+	for i := range cfgs {
+		cfgs[i].compactMinStep = 32
 	}
 
-	nodes := []*node{
-		newClusterNode(t, cfgs[0], srvs),
-		newClusterNode(t, cfgs[1], srvs),
-		newClusterNode(t, cfgs[2], srvs),
-	}
-	if len(nodes) != 3 ||
-		nodes[0] == nil ||
-		nodes[1] == nil ||
-		nodes[2] == nil {
-		return
-	}
-
-	for _, n := range nodes {
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
-		)
-		err := n.store.WaitReady(ctx)
-		cancel()
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	nodes := startNodes(t, cfgs, srvs)
+	waitReadyAll(t, nodes)
+	leader := findLeader(t, nodes)
 
 	var down *node
 	var downCfg nodeConfig
@@ -1266,76 +773,34 @@ func TestFollowerRestartSnapshot(t *testing.T) {
 	closeNode(t, down)
 
 	id := timebox.NewAggregateID("order", "restart-follower-snapshot")
-	for i := range count {
-		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
+	appendN(t, leader.store, id, count)
 
-	snapDirs := []string{
+	waitSnap(t,
 		filepath.Join(cfgs[0].dataDir, "raft-snap"),
 		filepath.Join(cfgs[1].dataDir, "raft-snap"),
 		filepath.Join(cfgs[2].dataDir, "raft-snap"),
-	}
-	assert.Eventually(t, func() bool {
-		for _, dir := range snapDirs {
-			n, err := countSnapshotFiles(dir)
-			if err == nil && n != 0 {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 100*time.Millisecond)
+	)
 
 	down = newClusterNode(t, downCfg, srvs)
-	if down == nil {
-		return
-	}
+	waitReady(t, down)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	err := down.store.WaitReady(ctx)
-	cancel()
-	if !assert.NoError(t, err) {
-		return
-	}
+	nodes = append(alive, down)
+	waitAllEvents(t, nodes, id, count)
 
-	for _, n := range append(alive, down) {
-		assert.Eventually(t, func() bool {
-			evs, err := n.store.GetEvents(id, 0)
-			return err == nil &&
-				len(evs) == count &&
-				evs[0].Sequence == 0 &&
-				evs[count-1].Sequence == int64(count-1)
-		}, 15*time.Second, 100*time.Millisecond)
-	}
-
-	err = down.store.AppendEvents(id, int64(count), []*timebox.Event{
+	err := down.store.AppendEvents(id, int64(count), []*timebox.Event{
 		numberEvent(id, count+1),
 	})
 	if !assert.NoError(t, err) {
 		return
 	}
 
-	for _, n := range append(alive, down) {
-		assert.Eventually(t, func() bool {
-			evs, err := n.store.GetEvents(id, 0)
-			return err == nil &&
-				len(evs) == count+1 &&
-				evs[count].Sequence == int64(count)
-		}, 15*time.Second, 100*time.Millisecond)
-	}
+	waitAllEvents(t, nodes, id, count+1)
 }
 
 func TestDeadPeerSnapshot(t *testing.T) {
 	const count = 128
 
 	fakeAddr := freeAddr(t)
-	if fakeAddr == "" {
-		return
-	}
 
 	ln, err := net.Listen("tcp", fakeAddr)
 	if !assert.NoError(t, err) {
@@ -1383,55 +848,18 @@ func TestDeadPeerSnapshot(t *testing.T) {
 	}
 
 	nodes := []*node{n1, n2}
-	for _, n := range nodes {
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
-		)
-		err := n.store.WaitReady(ctx)
-		cancel()
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
-
-	leader, ok := findLeader(t, nodes)
-	if !ok {
-		return
-	}
+	waitReadyAll(t, nodes)
+	leader := findLeader(t, nodes)
 
 	id := timebox.NewAggregateID("order", "dead-peer-snapshot")
-	for i := range count {
-		err := leader.store.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
-		if !assert.NoError(t, err) {
-			return
-		}
-	}
+	appendN(t, leader.store, id, count)
 
-	snapDirs := []string{
+	waitSnap(t,
 		filepath.Join(cfgs[0].dataDir, "raft-snap"),
 		filepath.Join(cfgs[1].dataDir, "raft-snap"),
-	}
-	assert.Eventually(t, func() bool {
-		for _, dir := range snapDirs {
-			n, err := countSnapshotFiles(dir)
-			if err == nil && n != 0 {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 100*time.Millisecond)
+	)
 
-	for _, n := range nodes {
-		assert.Eventually(t, func() bool {
-			evs, err := n.store.GetEvents(id, 0)
-			return err == nil &&
-				len(evs) == count &&
-				evs[0].Sequence == 0 &&
-				evs[count-1].Sequence == int64(count-1)
-		}, 15*time.Second, 100*time.Millisecond)
-	}
+	waitAllEvents(t, nodes, id, count)
 }
 
 func TestCorruptMeta(t *testing.T) {
@@ -1442,12 +870,7 @@ func TestCorruptMeta(t *testing.T) {
 	}
 
 	n := newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "corrupt-meta")
 	err := n.store.AppendEvents(id, 0, []*timebox.Event{
@@ -1506,9 +929,6 @@ func TestBadSnapDir(t *testing.T) {
 
 func TestBusyRaftAddr(t *testing.T) {
 	addr := freeAddr(t)
-	if addr == "" {
-		return
-	}
 
 	ln, err := net.Listen("tcp", addr)
 	if !assert.NoError(t, err) {
@@ -1535,12 +955,7 @@ func TestCorruptWAL(t *testing.T) {
 	}
 
 	n := newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "corrupt-wal")
 	err := n.store.AppendEvents(id, 0, []*timebox.Event{
@@ -1565,12 +980,7 @@ func TestAppendClosed(t *testing.T) {
 	}
 
 	n := newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	p := n.persistence
 	closeNode(t, n)
@@ -1595,12 +1005,7 @@ func TestBrokenRaftSnapshot(t *testing.T) {
 	}
 
 	n := newNode(t, cfg)
-	if n == nil {
-		return
-	}
-	if !waitForWrite(t, n.store) {
-		return
-	}
+	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "corrupt-raft-snapshot")
 	for i := range count {
