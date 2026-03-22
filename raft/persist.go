@@ -38,9 +38,8 @@ type (
 		flushBatch   func([]decodedEntry, []uint64) error
 
 		// Cluster routing
-		peers     map[uint64]peerInfo
-		sendChs   map[uint64]chan []raftpb.Message
-		compactCh chan struct{}
+		peers   map[uint64]peerInfo
+		sendChs map[uint64]chan peerMessage
 
 		// Background loops
 		bgWG      sync.WaitGroup
@@ -48,6 +47,7 @@ type (
 		readyOnce sync.Once
 		stopCh    chan struct{}
 		stopOnce  sync.Once
+		stopErr   atomic.Value
 
 		// Proposal tracking
 		pendingMu    sync.Mutex
@@ -127,9 +127,8 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		transport:    tr,
 		applyTimeout: defaultApplyTimeout,
 
-		peers:     buildPeerMap(cfg, tr),
-		sendChs:   map[uint64]chan []raftpb.Message{},
-		compactCh: make(chan struct{}, 1),
+		peers:   buildPeerMap(cfg, tr),
+		sendChs: map[uint64]chan peerMessage{},
 
 		readyCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),
@@ -178,10 +177,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 func (p *Persistence) Close() error {
 	var errs []error
 
-	p.stopOnce.Do(func() {
-		close(p.stopCh)
-	})
-	p.node.Stop()
+	p.stop(nil)
 	errs = append(errs, p.transport.Close())
 	p.bgWG.Wait()
 	errs = append(errs, p.raftLog.Close())
@@ -417,65 +413,6 @@ func (p *Persistence) restoreSnapshot(sn raftpb.Snapshot) error {
 	}
 	p.appliedIndex.Store(sn.Metadata.Index)
 	return os.Remove(snapshotPath(p.raftLog.snapshotDir, sn.Metadata.Index))
-}
-
-func (p *Persistence) applyWithTimeout(
-	ctx context.Context, data []byte, proposalID uint64,
-	events []*timebox.Event,
-) (*ApplyResult, error) {
-	timeout, err := p.commandTimeout(ctx)
-	if err != nil {
-		return nil, err
-	}
-	proposeCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	return p.propose(proposeCtx, data, proposalID, events)
-}
-
-func (p *Persistence) commandTimeout(
-	ctx context.Context,
-) (time.Duration, error) {
-	timeout := p.applyTimeout
-	if dl, ok := ctx.Deadline(); ok {
-		if rem := time.Until(dl); rem < timeout {
-			timeout = rem
-		}
-	}
-	if timeout <= 0 {
-		return 0, ctx.Err()
-	}
-	return timeout, nil
-}
-
-func (p *Persistence) markReady() {
-	if p.Publisher != nil {
-		p.flushBatch = p.flushBatchPublish
-	}
-	p.readyOnce.Do(func() {
-		close(p.readyCh)
-	})
-}
-
-func (p *Persistence) markReadyFollower() {
-	addr, _ := p.LeaderWithID()
-	if addr != "" {
-		p.markReady()
-	}
-}
-
-func (p *Persistence) markAppliedEntry(index uint64) error {
-	err := p.db.Update(func(tx *bbolt.Tx) error {
-		return markApplied(tx.Bucket(bucketName), index)
-	})
-	if err != nil {
-		return err
-	}
-	p.appliedIndex.Store(index)
-	return nil
-}
-
-func (p *Persistence) newProposalID() uint64 {
-	return p.nextProposal.Add(1)
 }
 
 func openBoltDB(path string) (*bbolt.DB, error) {

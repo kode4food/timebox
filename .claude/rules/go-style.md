@@ -126,7 +126,7 @@ type FlowState struct {
 
 ### Function Signature Wrapping
 
-When a function signature is too long for one line, keep as many parameters as fit on the first line and wrap the remainder on the next line(s). Do not put one parameter per line unless the line would still exceed the limit.
+When a function signature exceeds 80 columns on one line, break after the opening paren and pack as many parameters on each subsequent line as will fit within 80 columns (tabs count as 4). Continue wrapping to additional lines as needed. Place the closing paren and return type on their own line. Never put one parameter per line unless a single parameter already exceeds the limit.
 
 Example with more parameters:
 

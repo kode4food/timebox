@@ -186,11 +186,9 @@ func TestFollower(t *testing.T) {
 	assert.Equal(t, follower.persistence.State(), raft.StateFollower)
 
 	id := timebox.NewAggregateID("order", "replicated")
-	err := follower.store.AppendEvents(
-		id,
-		0,
-		[]*timebox.Event{numberEvent(id, 1)},
-	)
+	err := follower.store.AppendEvents(id, 0, []*timebox.Event{
+		numberEvent(id, 1),
+	})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -200,11 +198,9 @@ func TestFollower(t *testing.T) {
 		return
 	}
 
-	err = follower.store.AppendEvents(
-		id,
-		1,
-		[]*timebox.Event{numberEvent(id, 2)},
-	)
+	err = follower.store.AppendEvents(id, 1, []*timebox.Event{
+		numberEvent(id, 2),
+	})
 	if !assert.NoError(t, err) {
 		return
 	}

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 
 	"github.com/kode4food/timebox"
@@ -63,10 +62,14 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 	})
 
 	persistence, err := raft.NewPersistence(tbCfg)
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 
 	store, err := timebox.NewStore(persistence, tbCfg.Timebox)
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 
 	n := &node{
 		id:          cfg.id,
@@ -95,8 +98,12 @@ func closeNode(t *testing.T, n *node) {
 func corruptMetaFile(t *testing.T, dataDir string) {
 	t.Helper()
 
-	db, err := bbolt.Open(filepath.Join(dataDir, "bbolt.db"), 0o600, nil)
-	require.NoError(t, err)
+	db, err := bbolt.Open(
+		filepath.Join(dataDir, "bbolt.db"), 0o600, nil,
+	)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 	defer func() {
 		_ = db.Close()
 	}()
@@ -105,7 +112,9 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 		c := tx.Bucket([]byte("timebox")).Cursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
 			if bytes.HasSuffix(k, []byte("/meta")) {
-				return tx.Bucket([]byte("timebox")).Put(k, []byte{0xff})
+				return tx.Bucket([]byte("timebox")).Put(
+					k, []byte{0xff},
+				)
 			}
 		}
 		return assert.AnError
@@ -119,9 +128,15 @@ func corruptWALFile(t *testing.T, dataDir string) {
 	matches, err := filepath.Glob(
 		filepath.Join(dataDir, "raft-wal", "*.wal"),
 	)
-	require.NoError(t, err)
-	require.NotEmpty(t, matches)
-	assert.NoError(t, os.WriteFile(matches[0], []byte("bad-wal"), 0o600))
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	if !assert.NotEmpty(t, matches) {
+		t.FailNow()
+	}
+	assert.NoError(t,
+		os.WriteFile(matches[0], []byte("bad-wal"), 0o600),
+	)
 }
 
 func countSnapshotFiles(dir string) (int, error) {
@@ -168,10 +183,14 @@ func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 	tbCfg.Servers = srvs
 
 	p, err := raft.NewPersistence(tbCfg)
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 
 	store, err := timebox.NewStore(p, tbCfg.Timebox)
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 
 	n := &node{
 		id:          cfg.id,
@@ -205,12 +224,15 @@ func serverCfgs(t *testing.T, n int) ([]raft.Server, []nodeConfig) {
 			dataDir: t.TempDir(),
 		})
 	}
-	require.Len(t, cfgs, n)
+	if !assert.Len(t, cfgs, n) {
+		t.FailNow()
+	}
 	return srvs, cfgs
 }
 
 func startNodes(
-	t *testing.T, cfgs []nodeConfig, srvs []raft.Server, idxs ...int,
+	t *testing.T, cfgs []nodeConfig, srvs []raft.Server,
+	idxs ...int,
 ) []*node {
 	t.Helper()
 
@@ -249,7 +271,9 @@ func waitReady(t *testing.T, n *node) {
 			err,
 		)
 	}
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 }
 
 func waitReadyAll(t *testing.T, nodes []*node) {
@@ -260,32 +284,31 @@ func waitReadyAll(t *testing.T, nodes []*node) {
 	}
 }
 
-func appendN(
-	t *testing.T, s *timebox.Store, id timebox.AggregateID, n int,
-) {
+func appendN(t *testing.T, s *timebox.Store, id timebox.AggregateID, n int) {
 	t.Helper()
 
 	for i := range n {
 		err := s.AppendEvents(id, int64(i), []*timebox.Event{
 			numberEvent(id, i+1),
 		})
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			t.FailNow()
+		}
 	}
 }
 
-func waitEvents(
-	t *testing.T, s *timebox.Store, id timebox.AggregateID, n int,
-) {
+func waitEvents(t *testing.T, s *timebox.Store, id timebox.AggregateID, n int) {
 	t.Helper()
 
-	ok := assert.Eventually(t, func() bool {
+	if !assert.Eventually(t, func() bool {
 		evs, err := s.GetEvents(id, 0)
 		return err == nil &&
 			len(evs) == n &&
 			evs[0].Sequence == 0 &&
 			evs[n-1].Sequence == int64(n-1)
-	}, 15*time.Second, 100*time.Millisecond)
-	require.True(t, ok)
+	}, 15*time.Second, 100*time.Millisecond) {
+		t.FailNow()
+	}
 }
 
 func waitAllEvents(
@@ -301,7 +324,7 @@ func waitAllEvents(
 func waitSnap(t *testing.T, dirs ...string) {
 	t.Helper()
 
-	ok := assert.Eventually(t, func() bool {
+	if !assert.Eventually(t, func() bool {
 		for _, dir := range dirs {
 			n, err := countSnapshotFiles(dir)
 			if err == nil && n != 0 {
@@ -309,22 +332,28 @@ func waitSnap(t *testing.T, dirs ...string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 100*time.Millisecond)
-	require.True(t, ok)
+	}, 30*time.Second, 100*time.Millisecond) {
+		t.FailNow()
+	}
 }
 
 func waitForWrite(t *testing.T, store *timebox.Store) {
 	t.Helper()
 
-	ok := assert.Eventually(t, func() bool {
+	if !assert.Eventually(t, func() bool {
 		id := timebox.NewAggregateID(
 			"probe",
-			timebox.ID(fmt.Sprintf("%d", time.Now().UnixNano())),
+			timebox.ID(fmt.Sprintf(
+				"%d", time.Now().UnixNano(),
+			)),
 		)
-		err := store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
+		err := store.AppendEvents(
+			id, 0, []*timebox.Event{numberEvent(id, 1)},
+		)
 		return err == nil
-	}, 15*time.Second, 100*time.Millisecond)
-	require.True(t, ok)
+	}, 15*time.Second, 100*time.Millisecond) {
+		t.FailNow()
+	}
 }
 
 func testRaftConfig(cfg nodeConfig) raft.Config {
@@ -347,7 +376,7 @@ func findLeader(t *testing.T, nodes []*node) *node {
 	t.Helper()
 
 	var leader *node
-	ok := assert.Eventually(t, func() bool {
+	if !assert.Eventually(t, func() bool {
 		for _, n := range nodes {
 			if n.persistence.State() == raft.StateLeader {
 				leader = n
@@ -355,9 +384,9 @@ func findLeader(t *testing.T, nodes []*node) *node {
 			}
 		}
 		return false
-	}, 15*time.Second, 100*time.Millisecond)
-
-	require.True(t, ok)
+	}, 15*time.Second, 100*time.Millisecond) {
+		t.FailNow()
+	}
 	return leader
 }
 
@@ -374,7 +403,9 @@ func freeAddr(t *testing.T) string {
 	t.Helper()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 	defer func() { _ = ln.Close() }()
 
 	return ln.Addr().String()
@@ -385,14 +416,18 @@ func numberEvent(id timebox.AggregateID, value int) *timebox.Event {
 		AggregateID: id,
 		Timestamp:   time.Now().UTC(),
 		Type:        testEventType,
-		Data:        json.RawMessage(fmt.Sprintf("%d", value)),
+		Data: json.RawMessage(
+			fmt.Sprintf("%d", value),
+		),
 	}
 }
 
 func indexedEvent(
 	id timebox.AggregateID, status, env string, ts time.Time,
 ) *timebox.Event {
-	data := fmt.Sprintf(`{"status":%q,"env":%q}`, status, env)
+	data := fmt.Sprintf(
+		`{"status":%q,"env":%q}`, status, env,
+	)
 	return &timebox.Event{
 		AggregateID: id,
 		Timestamp:   ts,
@@ -412,7 +447,9 @@ func combinedIndexer(evs []*timebox.Event) []*timebox.Index {
 		status := data["status"]
 		idxs = append(idxs, &timebox.Index{
 			Status: &status,
-			Labels: map[string]string{"env": data["env"]},
+			Labels: map[string]string{
+				"env": data["env"],
+			},
 		})
 	}
 	return idxs

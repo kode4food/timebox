@@ -85,22 +85,12 @@ func (t *raftTransport) ServerAddress() ServerAddress {
 	return ServerAddress(t.listener.Addr().String())
 }
 
-func (t *raftTransport) Send(addr ServerAddress, msgs ...raftpb.Message) error {
+func (t *raftTransport) Send(addr ServerAddress, data ...[]byte) error {
 	peer, err := t.peer(addr)
 	if err != nil {
 		return err
 	}
-
-	if err := peer.Send(msgs...); err == nil {
-		return nil
-	}
-	t.dropPeer(addr, peer)
-
-	peer, err = t.peer(addr)
-	if err != nil {
-		return err
-	}
-	if err := peer.Send(msgs...); err != nil {
+	if err := peer.Send(data...); err != nil {
 		t.dropPeer(addr, peer)
 		return err
 	}
@@ -108,23 +98,13 @@ func (t *raftTransport) Send(addr ServerAddress, msgs ...raftpb.Message) error {
 }
 
 func (t *raftTransport) SendSnapshot(
-	addr ServerAddress, msg raftpb.Message, snap *snapshot,
+	addr ServerAddress, data []byte, snap *snapshot,
 ) error {
 	peer, err := t.peer(addr)
 	if err != nil {
 		return err
 	}
-
-	if err := peer.SendSnapshot(msg, snap); err == nil {
-		return nil
-	}
-	t.dropPeer(addr, peer)
-
-	peer, err = t.peer(addr)
-	if err != nil {
-		return err
-	}
-	if err := peer.SendSnapshot(msg, snap); err != nil {
+	if err := peer.SendSnapshot(data, snap); err != nil {
 		t.dropPeer(addr, peer)
 		return err
 	}
@@ -196,24 +176,16 @@ func (p *raftPeerConn) Close() error {
 	return err
 }
 
-func (p *raftPeerConn) Send(msgs ...raftpb.Message) error {
+func (p *raftPeerConn) Send(data ...[]byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.conn == nil || p.wr == nil {
 		return ErrTransportClosed
 	}
-	for _, msg := range msgs {
-		timeout := defaultWriteTimeout
-		if msg.Type == raftpb.MsgSnap {
-			timeout = defaultSnapWriteTimeout
-		}
-		_ = p.conn.SetDeadline(time.Now().Add(timeout))
-		data, err := msg.Marshal()
-		if err != nil {
-			return err
-		}
-		if err := writeFrame(p.wr, data); err != nil {
+	_ = p.conn.SetDeadline(time.Now().Add(defaultWriteTimeout))
+	for _, frame := range data {
+		if err := writeFrame(p.wr, frame); err != nil {
 			return err
 		}
 	}
@@ -221,7 +193,7 @@ func (p *raftPeerConn) Send(msgs ...raftpb.Message) error {
 }
 
 func (p *raftPeerConn) SendSnapshot(
-	msg raftpb.Message, snap *snapshot,
+	data []byte, snap *snapshot,
 ) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -231,10 +203,6 @@ func (p *raftPeerConn) SendSnapshot(
 	}
 	_ = p.conn.SetDeadline(time.Now().Add(defaultSnapWriteTimeout))
 
-	data, err := msg.Marshal()
-	if err != nil {
-		return err
-	}
 	if err := writeFrame(p.wr, data); err != nil {
 		return err
 	}
@@ -246,7 +214,7 @@ func (p *raftPeerConn) SendSnapshot(
 	if err := p.wr.Flush(); err != nil {
 		return err
 	}
-	_, err = snap.WriteTo(p.conn)
+	_, err := snap.WriteTo(p.conn)
 	return err
 }
 
