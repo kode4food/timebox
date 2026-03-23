@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,7 +22,7 @@ type Persistence struct {
 	pool *pgxpool.Pool
 }
 
-const connectTimeout = 5 * time.Second
+const defaultConnectTimeout = 5 * time.Second
 
 var _ timebox.Backend = (*Persistence)(nil)
 
@@ -45,7 +47,7 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 
 func newPersistence(cfg Config) (*Persistence, error) {
 	ctx, cancel := context.WithTimeout(
-		context.Background(), connectTimeout,
+		context.Background(), defaultConnectTimeout,
 	)
 	defer cancel()
 
@@ -67,7 +69,7 @@ func newPersistence(cfg Config) (*Persistence, error) {
 	}
 
 	schemaCtx, cancel := context.WithTimeout(
-		context.Background(), schemaTimeout,
+		context.Background(), defaultSchemaTimeout,
 	)
 	defer cancel()
 
@@ -93,15 +95,13 @@ func (p *Persistence) LoadEvents(
 	id timebox.AggregateID, fromSeq int64,
 ) (*timebox.EventsResult, error) {
 	ctx := context.Background()
-	key, _, err := aggregateKey(id)
-	if err != nil {
-		return nil, err
-	}
+	key, _ := aggregateKey(id)
 
 	var baseSeq int64
+	var err error
 	err = p.pool.QueryRow(ctx, `
 		SELECT base_seq
-		FROM timebox_snapshot
+		FROM timebox_snapshots
 		WHERE store = $1 AND aggregate_key = $2
 	`, p.Prefix, key).Scan(&baseSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -111,7 +111,7 @@ func (p *Persistence) LoadEvents(
 	}
 
 	start := max(fromSeq, baseSeq)
-	evs, err := p.loadEvents(ctx, key, start)
+	evs, err := p.loadEvents(ctx, id, key, start)
 	if err != nil {
 		return nil, err
 	}
@@ -127,16 +127,14 @@ func (p *Persistence) LoadSnapshot(
 	id timebox.AggregateID,
 ) (*timebox.SnapshotRecord, error) {
 	ctx := context.Background()
-	key, _, err := aggregateKey(id)
-	if err != nil {
-		return nil, err
-	}
+	key, _ := aggregateKey(id)
 
 	var snapData string
 	var snapSeq int64
+	var err error
 	err = p.pool.QueryRow(ctx, `
 		SELECT snapshot_data, snapshot_seq
-		FROM timebox_snapshot
+		FROM timebox_snapshots
 		WHERE store = $1 AND aggregate_key = $2
 	`, p.Prefix, key).Scan(&snapData, &snapSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -146,7 +144,7 @@ func (p *Persistence) LoadSnapshot(
 		return nil, err
 	}
 
-	evs, err := p.loadEvents(ctx, key, snapSeq)
+	evs, err := p.loadEvents(ctx, id, key, snapSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -163,10 +161,8 @@ func (p *Persistence) SaveSnapshot(
 	id timebox.AggregateID, data []byte, sequence int64,
 ) error {
 	ctx := context.Background()
-	key, parts, err := aggregateKey(id)
-	if err != nil {
-		return err
-	}
+	key, parts := aggregateKey(id)
+	var err error
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -216,7 +212,7 @@ func (p *Persistence) SaveSnapshot(
 	}
 
 	if _, err = tx.Exec(ctx, `
-		INSERT INTO timebox_snapshot (
+		INSERT INTO timebox_snapshots (
 			store, aggregate_key, base_seq,
 			snapshot_seq, snapshot_data
 		) VALUES ($1, $2, $3, $4, $5)
@@ -241,13 +237,13 @@ func (p *Persistence) ListAggregates(
 	if len(id) == 0 {
 		rows, err = p.pool.Query(ctx, `
 			SELECT aggregate_parts
-			FROM timebox_index
+			FROM timebox_statuses
 			WHERE store = $1
 		`, p.Prefix)
 	} else {
 		rows, err = p.pool.Query(ctx, `
 			SELECT aggregate_parts
-			FROM timebox_index
+			FROM timebox_statuses
 			WHERE store = $1
 			  AND array_length(aggregate_parts, 1) >= $2
 			  AND aggregate_parts[1:$2] = $3::text[]
@@ -284,8 +280,8 @@ func (p *Persistence) loadSnapshotState(
 		           ORDER BY e.sequence DESC
 		           LIMIT 1
 		       ), COALESCE(s.base_seq, 0))
-		FROM timebox_index i
-		LEFT JOIN timebox_snapshot s
+		FROM timebox_statuses i
+		LEFT JOIN timebox_snapshots s
 		  ON s.store = i.store
 		  AND s.aggregate_key = i.aggregate_key
 		WHERE i.store = $1 AND i.aggregate_key = $2
@@ -304,19 +300,19 @@ func (p *Persistence) insertAggregate(
 	ctx context.Context, tx pgx.Tx, key string, parts []string,
 ) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO timebox_index (
-			store, aggregate_key, aggregate_parts, labels
-		) VALUES ($1, $2, $3, '{}'::jsonb)
+		INSERT INTO timebox_statuses (
+			store, aggregate_key, aggregate_parts
+		) VALUES ($1, $2, $3)
 		ON CONFLICT (store, aggregate_key) DO NOTHING
 	`, p.Prefix, key, parts)
 	return err
 }
 
 func (p *Persistence) loadEvents(
-	ctx context.Context, key string, fromSeq int64,
+	ctx context.Context, id timebox.AggregateID, key string, fromSeq int64,
 ) ([]*timebox.Event, error) {
 	rows, err := p.pool.Query(ctx, `
-		SELECT data
+		SELECT sequence, event_at, event_type, data
 		FROM timebox_events
 		WHERE store = $1
 		  AND aggregate_key = $2
@@ -330,26 +326,37 @@ func (p *Persistence) loadEvents(
 
 	var res []*timebox.Event
 	for rows.Next() {
-		var msg string
-		if err := rows.Scan(&msg); err != nil {
+		var seq int64
+		var at int64
+		var typ string
+		var data string
+		if err := rows.Scan(&seq, &at, &typ, &data); err != nil {
 			return nil, err
 		}
-		ev, err := timebox.JSONEvent.Decode(msg)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, ev)
+		res = append(res, &timebox.Event{
+			Timestamp:   time.Unix(0, at).UTC(),
+			Sequence:    seq,
+			Type:        timebox.EventType(typ),
+			AggregateID: id,
+			Data:        json.RawMessage(data),
+		})
 	}
 	return res, rows.Err()
 }
 
-func aggregateKey(id timebox.AggregateID) (string, []string, error) {
+func aggregateKey(id timebox.AggregateID) (string, []string) {
 	parts := stringParts(id)
-	data, err := json.Marshal(parts)
-	if err != nil {
-		return "", nil, err
+	if len(parts) == 0 {
+		return "", nil
 	}
-	return string(data), parts, nil
+	var b strings.Builder
+	for _, part := range parts {
+		b.WriteString(strconv.Itoa(len(part)))
+		b.WriteByte(':')
+		b.WriteString(part)
+		b.WriteByte(';')
+	}
+	return b.String(), parts
 }
 
 func stringParts(id timebox.AggregateID) []string {

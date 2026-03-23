@@ -15,15 +15,12 @@ func (p *Persistence) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
 	ctx := context.Background()
-	key, _, err := aggregateKey(id)
-	if err != nil {
-		return "", err
-	}
+	key, _ := aggregateKey(id)
 
 	var status string
-	err = p.pool.QueryRow(ctx, `
+	err := p.pool.QueryRow(ctx, `
 		SELECT status
-		FROM timebox_index
+		FROM timebox_statuses
 		WHERE store = $1 AND aggregate_key = $2
 	`, p.Prefix, key).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -38,7 +35,7 @@ func (p *Persistence) ListAggregatesByStatus(
 ) ([]timebox.StatusEntry, error) {
 	rows, err := p.pool.Query(context.Background(), `
 		SELECT aggregate_parts, status_at
-		FROM timebox_index
+		FROM timebox_statuses
 		WHERE store = $1 AND status = $2
 		ORDER BY status_at
 	`, p.Prefix, status)
@@ -67,9 +64,15 @@ func (p *Persistence) ListAggregatesByLabel(
 	label, value string,
 ) ([]timebox.AggregateID, error) {
 	rows, err := p.pool.Query(context.Background(), `
-		SELECT aggregate_parts
-		FROM timebox_index
-		WHERE store = $1 AND labels ->> $2 = $3
+		SELECT i.aggregate_parts
+		FROM timebox_labels li
+		JOIN timebox_statuses i
+		  ON i.store = li.store
+		  AND i.aggregate_key = li.aggregate_key
+		WHERE li.store = $1
+		  AND li.label = $2
+		  AND li.value = $3
+		ORDER BY li.aggregate_key
 	`, p.Prefix, label, value)
 	if err != nil {
 		return nil, err
@@ -90,12 +93,10 @@ func (p *Persistence) ListAggregatesByLabel(
 // ListLabelValues lists values currently used for a label
 func (p *Persistence) ListLabelValues(label string) ([]string, error) {
 	rows, err := p.pool.Query(context.Background(), `
-		SELECT DISTINCT lbl.value
-		FROM timebox_index i
-		CROSS JOIN LATERAL jsonb_each_text(i.labels)
-			AS lbl(key, value)
-		WHERE i.store = $1 AND lbl.key = $2
-		ORDER BY lbl.value
+		SELECT DISTINCT value
+		FROM timebox_labels
+		WHERE store = $1 AND label = $2
+		ORDER BY value
 	`, p.Prefix, label)
 	if err != nil {
 		return nil, err

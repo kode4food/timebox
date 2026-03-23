@@ -26,17 +26,54 @@ func TestPersistenceSchema(t *testing.T) {
 
 		var colCount int
 		err = pool.QueryRow(ctx, `
-			SELECT COUNT(*)
-			FROM information_schema.columns
-			WHERE table_name = 'timebox_events'
-			  AND column_name IN (
-			      'aggregate_kind', 'aggregate_id'
-			  )
-		`).Scan(&colCount)
+				SELECT COUNT(*)
+				FROM information_schema.columns
+				WHERE table_name = 'timebox_events'
+				  AND column_name IN (
+				      'aggregate_kind', 'aggregate_id'
+				  )
+			`).Scan(&colCount)
 		if !assert.NoError(t, err) {
 			return
 		}
 		assert.Zero(t, colCount)
+
+		err = pool.QueryRow(ctx, `
+				SELECT COUNT(*)
+				FROM information_schema.columns
+				WHERE table_name = 'timebox_events'
+				  AND column_name IN (
+				      'sequence', 'event_at', 'event_type', 'data'
+				  )
+			`).Scan(&colCount)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, 4, colCount)
+
+		err = pool.QueryRow(ctx, `
+				SELECT COUNT(*)
+				FROM information_schema.columns
+				WHERE table_name = 'timebox_statuses'
+				  AND column_name = 'labels'
+			`).Scan(&colCount)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Zero(t, colCount)
+
+		err = pool.QueryRow(ctx, `
+				SELECT COUNT(*)
+				FROM information_schema.columns
+				WHERE table_name = 'timebox_labels'
+				  AND column_name IN (
+				      'aggregate_key', 'label', 'value'
+				  )
+			`).Scan(&colCount)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, 3, colCount)
 
 		var fkCount int
 		err = pool.QueryRow(ctx, `
@@ -44,7 +81,9 @@ func TestPersistenceSchema(t *testing.T) {
 			FROM pg_constraint c
 			JOIN pg_class t ON t.oid = c.conrelid
 			WHERE t.relname IN (
-				'timebox_events', 'timebox_snapshot'
+				'timebox_events',
+				'timebox_snapshots',
+				'timebox_labels'
 			) AND c.contype = 'f'
 		`).Scan(&fkCount)
 		if !assert.NoError(t, err) {
@@ -63,5 +102,16 @@ func TestPersistenceSchema(t *testing.T) {
 			return
 		}
 		assert.Zero(t, idxCount)
+
+		err = pool.QueryRow(ctx, `
+			SELECT COUNT(*)
+			FROM pg_indexes
+			WHERE schemaname = current_schema()
+			  AND indexname = 'timebox_labels_value_idx'
+		`).Scan(&idxCount)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, 1, idxCount)
 	})
 }

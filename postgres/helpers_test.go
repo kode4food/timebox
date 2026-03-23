@@ -29,12 +29,12 @@ func withTestDatabase(
 
 	admin, err := pgxpool.NewWithConfig(ctx, adminCfg)
 	if err != nil {
-		t.Skipf("postgres unavailable: %v", err)
+		t.Fatalf("postgres unavailable: %v", err)
 	}
 	defer admin.Close()
 
 	if err := admin.Ping(ctx); err != nil {
-		t.Skipf("postgres unavailable: %v", err)
+		t.Fatalf("postgres unavailable: %v", err)
 	}
 
 	dbName := fmt.Sprintf(

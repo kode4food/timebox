@@ -2,9 +2,11 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
@@ -56,12 +58,77 @@ func TestLoadEvents(t *testing.T) {
 			return
 		}
 		assert.Len(t, evs, 2)
+		if assert.Len(t, evs, 2) {
+			assert.Equal(t, first.Timestamp, evs[0].Timestamp)
+			assert.Equal(t, first.Type, evs[0].Type)
+			assert.Equal(t, id, evs[0].AggregateID)
+			assert.Equal(t, int64(0), evs[0].Sequence)
+			assert.Equal(t, first.Data, evs[0].Data)
+			assert.Equal(t, second.Timestamp, evs[1].Timestamp)
+			assert.Equal(t, second.Type, evs[1].Type)
+			assert.Equal(t, id, evs[1].AggregateID)
+			assert.Equal(t, int64(1), evs[1].Sequence)
+			assert.Equal(t, second.Data, evs[1].Data)
+		}
 
 		evs, err = store.GetEvents(id, 1)
 		if !assert.NoError(t, err) {
 			return
 		}
 		assert.Len(t, evs, 1)
+	})
+}
+
+func TestEventRow(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, cfg postgres.Config) {
+		store, err := postgres.NewStore(cfg)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = store.Close() }()
+
+		id := timebox.NewAggregateID("order", "row")
+		ev := testEvent(t,
+			time.Unix(1_700_000_000, 123).UTC(),
+			"a", "dev", 1,
+		)
+		if !assert.NoError(t,
+			store.AppendEvents(id, 0, []*timebox.Event{ev}),
+		) {
+			return
+		}
+
+		pool, err := pgxpool.New(ctx, cfg.URL)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer pool.Close()
+
+		var seq int64
+		var at int64
+		var typ string
+		var data string
+		err = pool.QueryRow(ctx, `
+			SELECT sequence, event_at, event_type, data
+			FROM timebox_events
+			WHERE store = $1
+		`, cfg.Prefix).Scan(&seq, &at, &typ, &data)
+		if !assert.NoError(t, err) {
+			return
+		}
+
+		var want any
+		var got any
+		if !assert.NoError(t, json.Unmarshal(ev.Data, &want)) {
+			return
+		}
+		if !assert.NoError(t, json.Unmarshal([]byte(data), &got)) {
+			return
+		}
+		assert.Equal(t, int64(0), seq)
+		assert.Equal(t, ev.Timestamp.UnixNano(), at)
+		assert.Equal(t, string(ev.Type), typ)
+		assert.Equal(t, want, got)
 	})
 }
 
@@ -126,6 +193,53 @@ func TestListAggregates(t *testing.T) {
 			return
 		}
 		assert.Len(t, users, 1)
+	})
+}
+
+func TestAggregateIDChars(t *testing.T) {
+	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
+		cfg.Timebox.Indexer = statusEnvIndexer(t)
+
+		store, err := postgres.NewStore(cfg)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = store.Close() }()
+
+		id := timebox.NewAggregateID(
+			`order:1`, `part;2`, `quoted["3"]`,
+		)
+		ev := testEvent(t,
+			time.Unix(1_700_000_000, 0).UTC(),
+			"active", "dev", 1,
+		)
+		if !assert.NoError(t,
+			store.AppendEvents(id, 0, []*timebox.Event{ev}),
+		) {
+			return
+		}
+
+		evs, err := store.GetEvents(id, 0)
+		if !assert.NoError(t, err) {
+			return
+		}
+		if assert.Len(t, evs, 1) {
+			assert.Equal(t, id, evs[0].AggregateID)
+		}
+
+		ids, err := store.ListAggregates(
+			timebox.NewAggregateID(`order:1`),
+		)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, []timebox.AggregateID{id}, ids)
+
+		ids, err = store.ListAggregatesByLabel("env", "dev")
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, []timebox.AggregateID{id}, ids)
 	})
 }
 
