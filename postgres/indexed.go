@@ -72,7 +72,6 @@ func (p *Persistence) ListAggregatesByLabel(
 		WHERE li.store = $1
 		  AND li.label = $2
 		  AND li.value = $3
-		ORDER BY li.aggregate_key
 	`, p.Prefix, label, value)
 	if err != nil {
 		return nil, err
