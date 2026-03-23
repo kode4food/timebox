@@ -36,7 +36,7 @@ type (
 		status   *string
 		statusAt string
 		labels   map[string]string
-		events   []string
+		events   [][]byte
 	}
 
 	luaAppendOp struct {
