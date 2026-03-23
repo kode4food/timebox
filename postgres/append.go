@@ -2,11 +2,9 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/kode4food/timebox"
 )
@@ -30,18 +28,14 @@ var appendFunctions = []appendFunctionSpec{
 
 const (
 	appendPlainQuery = `
-		SELECT success, actual_sequence,
-		       new_event_seqs, new_event_ats,
-		       new_event_types, new_event_data
+		SELECT success, actual_sequence
 		FROM timebox_append_plain(
 			$1, $2, $3, $4, $5::bigint[], $6::text[], $7::text[]
 		)
 	`
 
 	appendStatusQuery = `
-		SELECT success, actual_sequence,
-		       new_event_seqs, new_event_ats,
-		       new_event_types, new_event_data
+		SELECT success, actual_sequence
 		FROM timebox_append_status(
 			$1, $2, $3, $4, $5, $6,
 			$7::bigint[], $8::text[], $9::text[]
@@ -49,9 +43,7 @@ const (
 	`
 
 	appendLabelsQuery = `
-		SELECT success, actual_sequence,
-		       new_event_seqs, new_event_ats,
-		       new_event_types, new_event_data
+		SELECT success, actual_sequence
 		FROM timebox_append_labels(
 			$1, $2, $3, $4, $5::text[], $6::text[],
 			$7::bigint[], $8::text[], $9::text[]
@@ -59,9 +51,7 @@ const (
 	`
 
 	appendStatusLabelsQuery = `
-		SELECT success, actual_sequence,
-		       new_event_seqs, new_event_ats,
-		       new_event_types, new_event_data
+		SELECT success, actual_sequence
 		FROM timebox_append_status_labels(
 			$1, $2, $3, $4, $5, $6, $7::text[], $8::text[],
 			$9::bigint[], $10::text[], $11::text[]
@@ -96,10 +86,6 @@ func (p *Persistence) Append(
 
 	var success bool
 	var actualSeq int64
-	var seqs []int64
-	var ats []int64
-	var types []string
-	var data []string
 
 	switch {
 	case req.Status != nil && len(req.Labels) > 0:
@@ -107,22 +93,22 @@ func (p *Persistence) Append(
 			p.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, lblKeys, lblVals,
 			evAts, evTypes, evData,
-		).Scan(&success, &actualSeq, &seqs, &ats, &types, &data)
+		).Scan(&success, &actualSeq)
 	case req.Status != nil:
 		err = p.pool.QueryRow(ctx, appendStatusQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, evAts, evTypes, evData,
-		).Scan(&success, &actualSeq, &seqs, &ats, &types, &data)
+		).Scan(&success, &actualSeq)
 	case len(req.Labels) > 0:
 		err = p.pool.QueryRow(ctx, appendLabelsQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
 			lblKeys, lblVals, evAts, evTypes, evData,
-		).Scan(&success, &actualSeq, &seqs, &ats, &types, &data)
+		).Scan(&success, &actualSeq)
 	default:
 		err = p.pool.QueryRow(ctx, appendPlainQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
 			evAts, evTypes, evData,
-		).Scan(&success, &actualSeq, &seqs, &ats, &types, &data)
+		).Scan(&success, &actualSeq)
 	}
 	if err != nil {
 		return nil, err
@@ -130,7 +116,7 @@ func (p *Persistence) Append(
 	if success {
 		return nil, nil
 	}
-	evs, err := decodeAppendEvents(req.ID, seqs, ats, types, data)
+	evs, err := p.loadEvents(ctx, req.ID, key, req.ExpectedSequence)
 	if err != nil {
 		return nil, err
 	}
@@ -234,11 +220,7 @@ CREATE OR REPLACE FUNCTION %s(
 	%s
 ) RETURNS TABLE(
 	success BOOLEAN,
-	actual_sequence BIGINT,
-	new_event_seqs BIGINT[],
-	new_event_ats BIGINT[],
-	new_event_types TEXT[],
-	new_event_data TEXT[]
+	actual_sequence BIGINT
 ) AS $$
 DECLARE
 	%s
@@ -265,10 +247,6 @@ BEGIN
 	IF NOT FOUND THEN
 		success := FALSE;
 		actual_sequence := 0;
-		new_event_seqs := ARRAY[]::BIGINT[];
-		new_event_ats := ARRAY[]::BIGINT[];
-		new_event_types := ARRAY[]::TEXT[];
-		new_event_data := ARRAY[]::TEXT[];
 		RETURN NEXT;
 		RETURN;
 	END IF;
@@ -277,25 +255,6 @@ BEGIN
 	IF p_expected_sequence <> v_current_seq THEN
 		success := FALSE;
 		actual_sequence := v_current_seq;
-		SELECT COALESCE(
-			array_agg(e.sequence ORDER BY e.sequence),
-			ARRAY[]::BIGINT[]
-		), COALESCE(
-			array_agg(e.event_at ORDER BY e.sequence),
-			ARRAY[]::BIGINT[]
-		), COALESCE(
-			array_agg(e.event_type ORDER BY e.sequence),
-			ARRAY[]::TEXT[]
-		), COALESCE(
-			array_agg(e.data ORDER BY e.sequence),
-			ARRAY[]::TEXT[]
-		)
-		INTO new_event_seqs, new_event_ats,
-		     new_event_types, new_event_data
-		FROM timebox_events e
-		WHERE e.store = p_store
-		  AND e.aggregate_key = p_aggregate_key
-		  AND e.sequence >= p_expected_sequence;
 		RETURN NEXT;
 		RETURN;
 	END IF;
@@ -314,10 +273,6 @@ BEGIN
 %s
 	success := TRUE;
 	actual_sequence := v_current_seq + v_event_count;
-	new_event_seqs := ARRAY[]::BIGINT[];
-	new_event_ats := ARRAY[]::BIGINT[];
-	new_event_types := ARRAY[]::TEXT[];
-	new_event_data := ARRAY[]::TEXT[];
 	RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql
@@ -351,25 +306,4 @@ func encodeLabels(lbls map[string]string) ([]string, []string) {
 		vals = append(vals, v)
 	}
 	return keys, vals
-}
-
-func decodeAppendEvents(
-	id timebox.AggregateID, seqs, ats []int64, types, data []string,
-) ([]*timebox.Event, error) {
-	n := len(seqs)
-	if len(ats) != n || len(types) != n || len(data) != n {
-		return nil, timebox.ErrUnexpectedResult
-	}
-
-	res := make([]*timebox.Event, 0, n)
-	for i := range n {
-		res = append(res, &timebox.Event{
-			Timestamp:   time.Unix(0, ats[i]).UTC(),
-			Sequence:    seqs[i],
-			Type:        timebox.EventType(types[i]),
-			AggregateID: id,
-			Data:        json.RawMessage(data[i]),
-		})
-	}
-	return res, nil
 }
