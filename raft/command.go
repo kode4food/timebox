@@ -67,16 +67,7 @@ func MakeAppendCommand(
 	c = bin.AppendOptString(c, req.Status)
 	c = bin.AppendString(c, req.StatusAt)
 	c = appendStrMap(c, req.Labels)
-
-	c = bin.AppendUint32(c, uint32(len(req.Events)))
-	for _, ev := range req.Events {
-		var err error
-		c, err = timebox.BinEvent.Append(c, ev)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return c, nil
+	return timebox.BinEvent.AppendAll(c, req.Events)
 }
 
 func MakeSnapshotCommand(proposalID uint64, sc *SnapshotCommand) Command {
@@ -138,7 +129,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	events, _, err := readBytesSlice(data)
+	events, _, err := timebox.BinEvent.ReadAll(data)
 	if err != nil {
 		return nil, err
 	}
@@ -200,21 +191,6 @@ func readAggregateID(data []byte) (timebox.AggregateID, []byte, error) {
 		id[i] = timebox.ID(s)
 	}
 	return id, data, nil
-}
-
-func readBytesSlice(data []byte) ([]*timebox.Event, []byte, error) {
-	n, data, err := bin.ReadUint32(data)
-	if err != nil {
-		return nil, nil, err
-	}
-	evs := make([]*timebox.Event, n)
-	for i := range evs {
-		evs[i], data, err = timebox.BinEvent.Read(data)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	return evs, data, nil
 }
 
 func readStrMap(data []byte) (map[string]string, []byte, error) {

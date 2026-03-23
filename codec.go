@@ -9,23 +9,23 @@ import (
 
 type (
 	// Codec encodes and decodes values
-	Codec[Value any] interface {
-		// Encode encodes a value to bytes
-		Encode(Value) ([]byte, error)
+	Codec[Value, Data any] interface {
+		// Encode encodes a value to the codec data format
+		Encode(Value) (Data, error)
 
-		// Decode decodes bytes to a value
-		Decode([]byte) (Value, error)
+		// Decode decodes codec data to a value
+		Decode(Data) (Value, error)
 
 		// Append appends an encoded value to a buffer
-		Append([]byte, Value) ([]byte, error)
+		Append(Data, Value) (Data, error)
 
 		// Read reads a value from a buffer and returns the remainder
-		Read([]byte) (Value, []byte, error)
+		Read(Data) (Value, Data, error)
 	}
 
 	// EventCodec encodes and decodes complete events
-	EventCodec interface {
-		Codec[*Event]
+	EventCodec[Data any] interface {
+		Codec[*Event, Data]
 	}
 
 	jsonEventCodec struct{}
@@ -34,15 +34,19 @@ type (
 
 var (
 	// JSONEvent encodes complete events as JSON
-	JSONEvent EventCodec = jsonEventCodec{}
+	JSONEvent EventCodec[string] = jsonEventCodec{}
 
 	// BinEvent encodes complete events using the internal binary format
-	BinEvent EventCodec = binEventCodec{}
+	BinEvent interface {
+		EventCodec[[]byte]
+		AppendAll(buf []byte, evs []*Event) ([]byte, error)
+		ReadAll(data []byte) ([]*Event, []byte, error)
+	} = binEventCodec{}
 
-	// EncodeJSONEvents encodes complete events as JSON bytes
+	// EncodeJSONEvents encodes complete events as JSON strings
 	EncodeJSONEvents = MakeEncodeAll(JSONEvent)
 
-	// DecodeJSONEvents decodes complete events from JSON bytes
+	// DecodeJSONEvents decodes complete events from JSON strings
 	DecodeJSONEvents = MakeDecodeAll(JSONEvent)
 
 	// EncodeBinEvents encodes complete events to the internal binary format
@@ -53,11 +57,11 @@ var (
 )
 
 // MakeEncodeAll returns a batch encoder for the provided codec
-func MakeEncodeAll[Value any](
-	codec Codec[Value],
-) func([]Value) ([][]byte, error) {
-	return func(vals []Value) ([][]byte, error) {
-		res := make([][]byte, 0, len(vals))
+func MakeEncodeAll[Value, Data any](
+	codec Codec[Value, Data],
+) func([]Value) ([]Data, error) {
+	return func(vals []Value) ([]Data, error) {
+		res := make([]Data, 0, len(vals))
 		for _, val := range vals {
 			b, err := codec.Encode(val)
 			if err != nil {
@@ -70,10 +74,10 @@ func MakeEncodeAll[Value any](
 }
 
 // MakeDecodeAll returns a batch decoder for the provided codec
-func MakeDecodeAll[Value any](
-	codec Codec[Value],
-) func([][]byte) ([]Value, error) {
-	return func(vals [][]byte) ([]Value, error) {
+func MakeDecodeAll[Value, Data any](
+	codec Codec[Value, Data],
+) func([]Data) ([]Value, error) {
+	return func(vals []Data) ([]Value, error) {
 		res := make([]Value, 0, len(vals))
 		for _, val := range vals {
 			decoded, err := codec.Decode(val)
@@ -87,32 +91,32 @@ func MakeDecodeAll[Value any](
 }
 
 // Encode converts an Event to JSON using its struct tags
-func (c jsonEventCodec) Encode(ev *Event) ([]byte, error) {
-	return c.Append(nil, ev)
+func (c jsonEventCodec) Encode(ev *Event) (string, error) {
+	return c.Append("", ev)
 }
 
 // Decode converts JSON into an Event using its struct tags
-func (c jsonEventCodec) Decode(data []byte) (*Event, error) {
+func (c jsonEventCodec) Decode(data string) (*Event, error) {
 	res, _, err := c.Read(data)
 	return res, err
 }
 
 // Append appends a JSON-encoded Event to a buffer
-func (jsonEventCodec) Append(buf []byte, ev *Event) ([]byte, error) {
+func (jsonEventCodec) Append(buf string, ev *Event) (string, error) {
 	data, err := json.Marshal(ev)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return append(buf, data...), nil
+	return buf + string(data), nil
 }
 
 // Read reads and decodes a JSON Event from a buffer
-func (jsonEventCodec) Read(data []byte) (*Event, []byte, error) {
+func (jsonEventCodec) Read(data string) (*Event, string, error) {
 	var ev Event
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return nil, nil, err
+	if err := json.Unmarshal(([]byte)(data), &ev); err != nil {
+		return nil, "", err
 	}
-	return &ev, nil, nil
+	return &ev, "", nil
 }
 
 // Encode converts an Event to the internal binary format
@@ -133,6 +137,19 @@ func (binEventCodec) Append(buf []byte, ev *Event) ([]byte, error) {
 	buf = appendAggregateID(buf, ev.AggregateID)
 	buf = bin.AppendString(buf, string(ev.Type))
 	buf = bin.AppendBytes(buf, ev.Data)
+	return buf, nil
+}
+
+// AppendAll appends a length-prefixed batch of binary-encoded Events
+func (c binEventCodec) AppendAll(buf []byte, evs []*Event) ([]byte, error) {
+	buf = bin.AppendUint32(buf, uint32(len(evs)))
+	for _, ev := range evs {
+		var err error
+		buf, err = c.Append(buf, ev)
+		if err != nil {
+			return buf, err
+		}
+	}
 	return buf, nil
 }
 
@@ -165,6 +182,22 @@ func (binEventCodec) Read(data []byte) (*Event, []byte, error) {
 		AggregateID: id,
 		Data:        payload,
 	}, data, nil
+}
+
+// ReadAll reads a length-prefixed batch of binary-encoded Events
+func (c binEventCodec) ReadAll(data []byte) ([]*Event, []byte, error) {
+	n, data, err := bin.ReadUint32(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	res := make([]*Event, n)
+	for i := range res {
+		res[i], data, err = c.Read(data)
+		if err != nil {
+			return nil, data, err
+		}
+	}
+	return res, data, nil
 }
 
 func appendAggregateID(buf []byte, id AggregateID) []byte {

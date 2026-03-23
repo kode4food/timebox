@@ -394,7 +394,7 @@ func decodeEvents(items []any) ([]*timebox.Event, error) {
 		if !ok {
 			return nil, timebox.ErrUnexpectedResult
 		}
-		ev, err := timebox.JSONEvent.Decode([]byte(s))
+		ev, err := timebox.JSONEvent.Decode(s)
 		if err != nil {
 			return nil, err
 		}
