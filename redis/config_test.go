@@ -130,6 +130,14 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestJoinParseKey(t *testing.T) {
+	id := timebox.NewAggregateID("order-1", `path\part`, `%done`)
+	joined := redis.JoinKey(id)
+	parsed := redis.ParseKey(joined)
+
+	assert.Equal(t, id, parsed)
+}
+
 func validTimeboxConfig() timebox.Config {
 	return timebox.Config{
 		MaxRetries: 1,

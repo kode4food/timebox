@@ -282,8 +282,8 @@ func (p *Persistence) ListAggregates(
 	id timebox.AggregateID,
 ) ([]timebox.AggregateID, error) {
 	searchKeys := []string{
-		p.buildKey(id, eventsSuffix),
-		p.buildKey(id, snapshotSeqSuffix),
+		p.listAggregateKey(eventsSuffix),
+		p.listAggregateKey(snapshotSeqSuffix),
 	}
 
 	seen := map[string]timebox.AggregateID{}
@@ -295,6 +295,21 @@ func (p *Persistence) ListAggregates(
 
 		for _, key := range keys {
 			aid := p.parseAggregateIDFromKey(key)
+			if len(id) > len(aid) {
+				continue
+			}
+
+			match := true
+			for i, part := range id {
+				if aid[i] != part {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+
 			seen[aid.Join(":")] = aid
 		}
 	}
@@ -304,6 +319,10 @@ func (p *Persistence) ListAggregates(
 		ids = append(ids, aid)
 	}
 	return ids, nil
+}
+
+func (p *Persistence) listAggregateKey(suffix string) string {
+	return fmt.Sprintf("%s:*:%s", p.prefix, suffix)
 }
 
 func (p *Persistence) buildKey(id timebox.AggregateID, suffix string) string {

@@ -29,3 +29,16 @@ func TestAggregateIDEqual(t *testing.T) {
 	assert.False(t, id.Equal(diffValue))
 	assert.False(t, id.Equal(diffLen))
 }
+
+func TestAggregateIDHasPrefix(t *testing.T) {
+	id := timebox.NewAggregateID("order", "1", "item")
+
+	assert.True(t, id.HasPrefix(nil))
+	assert.True(t, id.HasPrefix(timebox.NewAggregateID("order")))
+	assert.True(t, id.HasPrefix(timebox.NewAggregateID("order", "1")))
+	assert.False(t, id.HasPrefix(timebox.NewAggregateID("invoice")))
+	assert.False(t, id.HasPrefix(timebox.NewAggregateID("order", "2")))
+	assert.False(t,
+		id.HasPrefix(timebox.NewAggregateID("order", "1", "item", "extra")),
+	)
+}

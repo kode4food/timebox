@@ -523,6 +523,36 @@ func TestOnSuccessNoOp(t *testing.T) {
 	assert.True(t, called)
 }
 
+func TestOnSuccessDefaultsOnly(t *testing.T) {
+	server, store, _ := setupTestExecutor(t)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("counter", "on-success-default")
+	called := false
+	executor := timebox.NewExecutor(
+		store,
+		newCounterState,
+		appliers,
+		func(state *CounterState, evs []*timebox.Event) {
+			called = true
+			assert.Equal(t, 1, state.Value)
+			if assert.Len(t, evs, 1) {
+				assert.Equal(t, EventIncremented, evs[0].Type)
+			}
+		},
+	)
+
+	_, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 1)
+	})
+
+	assert.NoError(t, err)
+	assert.True(t, called)
+}
+
 func TestOnSuccessError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = server.Close() }()

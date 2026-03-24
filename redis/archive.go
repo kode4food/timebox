@@ -66,7 +66,12 @@ func (p *Persistence) ConsumeArchive(
 		return err
 	}
 
-	rec, err := p.recoverArchive(ctx, handler)
+	rec, err := p.resumeArchive(ctx, handler)
+	if err != nil || rec {
+		return err
+	}
+
+	rec, err = p.recoverArchive(ctx, handler)
 	if err != nil || rec {
 		return err
 	}
@@ -80,25 +85,66 @@ func (p *Persistence) pollNewArchive(
 	streamKey := p.archiveStreamKey()
 	group := p.archiveGroup()
 	consumer := p.archiveConsumer()
+	for {
+		block := archiveReadBlock(ctx)
+		args := &redis.XReadGroupArgs{
+			Group:    group,
+			Consumer: consumer,
+			Streams:  []string{streamKey, ">"},
+			Count:    1,
+			Block:    block,
+		}
+
+		streams, err := p.client.XReadGroup(ctx, args).Result()
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			return err
+		}
+
+		if len(streams) == 0 || len(streams[0].Messages) == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			continue
+		}
+
+		return p.handleArchive(ctx,
+			streamKey, group, streams[0].Messages[0], handler,
+		)
+	}
+}
+
+func (p *Persistence) resumeArchive(
+	ctx context.Context, handler timebox.ArchiveHandler,
+) (bool, error) {
+	stream := p.archiveStreamKey()
+	group := p.archiveGroup()
+	consumer := p.archiveConsumer()
 	args := &redis.XReadGroupArgs{
 		Group:    group,
 		Consumer: consumer,
-		Streams:  []string{streamKey, ">"},
+		Streams:  []string{stream, "0"},
 		Count:    1,
-		Block:    0,
 	}
 
 	streams, err := p.client.XReadGroup(ctx, args).Result()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
 	if err != nil {
-		return err
+		return false, err
 	}
-
 	if len(streams) == 0 || len(streams[0].Messages) == 0 {
-		return nil
+		return false, nil
 	}
 
-	return p.handleArchive(ctx,
-		streamKey, group, streams[0].Messages[0], handler,
+	return true, p.handleArchive(ctx,
+		stream, group, streams[0].Messages[0], handler,
 	)
 }
 
@@ -193,4 +239,17 @@ func (p *Persistence) ensureArchiveGroup(
 		return err
 	}
 	return nil
+}
+
+func archiveReadBlock(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 0
+	}
+
+	block := time.Until(deadline)
+	if block <= 0 {
+		return time.Millisecond
+	}
+	return block
 }

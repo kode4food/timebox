@@ -371,12 +371,13 @@ func TestSnapshotWorkerQueueFull(t *testing.T) {
 		blockCh:   blockCh,
 	}
 	store := newSnapshotGateStore(t, p)
-	t.Cleanup(func() { close(blockCh) })
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	id := timebox.NewAggregateID("counter", "queue-full")
+	first := timebox.NewAggregateID("counter", "queue-full-1")
+	second := timebox.NewAggregateID("counter", "queue-full-2")
+	third := timebox.NewAggregateID("counter", "queue-full-3")
 
-	_, err := executor.Exec(id, func(
+	_, err := executor.Exec(first, func(
 		*CounterState, *timebox.Aggregator[*CounterState],
 	) error {
 		return nil
@@ -387,18 +388,32 @@ func TestSnapshotWorkerQueueFull(t *testing.T) {
 	<-p.startedCh
 
 	// Fill the queue (1/1) then overflow it — enqueue drops the third
-	_, err = executor.Exec(id, func(
+	_, err = executor.Exec(second, func(
 		*CounterState, *timebox.Aggregator[*CounterState],
 	) error {
 		return nil
 	})
 	assert.NoError(t, err)
-	_, err = executor.Exec(id, func(
+	_, err = executor.Exec(third, func(
 		*CounterState, *timebox.Aggregator[*CounterState],
 	) error {
 		return nil
 	})
 	assert.NoError(t, err)
+
+	close(blockCh)
+
+	count := 0
+	assert.Eventually(t, func() bool {
+		for {
+			select {
+			case <-p.saveCh:
+				count++
+			default:
+				return count == 2
+			}
+		}
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestSaveSnapshotLoadError(t *testing.T) {

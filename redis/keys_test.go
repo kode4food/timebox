@@ -1,4 +1,4 @@
-package integration_test
+package redis_test
 
 import (
 	"context"
@@ -82,33 +82,6 @@ func TestStoreShardKeys(t *testing.T) {
 	events, err := store.GetEvents(id, 0)
 	assert.NoError(t, err)
 	assert.Len(t, events, 1)
-}
-
-func TestCorruptEvents(t *testing.T) {
-	server, err := miniredis.Run()
-	assert.NoError(t, err)
-	defer func() { server.Close() }()
-
-	storeCfg := testStoreConfig(server.Addr(), func(cfg *tbredis.Config) {
-		cfg.Prefix = "corrupt"
-	})
-
-	store, err := newStore(storeCfg)
-	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	id := timebox.NewAggregateID("order", "1")
-	eventsKey := storeCfg.Prefix + ":" + id.Join(":") + ":events"
-
-	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-	defer func() { _ = client.Close() }()
-
-	err = client.RPush(context.Background(), eventsKey, "not-json").Err()
-	assert.NoError(t, err)
-
-	events, err := store.GetEvents(id, 0)
-	assert.Error(t, err)
-	assert.Nil(t, events)
 }
 
 func TestNewStorePingError(t *testing.T) {

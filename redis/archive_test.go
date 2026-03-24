@@ -1,4 +1,4 @@
-package integration_test
+package redis_test
 
 import (
 	"context"
@@ -54,7 +54,7 @@ func TestArchivePayloadBytes(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	payload := []byte(`{"id":"order:bytes","snap":"","seq":0,"events":["{}"]}`)
+	payload := []byte(`{"id":"order:bytes","snap":"","seq":0,"events":[]}`)
 	streamKey := tbredis.DefaultPrefix + ":archive"
 	_, err = client.XAdd(context.Background(), &redis.XAddArgs{
 		Stream: streamKey,
@@ -72,7 +72,8 @@ func TestArchivePayloadBytes(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, handled)
 	assert.Equal(t,
-		timebox.NewAggregateID("order", "bytes"), handled.AggregateID,
+		timebox.NewAggregateID("order", "bytes"),
+		handled.AggregateID,
 	)
 }
 
@@ -92,6 +93,34 @@ func TestArchivePayloadJSON(t *testing.T) {
 	_, err = client.XAdd(context.Background(), &redis.XAddArgs{
 		Stream: streamKey,
 		Values: map[string]any{"payload": "{bad json"},
+	}).Result()
+	assert.NoError(t, err)
+
+	err = store.ConsumeArchive(context.Background(), func(
+		_ context.Context, _ *timebox.ArchiveRecord,
+	) error {
+		return nil
+	})
+	assert.Error(t, err)
+}
+
+func TestArchivePayloadBadEvent(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer func() { server.Close() }()
+
+	store, err := newStore(tbredis.Config{Addr: server.Addr()})
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = client.Close() }()
+
+	payload := []byte(`{"id":"order:bad","snap":"","seq":0,"events":["{"]}`)
+	streamKey := tbredis.DefaultPrefix + ":archive"
+	_, err = client.XAdd(context.Background(), &redis.XAddArgs{
+		Stream: streamKey,
+		Values: map[string]any{"payload": payload},
 	}).Result()
 	assert.NoError(t, err)
 

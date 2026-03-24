@@ -8,8 +8,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kode4food/timebox"
 	tbredis "github.com/kode4food/timebox/redis"
 )
+
+func newStore(cfgs ...tbredis.Config) (*timebox.Store, error) {
+	return tbredis.NewStore(cfgs...)
+}
 
 func newPersistence(cfgs ...tbredis.Config) (*tbredis.Persistence, error) {
 	return tbredis.NewPersistence(cfgs...)
@@ -21,6 +26,10 @@ func testConfig(addr string, mutate func(*tbredis.Config)) tbredis.Config {
 		mutate(&cfg)
 	}
 	return cfg
+}
+
+func testStoreConfig(addr string, mutate func(*tbredis.Config)) tbredis.Config {
+	return testConfig(addr, mutate)
 }
 
 func withPersistence(

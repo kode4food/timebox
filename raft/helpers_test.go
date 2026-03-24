@@ -31,6 +31,7 @@ type (
 		id             string
 		addr           string
 		dataDir        string
+		indexer        timebox.Indexer
 		trimEvents     bool
 		compactMinStep uint64
 		publisher      raft.Publisher
@@ -357,13 +358,18 @@ func waitForWrite(t *testing.T, store *timebox.Store) {
 }
 
 func testRaftConfig(cfg nodeConfig) raft.Config {
+	indexer := combinedIndexer
+	if cfg.indexer != nil {
+		indexer = cfg.indexer
+	}
+
 	return raft.Config{
 		LocalID:        cfg.id,
 		DataDir:        cfg.dataDir,
 		Address:        cfg.addr,
 		CompactMinStep: cfg.compactMinStep,
 		Timebox: timebox.Config{
-			Indexer: combinedIndexer,
+			Indexer: indexer,
 			Snapshot: timebox.SnapshotConfig{
 				TrimEvents: cfg.trimEvents,
 			},
