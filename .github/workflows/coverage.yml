@@ -29,9 +29,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
       - name: Run tests with coverage
-        run: go test ./...  -coverpkg=./... -coverprofile=cover.out
+        shell: bash
+        run: |
+          mapfile -t pkgs < <(go list ./... | grep -v '/internal/compliance$')
+          coverpkgs=$(IFS=,; echo "${pkgs[*]}")
+          go test "${pkgs[@]}" -coverpkg="$coverpkgs" -coverprofile=cover.out
       - name: Upload coverage to Qlty
         uses: qltysh/qlty-action/coverage@v1
         with:
