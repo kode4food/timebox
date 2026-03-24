@@ -15,8 +15,6 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, redis.DefaultEndpoint, cfg.Addr)
 	assert.Equal(t, redis.DefaultPrefix, cfg.Prefix)
 	assert.Equal(t, redis.DefaultDB, cfg.DB)
-	assert.NotNil(t, cfg.JoinKey)
-	assert.NotNil(t, cfg.ParseKey)
 	assert.Equal(t, timebox.DefaultMaxRetries, cfg.Timebox.MaxRetries)
 	assert.Equal(t, timebox.DefaultCacheSize, cfg.Timebox.CacheSize)
 }
@@ -50,24 +48,13 @@ func TestConfigWith(t *testing.T) {
 }
 
 func TestConfigWithFields(t *testing.T) {
-	join := func(id timebox.AggregateID) string {
-		return "joined:" + id.Join(":")
-	}
-	parse := func(s string) timebox.AggregateID {
-		return timebox.NewAggregateID(timebox.ID(s))
-	}
-
 	cfg := timebox.Configure(redis.DefaultConfig(), redis.Config{
 		Password: "secret",
 		DB:       7,
-		JoinKey:  join,
-		ParseKey: parse,
 	})
 
 	assert.Equal(t, "secret", cfg.Password)
 	assert.Equal(t, 7, cfg.DB)
-	assert.Equal(t, "joined:one", cfg.JoinKey(timebox.NewAggregateID("one")))
-	assert.Equal(t, timebox.NewAggregateID("one"), cfg.ParseKey("one"))
 }
 
 func TestConfigValidate(t *testing.T) {
@@ -77,46 +64,22 @@ func TestConfigValidate(t *testing.T) {
 		err  error
 	}{
 		{
-			name: "Missing JoinKey",
-			cfg: redis.Config{
-				Timebox:  validTimeboxConfig(),
-				Addr:     redis.DefaultEndpoint,
-				Prefix:   redis.DefaultPrefix,
-				ParseKey: redis.ParseKey,
-			},
-			err: redis.ErrJoinKeyRequired,
-		},
-		{
-			name: "Missing ParseKey",
+			name: "Negative DB",
 			cfg: redis.Config{
 				Timebox: validTimeboxConfig(),
 				Addr:    redis.DefaultEndpoint,
 				Prefix:  redis.DefaultPrefix,
-				JoinKey: redis.JoinKey,
-			},
-			err: redis.ErrParseKeyRequired,
-		},
-		{
-			name: "Negative DB",
-			cfg: redis.Config{
-				Timebox:  validTimeboxConfig(),
-				Addr:     redis.DefaultEndpoint,
-				Prefix:   redis.DefaultPrefix,
-				DB:       -1,
-				JoinKey:  redis.JoinKey,
-				ParseKey: redis.ParseKey,
+				DB:      -1,
 			},
 			err: redis.ErrInvalidDB,
 		},
 		{
 			name: "Invalid Shard",
 			cfg: redis.Config{
-				Timebox:  validTimeboxConfig(),
-				Addr:     redis.DefaultEndpoint,
-				Prefix:   redis.DefaultPrefix,
-				Shard:    "blue:red",
-				JoinKey:  redis.JoinKey,
-				ParseKey: redis.ParseKey,
+				Timebox: validTimeboxConfig(),
+				Addr:    redis.DefaultEndpoint,
+				Prefix:  redis.DefaultPrefix,
+				Shard:   "blue:red",
 			},
 			err: redis.ErrInvalidShard,
 		},
@@ -128,14 +91,6 @@ func TestConfigValidate(t *testing.T) {
 			assert.ErrorIs(t, err, tc.err)
 		})
 	}
-}
-
-func TestJoinParseKey(t *testing.T) {
-	id := timebox.NewAggregateID("order-1", `path\part`, `%done`)
-	joined := redis.JoinKey(id)
-	parsed := redis.ParseKey(joined)
-
-	assert.Equal(t, id, parsed)
 }
 
 func validTimeboxConfig() timebox.Config {

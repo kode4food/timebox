@@ -59,8 +59,6 @@ The Postgres backend stores:
 - `Prefix`: logical store namespace
 - `Shard`: optional hash-tag value for cluster slot affinity
 - `DB`: logical database index
-- `JoinKey`: aggregate key encoder
-- `ParseKey`: aggregate key decoder
 - `Timebox`: embedded `timebox.Config`
 
 ### Raft

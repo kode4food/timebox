@@ -1,6 +1,10 @@
 package timebox
 
-import "errors"
+import (
+	"errors"
+
+	bin "github.com/kode4food/timebox/internal/binary"
+)
 
 type (
 	// Executor orchestrates loading aggregate state, executing commands, and
@@ -121,7 +125,7 @@ func (e *Executor[T]) handleVersionConflict(
 }
 
 func (e *Executor[T]) loadSnapshot(id AggregateID) (*projection[T], error) {
-	key := id.Join(":")
+	key := cacheKey(id)
 	entry := e.cache.Get(key, func() *projection[T] {
 		return &projection[T]{state: e.construct(), nextSeq: 0}
 	})
@@ -179,7 +183,7 @@ func (e *Executor[T]) applyEvents(
 }
 
 func (e *Executor[T]) updateCache(id AggregateID, proj *projection[T]) {
-	key := id.Join(":")
+	key := cacheKey(id)
 
 	entry := e.cache.Get(key, func() *projection[T] { return proj })
 	entry.mu.Lock()
@@ -188,4 +192,17 @@ func (e *Executor[T]) updateCache(id AggregateID, proj *projection[T]) {
 	if proj.nextSeq > entry.value.nextSeq {
 		entry.value = proj
 	}
+}
+
+func cacheKey(id AggregateID) string {
+	n := len(id) * 4
+	for _, part := range id {
+		n += len(part)
+	}
+
+	buf := make([]byte, 0, n)
+	for _, part := range id {
+		buf = bin.AppendString(buf, string(part))
+	}
+	return string(buf)
 }

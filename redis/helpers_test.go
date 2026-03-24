@@ -9,8 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/id"
 	tbredis "github.com/kode4food/timebox/redis"
 )
+
+var joinAggregateID, _ = id.MakeCodec(':')
 
 func newStore(cfgs ...tbredis.Config) (*timebox.Store, error) {
 	return tbredis.NewStore(cfgs...)

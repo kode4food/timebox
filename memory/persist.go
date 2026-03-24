@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/id"
 )
 
 type (
@@ -43,6 +44,8 @@ type (
 var (
 	// ErrClosed indicates the in-memory persistence has been closed
 	ErrClosed = errors.New("memory persistence is closed")
+
+	joinAggregateID, _ = id.MakeCodec('\x1f')
 )
 
 var _ timebox.Backend = (*Persistence)(nil)
@@ -421,5 +424,5 @@ func (p *Persistence) checkClosed() error {
 }
 
 func keyFor(id timebox.AggregateID) string {
-	return id.Join("\x1f")
+	return joinAggregateID(id)
 }

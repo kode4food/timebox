@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/id"
 )
 
 // Persistence implements timebox.Persistence using Redis/Valkey
@@ -49,7 +50,11 @@ const (
 
 // ErrUnexpectedLuaResult indicates a Redis Lua script returned data in an
 // unexpected shape
-var ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
+var (
+	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
+
+	joinAggregateID, parseAggregateID = id.MakeCodec(':')
+)
 
 // NewStore creates a Store backed by Redis persistence
 func NewStore(cfgs ...Config) (*timebox.Store, error) {
@@ -310,7 +315,7 @@ func (p *Persistence) ListAggregates(
 				continue
 			}
 
-			seen[aid.Join(":")] = aid
+			seen[joinAggregateID(aid)] = aid
 		}
 	}
 
@@ -326,11 +331,11 @@ func (p *Persistence) listAggregateKey(suffix string) string {
 }
 
 func (p *Persistence) buildKey(id timebox.AggregateID, suffix string) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, p.JoinKey(id), suffix)
+	return fmt.Sprintf("%s:%s:%s", p.prefix, joinAggregateID(id), suffix)
 }
 
 func (p *Persistence) buildLabelStateKey(id timebox.AggregateID) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, p.JoinKey(id), labelsSuffix)
+	return fmt.Sprintf("%s:%s:%s", p.prefix, joinAggregateID(id), labelsSuffix)
 }
 
 func (p *Persistence) buildLabelRootKey() string {
@@ -363,7 +368,7 @@ func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {
 		}
 	}
 
-	return p.ParseKey(str)
+	return parseAggregateID(str)
 }
 
 func escapeKeyPart(s string) string {

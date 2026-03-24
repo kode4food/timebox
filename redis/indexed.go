@@ -15,7 +15,7 @@ import (
 func (p *Persistence) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
-	aggID := id.Join(":")
+	aggID := joinAggregateID(id)
 	status, err := p.client.HGet(
 		context.Background(), p.buildStatusHashKey(), aggID,
 	).Result()
@@ -42,7 +42,7 @@ func (p *Persistence) ListAggregatesByStatus(
 	res := make([]timebox.StatusEntry, 0, len(members))
 	for _, member := range members {
 		res = append(res, timebox.StatusEntry{
-			ID:        p.ParseKey(fmt.Sprint(member.Member)),
+			ID:        parseAggregateID(fmt.Sprint(member.Member)),
 			Timestamp: time.UnixMilli(int64(member.Score)).UTC(),
 		})
 	}
@@ -61,7 +61,7 @@ func (p *Persistence) ListAggregatesByLabel(
 
 	ids := make([]timebox.AggregateID, 0, len(members))
 	for _, member := range members {
-		ids = append(ids, p.ParseKey(member))
+		ids = append(ids, parseAggregateID(member))
 	}
 	return ids, nil
 }

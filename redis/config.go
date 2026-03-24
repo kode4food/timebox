@@ -17,17 +17,7 @@ type (
 		Prefix   string
 		Shard    string
 		DB       int
-		JoinKey  JoinKeyFunc
-		ParseKey ParseKeyFunc
 	}
-
-	// JoinKeyFunc joins an aggregate ID into the identity portion of a Redis
-	// key
-	JoinKeyFunc func(timebox.AggregateID) string
-
-	// ParseKeyFunc reconstructs an aggregate ID from the identity portion of a
-	// Redis key
-	ParseKeyFunc func(string) timebox.AggregateID
 )
 
 const (
@@ -47,23 +37,15 @@ var (
 
 	// ErrInvalidShard indicates Shard contains disallowed characters
 	ErrInvalidShard = errors.New("shard cannot contain braces or colons")
-
-	// ErrJoinKeyRequired indicates JoinKey must be provided
-	ErrJoinKeyRequired = errors.New("join key function is required")
-
-	// ErrParseKeyRequired indicates ParseKey must be provided
-	ErrParseKeyRequired = errors.New("parse key function is required")
 )
 
 // DefaultConfig returns a Config populated with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Timebox:  timebox.DefaultConfig(),
-		Addr:     DefaultEndpoint,
-		Prefix:   DefaultPrefix,
-		DB:       DefaultDB,
-		JoinKey:  JoinKey,
-		ParseKey: ParseKey,
+		Timebox: timebox.DefaultConfig(),
+		Addr:    DefaultEndpoint,
+		Prefix:  DefaultPrefix,
+		DB:      DefaultDB,
 	}
 }
 
@@ -85,12 +67,6 @@ func (cfg Config) With(other Config) Config {
 	if other.DB != 0 {
 		cfg.DB = other.DB
 	}
-	if other.JoinKey != nil {
-		cfg.JoinKey = other.JoinKey
-	}
-	if other.ParseKey != nil {
-		cfg.ParseKey = other.ParseKey
-	}
 	return cfg
 }
 
@@ -101,23 +77,8 @@ func (cfg Config) Validate() error {
 		return ErrInvalidDB
 	case strings.ContainsAny(cfg.Shard, "{}:"):
 		return ErrInvalidShard
-	case cfg.JoinKey == nil:
-		return ErrJoinKeyRequired
-	case cfg.ParseKey == nil:
-		return ErrParseKeyRequired
 	}
 	return cfg.Timebox.Validate()
-}
-
-// JoinKey is the default JoinKeyFunc; it joins AggregateID parts with ":"
-func JoinKey(id timebox.AggregateID) string {
-	return id.Join(":")
-}
-
-// ParseKey is the default ParseKeyFunc; it splits on ":" to reconstruct an
-// AggregateID
-func ParseKey(str string) timebox.AggregateID {
-	return timebox.ParseAggregateID(str, ":")
 }
 
 func buildStorePrefix(cfg Config) string {

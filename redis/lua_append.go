@@ -288,7 +288,7 @@ func buildLuaAppendCall(p *Persistence, in luaAppendInput) luaAppendCall {
 	return luaAppendCall{
 		spec: spec,
 		keys: buildLuaAppendKeys(p, in.id, spec),
-		args: buildLuaAppendArgs(p.JoinKey(in.id), in, ops, spec),
+		args: buildLuaAppendArgs(joinAggregateID(in.id), in, ops, spec),
 	}
 }
 

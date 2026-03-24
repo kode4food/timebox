@@ -32,7 +32,7 @@ func TestSnapshotCorrupt(t *testing.T) {
 
 	err = client.Set(
 		context.Background(),
-		storeCfg.Prefix+":"+id.Join(":")+":snapshot:val",
+		storeCfg.Prefix+":"+joinAggregateID(id)+":snapshot:val",
 		"not-json",
 		0,
 	).Err()

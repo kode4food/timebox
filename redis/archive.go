@@ -35,7 +35,7 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 		snapKey, snapSeqKey, eventsKey, streamKey, statusKey, labelStateKey,
 		labelRootKey,
 	}
-	args := []any{p.JoinKey(id)}
+	args := []any{joinAggregateID(id)}
 
 	result, err := p.publishArchive.Run(
 		context.Background(), p.client, keys, args...,
@@ -214,7 +214,7 @@ func (p *Persistence) parseArchiveRecord(
 
 	record := &timebox.ArchiveRecord{
 		StreamID:         msg.ID,
-		AggregateID:      p.ParseKey(payload.AggregateID),
+		AggregateID:      parseAggregateID(payload.AggregateID),
 		SnapshotData:     json.RawMessage(payload.SnapshotData),
 		SnapshotSequence: payload.SnapshotSequence,
 		Events:           make([]*timebox.Event, 0, len(payload.Events)),

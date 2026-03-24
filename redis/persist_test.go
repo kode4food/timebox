@@ -55,7 +55,7 @@ func TestPersistenceCorruptEvents(t *testing.T) {
 	) {
 		id := timebox.NewAggregateID("order", "1")
 		err := client.RPush(ctx,
-			"corrupt:"+id.Join(":")+":events", "not-json",
+			"corrupt:"+joinAggregateID(id)+":events", "not-json",
 		).Err()
 		assert.NoError(t, err)
 
@@ -72,7 +72,7 @@ func TestCorruptSnapshot(t *testing.T) {
 	) {
 		id := timebox.NewAggregateID("order", "1")
 		err := client.Set(ctx,
-			"corrupt-snapshot:"+id.Join(":")+":snapshot:val",
+			"corrupt-snapshot:"+joinAggregateID(id)+":snapshot:val",
 			"not-json",
 			0,
 		).Err()

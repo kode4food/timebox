@@ -26,7 +26,7 @@ func TestCorruptEvents(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
-	eventsKey := storeCfg.Prefix + ":" + id.Join(":") + ":events"
+	eventsKey := storeCfg.Prefix + ":" + joinAggregateID(id) + ":events"
 
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
