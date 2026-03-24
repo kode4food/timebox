@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -156,6 +158,20 @@ func (id AggregateID) Equal(other AggregateID) bool {
 		}
 	}
 	return true
+}
+
+// String returns a human-readable AggregateID representation
+func (id AggregateID) String() string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, p := range id {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Quote(string(p)))
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 // HasPrefix checks if the AggregateID starts with the provided prefix

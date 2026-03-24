@@ -11,6 +11,12 @@ import (
 func TestAggregateID(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "123")
 	assert.Len(t, id, 2)
+	assert.Equal(t, `["counter","123"]`, id.String())
+}
+
+func TestAggregateIDStringEscapes(t *testing.T) {
+	id := timebox.NewAggregateID(`order:1`, `"part"`, `path\part`)
+	assert.Equal(t, `["order:1","\"part\"","path\\part"]`, id.String())
 }
 
 func TestAggregateIDEqual(t *testing.T) {
