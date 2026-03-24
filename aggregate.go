@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"slices"
-	"strings"
 	"time"
-	"unsafe"
 )
 
 type (
@@ -45,12 +43,6 @@ type (
 // NewAggregateID builds an AggregateID from its parts
 func NewAggregateID(parts ...ID) AggregateID {
 	return parts
-}
-
-// ParseAggregateID splits a string by the separator into an AggregateID
-func ParseAggregateID(str, sep string) AggregateID {
-	s := strings.Split(str, sep)
-	return *(*AggregateID)(unsafe.Pointer(&s))
 }
 
 // Raise marshals the value and enqueues a new event on the Aggregator
@@ -151,12 +143,6 @@ func (a *Aggregator[T]) runOnSuccess(defaults []SuccessAction[T]) {
 			cb(val, evs)
 		}(fn)
 	}
-}
-
-// Join combines the AggregateID parts into a single string using a separator
-func (id AggregateID) Join(sep string) string {
-	s := *(*[]string)(unsafe.Pointer(&id))
-	return strings.Join(s, sep)
 }
 
 // Equal compares two AggregateIDs for equality
