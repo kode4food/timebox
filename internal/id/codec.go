@@ -1,10 +1,6 @@
 package id
 
-import (
-	"strings"
-
-	"github.com/kode4food/timebox"
-)
+import "github.com/kode4food/timebox"
 
 type (
 	// Joiner joins AggregateID parts into a single string
@@ -23,52 +19,82 @@ func makeJoiner(sep byte) Joiner {
 	return func(id timebox.AggregateID) string {
 		n := max(len(id)-1, 0)
 		for _, part := range id {
-			n += len(part)
+			n += escapedLen(string(part), sep)
 		}
 
-		var b strings.Builder
-		b.Grow(n)
-
+		res := make([]byte, 0, n)
 		for i, part := range id {
 			if i > 0 {
-				b.WriteByte(sep)
+				res = append(res, sep)
 			}
 			for j := range len(part) {
 				c := part[j]
 				if c == '\\' || c == sep {
-					b.WriteByte('\\')
+					res = append(res, '\\')
 				}
-				b.WriteByte(c)
+				res = append(res, c)
 			}
 		}
-		return b.String()
+		return string(res)
 	}
 }
 
 func makeParser(sep byte) Parser {
 	return func(value string) timebox.AggregateID {
-		res := make(timebox.AggregateID, 0, 1)
-		var b strings.Builder
+		res := make(timebox.AggregateID, 0, countParts(value, sep))
+		part := make([]byte, 0, len(value))
 		esc := false
 
 		for i := range len(value) {
 			c := value[i]
 			switch {
 			case esc:
-				b.WriteByte(c)
+				part = append(part, c)
 				esc = false
 			case c == '\\':
 				esc = true
 			case c == sep:
-				res = append(res, timebox.ID(b.String()))
-				b.Reset()
+				res = append(res, timebox.ID(string(part)))
+				part = part[:0]
 			default:
-				b.WriteByte(c)
+				part = append(part, c)
 			}
 		}
 		if esc {
-			b.WriteByte('\\')
+			part = append(part, '\\')
 		}
-		return append(res, timebox.ID(b.String()))
+		return append(res, timebox.ID(string(part)))
 	}
+}
+
+func countParts(value string, sep byte) int {
+	if value == "" {
+		return 1
+	}
+
+	res := 1
+	esc := false
+	for i := range len(value) {
+		c := value[i]
+		switch {
+		case esc:
+			esc = false
+		case c == '\\':
+			esc = true
+		case c == sep:
+			res++
+		}
+	}
+	return res
+}
+
+func escapedLen(value string, sep byte) int {
+	res := len(value)
+	for i := range len(value) {
+		c := value[i]
+		if c == '\\' || c == sep {
+			res++
+		}
+	}
+	return res
 }

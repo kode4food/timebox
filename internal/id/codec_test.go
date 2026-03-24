@@ -12,10 +12,35 @@ import (
 func TestCodec(t *testing.T) {
 	join, parse := id.MakeCodec(':')
 
-	first := timebox.NewAggregateID(`order:1`, `path\part`, `%done`)
-	second := timebox.NewAggregateID("order", "1", `path\part`)
+	tests := []struct {
+		name  string
+		aggID timebox.AggregateID
+	}{
+		{
+			name:  "escapes separator and slash",
+			aggID: timebox.NewAggregateID(`order:1`, `path\\part`, `%done`),
+		},
+		{
+			name:  "simple segments",
+			aggID: timebox.NewAggregateID("order", "1", `path\\part`),
+		},
+		{
+			name:  "empty parts",
+			aggID: timebox.NewAggregateID("", ""),
+		},
+		{
+			name:  "trailing slash",
+			aggID: timebox.NewAggregateID(`path\\`),
+		},
+	}
 
-	assert.Equal(t, first, parse(join(first)))
-	assert.Equal(t, second, parse(join(second)))
-	assert.NotEqual(t, join(first), join(second))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.aggID, parse(join(tc.aggID)))
+		})
+	}
+
+	left := timebox.NewAggregateID(`order:1`, `path\\part`, `%done`)
+	right := timebox.NewAggregateID("order", "1", `path\\part`)
+	assert.NotEqual(t, join(left), join(right))
 }
