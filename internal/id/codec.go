@@ -23,52 +23,107 @@ func makeJoiner(sep byte) Joiner {
 	return func(id timebox.AggregateID) string {
 		n := max(len(id)-1, 0)
 		for _, part := range id {
-			n += len(part)
+			n += escapedLen(string(part), sep)
 		}
 
-		var b strings.Builder
-		b.Grow(n)
-
+		res := make([]byte, 0, n)
 		for i, part := range id {
 			if i > 0 {
-				b.WriteByte(sep)
+				res = append(res, sep)
 			}
-			for j := range len(part) {
-				c := part[j]
-				if c == '\\' || c == sep {
-					b.WriteByte('\\')
-				}
-				b.WriteByte(c)
-			}
+			res = appendEscaped(res, string(part), sep)
 		}
-		return b.String()
+		return string(res)
 	}
 }
 
 func makeParser(sep byte) Parser {
 	return func(value string) timebox.AggregateID {
-		res := make(timebox.AggregateID, 0, 1)
-		var b strings.Builder
-		esc := false
+		res := make(timebox.AggregateID, 0, countParts(value, sep))
+		var part []byte
+		escaped := false
+		start := 0
 
-		for i := range len(value) {
+		for i := 0; i < len(value); i++ {
 			c := value[i]
-			switch {
-			case esc:
-				b.WriteByte(c)
-				esc = false
-			case c == '\\':
-				esc = true
-			case c == sep:
-				res = append(res, timebox.ID(b.String()))
-				b.Reset()
-			default:
-				b.WriteByte(c)
+			switch c {
+			case '\\':
+				if !escaped {
+					part = part[:0]
+					escaped = true
+				}
+				part = append(part, value[start:i]...)
+				if i+1 < len(value) {
+					part = append(part, value[i+1])
+					i++
+				} else {
+					part = append(part, '\\')
+				}
+				start = i + 1
+			case sep:
+				if escaped {
+					part = append(part, value[start:i]...)
+					res = append(res, timebox.ID(string(part)))
+					escaped = false
+				} else {
+					res = append(res, timebox.ID(strings.Clone(value[start:i])))
+				}
+				start = i + 1
 			}
 		}
-		if esc {
-			b.WriteByte('\\')
+		if escaped {
+			part = append(part, value[start:]...)
+			return append(res, timebox.ID(string(part)))
 		}
-		return append(res, timebox.ID(b.String()))
+		return append(res, timebox.ID(strings.Clone(value[start:])))
 	}
+}
+
+func appendEscaped(res []byte, value string, sep byte) []byte {
+	start := 0
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c != '\\' && c != sep {
+			continue
+		}
+		res = append(res, value[start:i]...)
+		res = append(res, '\\', c)
+		start = i + 1
+	}
+	if start == 0 {
+		return append(res, value...)
+	}
+	return append(res, value[start:]...)
+}
+
+func countParts(value string, sep byte) int {
+	if value == "" {
+		return 1
+	}
+
+	res := 1
+	esc := false
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		switch {
+		case esc:
+			esc = false
+		case c == '\\':
+			esc = true
+		case c == sep:
+			res++
+		}
+	}
+	return res
+}
+
+func escapedLen(value string, sep byte) int {
+	res := len(value)
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '\\' || c == sep {
+			res++
+		}
+	}
+	return res
 }
