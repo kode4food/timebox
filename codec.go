@@ -34,7 +34,7 @@ type (
 
 var (
 	// JSONEvent encodes complete events as JSON
-	JSONEvent EventCodec[string] = jsonEventCodec{}
+	JSONEvent EventCodec[[]byte] = jsonEventCodec{}
 
 	// BinEvent encodes complete events using the internal binary format
 	BinEvent interface {
@@ -43,10 +43,10 @@ var (
 		ReadAll(data []byte) ([]*Event, []byte, error)
 	} = binEventCodec{}
 
-	// EncodeJSONEvents encodes complete events as JSON strings
+	// EncodeJSONEvents encodes complete events as JSON bytes
 	EncodeJSONEvents = MakeEncodeAll(JSONEvent)
 
-	// DecodeJSONEvents decodes complete events from JSON strings
+	// DecodeJSONEvents decodes complete events from JSON bytes
 	DecodeJSONEvents = MakeDecodeAll(JSONEvent)
 
 	// EncodeBinEvents encodes complete events to the internal binary format
@@ -91,32 +91,32 @@ func MakeDecodeAll[Value, Data any](
 }
 
 // Encode converts an Event to JSON using its struct tags
-func (c jsonEventCodec) Encode(ev *Event) (string, error) {
-	return c.Append("", ev)
+func (c jsonEventCodec) Encode(ev *Event) ([]byte, error) {
+	return c.Append(nil, ev)
 }
 
 // Decode converts JSON into an Event using its struct tags
-func (c jsonEventCodec) Decode(data string) (*Event, error) {
+func (c jsonEventCodec) Decode(data []byte) (*Event, error) {
 	res, _, err := c.Read(data)
 	return res, err
 }
 
 // Append appends a JSON-encoded Event to a buffer
-func (jsonEventCodec) Append(buf string, ev *Event) (string, error) {
+func (jsonEventCodec) Append(buf []byte, ev *Event) ([]byte, error) {
 	data, err := json.Marshal(ev)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return buf + string(data), nil
+	return append(buf, data...), nil
 }
 
 // Read reads and decodes a JSON Event from a buffer
-func (jsonEventCodec) Read(data string) (*Event, string, error) {
+func (jsonEventCodec) Read(data []byte) (*Event, []byte, error) {
 	var ev Event
-	if err := json.Unmarshal(([]byte)(data), &ev); err != nil {
-		return nil, "", err
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return nil, nil, err
 	}
-	return &ev, "", nil
+	return &ev, nil, nil
 }
 
 // Encode converts an Event to the internal binary format

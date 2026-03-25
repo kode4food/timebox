@@ -286,14 +286,14 @@ $$ LANGUAGE plpgsql
 	)
 }
 
-func encodeAppendEvents(evs []*timebox.Event) ([]int64, []string, []string) {
+func encodeAppendEvents(evs []*timebox.Event) ([]int64, []string, [][]byte) {
 	ats := make([]int64, 0, len(evs))
 	types := make([]string, 0, len(evs))
-	data := make([]string, 0, len(evs))
+	data := make([][]byte, 0, len(evs))
 	for _, ev := range evs {
 		ats = append(ats, ev.Timestamp.UnixNano())
 		types = append(types, string(ev.Type))
-		data = append(data, string(ev.Data))
+		data = append(data, ev.Data)
 	}
 	return ats, types, data
 }

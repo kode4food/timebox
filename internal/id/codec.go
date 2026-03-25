@@ -26,31 +26,31 @@ func makeJoiner(sep byte) Joiner {
 			n += escapedLen(string(part), sep)
 		}
 
-		res := make([]byte, 0, n)
+		var b strings.Builder
+		b.Grow(n)
 		for i, part := range id {
 			if i > 0 {
-				res = append(res, sep)
+				b.WriteByte(sep)
 			}
-			res = appendEscaped(res, string(part), sep)
+			appendEscaped(&b, string(part), sep)
 		}
-		return string(res)
+		return b.String()
 	}
 }
 
 func makeParser(sep byte) Parser {
 	return func(value string) timebox.AggregateID {
 		res := make(timebox.AggregateID, 0, countParts(value, sep))
-		var part []byte
-		escaped := false
+		part := make([]byte, 0, len(value))
+		esc := false
 		start := 0
 
 		for i := 0; i < len(value); i++ {
-			c := value[i]
-			switch c {
+			switch value[i] {
 			case '\\':
-				if !escaped {
+				if !esc {
 					part = part[:0]
-					escaped = true
+					esc = true
 				}
 				part = append(part, value[start:i]...)
 				if i+1 < len(value) {
@@ -61,17 +61,17 @@ func makeParser(sep byte) Parser {
 				}
 				start = i + 1
 			case sep:
-				if escaped {
+				if esc {
 					part = append(part, value[start:i]...)
 					res = append(res, timebox.ID(string(part)))
-					escaped = false
+					esc = false
 				} else {
 					res = append(res, timebox.ID(strings.Clone(value[start:i])))
 				}
 				start = i + 1
 			}
 		}
-		if escaped {
+		if esc {
 			part = append(part, value[start:]...)
 			return append(res, timebox.ID(string(part)))
 		}
@@ -79,21 +79,23 @@ func makeParser(sep byte) Parser {
 	}
 }
 
-func appendEscaped(res []byte, value string, sep byte) []byte {
+func appendEscaped(b *strings.Builder, value string, sep byte) {
 	start := 0
 	for i := 0; i < len(value); i++ {
 		c := value[i]
 		if c != '\\' && c != sep {
 			continue
 		}
-		res = append(res, value[start:i]...)
-		res = append(res, '\\', c)
+		b.WriteString(value[start:i])
+		b.WriteByte('\\')
+		b.WriteByte(c)
 		start = i + 1
 	}
 	if start == 0 {
-		return append(res, value...)
+		b.WriteString(value)
+		return
 	}
-	return append(res, value[start:]...)
+	b.WriteString(value[start:])
 }
 
 func countParts(value string, sep byte) int {

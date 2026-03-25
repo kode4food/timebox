@@ -200,11 +200,11 @@ func (p *Persistence) parseArchiveRecord(
 
 	payloadBytes, ok := payloadRaw.(string)
 	if !ok {
-		if rawBytes, okBytes := payloadRaw.([]byte); okBytes {
-			payloadBytes = string(rawBytes)
-		} else {
+		rawBytes, ok := payloadRaw.([]byte)
+		if !ok {
 			return nil, timebox.ErrArchiveRecordMalformed
 		}
+		payloadBytes = string(rawBytes)
 	}
 
 	var payload archivePayload
@@ -221,7 +221,7 @@ func (p *Persistence) parseArchiveRecord(
 	}
 
 	for _, item := range payload.Events {
-		ev, err := timebox.JSONEvent.Decode(item)
+		ev, err := timebox.JSONEvent.Decode([]byte(item))
 		if err != nil {
 			return nil, err
 		}

@@ -78,7 +78,7 @@ func TestJSONStreamEncode(t *testing.T) {
 	ev1 := codecEvent()
 	ev2 := codecEvent()
 
-	buf, err := codec.Append("", ev1)
+	buf, err := codec.Append(nil, ev1)
 	assert.NoError(t, err)
 	buf, err = codec.Append(buf, ev2)
 	assert.NoError(t, err)
@@ -90,7 +90,7 @@ func TestJSONAppendDecode(t *testing.T) {
 	codec := timebox.JSONEvent
 	ev := codecEvent()
 
-	buf, err := codec.Append("", ev)
+	buf, err := codec.Append(nil, ev)
 	assert.NoError(t, err)
 	assert.True(t, len(buf) > 0)
 
@@ -122,7 +122,7 @@ func TestDecodeJSONEvents(t *testing.T) {
 	encoded, err := timebox.JSONEvent.Encode(ev)
 	assert.NoError(t, err)
 
-	decoded, err := timebox.DecodeJSONEvents([]string{encoded, encoded})
+	decoded, err := timebox.DecodeJSONEvents([][]byte{encoded, encoded})
 	assert.NoError(t, err)
 	assert.Len(t, decoded, 2)
 	assert.Equal(t, ev, decoded[0])
@@ -130,7 +130,7 @@ func TestDecodeJSONEvents(t *testing.T) {
 }
 
 func TestDecodeJSONEventsEmpty(t *testing.T) {
-	decoded, err := timebox.DecodeJSONEvents([]string{})
+	decoded, err := timebox.DecodeJSONEvents([][]byte{})
 	assert.NoError(t, err)
 	assert.Len(t, decoded, 0)
 }
@@ -201,7 +201,7 @@ func TestEncodeJSONEventsError(t *testing.T) {
 }
 
 func TestDecodeJSONEventsError(t *testing.T) {
-	_, err := timebox.DecodeJSONEvents([]string{"invalid json"})
+	_, err := timebox.DecodeJSONEvents([][]byte{[]byte("invalid json")})
 	assert.Error(t, err)
 }
 

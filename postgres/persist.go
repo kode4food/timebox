@@ -220,7 +220,7 @@ func (p *Persistence) SaveSnapshot(
 		SET base_seq = EXCLUDED.base_seq,
 		    snapshot_seq = EXCLUDED.snapshot_seq,
 		    snapshot_data = EXCLUDED.snapshot_data
-	`, p.Prefix, key, newBase, sequence, string(data)); err != nil {
+	`, p.Prefix, key, newBase, sequence, data); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
