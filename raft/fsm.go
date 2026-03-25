@@ -105,7 +105,7 @@ func (f *fsm) applyAppendTx(
 	); err != nil {
 		return nil, err
 	}
-	if err := applyMutationsTx(b, meta, encodedID, *req); err != nil {
+	if err := applyMutationsTx(b, meta, encodedID, req); err != nil {
 		return nil, err
 	}
 
@@ -116,7 +116,7 @@ func (f *fsm) applyAppendTx(
 		return nil, err
 	}
 
-	return &ApplyResult{}, nil
+	return &ApplyResult{Append: req}, nil
 }
 
 func (f *fsm) applySnapshotTx(
@@ -183,7 +183,7 @@ func writeEventsTx(
 
 func applyMutationsTx(
 	b *bbolt.Bucket, meta *AggregateMeta, encodedID string,
-	req timebox.AppendRequest,
+	req *timebox.AppendRequest,
 ) error {
 	if req.Status != nil {
 		status := *req.Status

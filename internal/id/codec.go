@@ -63,7 +63,7 @@ func makeParser(sep byte) Parser {
 			case sep:
 				if esc {
 					part = append(part, value[start:i]...)
-					res = append(res, timebox.ID(string(part)))
+					res = append(res, timebox.ID(part))
 					esc = false
 				} else {
 					res = append(res, timebox.ID(strings.Clone(value[start:i])))
@@ -73,7 +73,7 @@ func makeParser(sep byte) Parser {
 		}
 		if esc {
 			part = append(part, value[start:]...)
-			return append(res, timebox.ID(string(part)))
+			return append(res, timebox.ID(part))
 		}
 		return append(res, timebox.ID(strings.Clone(value[start:])))
 	}

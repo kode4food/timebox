@@ -10,19 +10,22 @@ var (
 	ErrCorruptState = errors.New("corrupt encoded state")
 )
 
-var AppendUint32 = binary.BigEndian.AppendUint32
+var (
+	AppendUint32 = binary.BigEndian.AppendUint32
+	AppendUint64 = binary.BigEndian.AppendUint64
+)
 
 func AppendInt64(buf []byte, v int64) []byte {
-	return binary.BigEndian.AppendUint64(buf, uint64(v))
+	return AppendUint64(buf, uint64(v))
 }
 
 func AppendString(buf []byte, s string) []byte {
-	buf = binary.BigEndian.AppendUint32(buf, uint32(len(s)))
+	buf = AppendUint32(buf, uint32(len(s)))
 	return append(buf, s...)
 }
 
 func AppendBytes(buf []byte, data []byte) []byte {
-	buf = binary.BigEndian.AppendUint32(buf, uint32(len(data)))
+	buf = AppendUint32(buf, uint32(len(data)))
 	return append(buf, data...)
 }
 

@@ -31,6 +31,9 @@ func (p *Persistence) handleReady(rd raft.Ready) error {
 	if err := p.applyCommittedEntries(rd.CommittedEntries); err != nil {
 		return err
 	}
+	if len(rd.CommittedEntries) != 0 {
+		p.requestCompact()
+	}
 	if p.State() == StateLeader {
 		p.markReady()
 	} else if !raft.IsEmptySnap(rd.Snapshot) ||
@@ -138,34 +141,17 @@ func (p *Persistence) flushBatchPublish(
 		if err := res.Err(); err != nil {
 			return err
 		}
-		evs, err := p.committedEvents(batch[i].cmd, propIDs[i])
-		if err != nil {
-			return err
+		if evs := p.proposalEvents(propIDs[i]); len(evs) > 0 {
+			published = append(published, evs...)
+		} else if res.Append != nil {
+			published = append(published, res.Append.Events...)
 		}
-		published = append(published, evs...)
 		p.appliedIndex.Store(batch[i].index)
 	}
 	if len(published) != 0 {
 		p.Publisher(published...)
 	}
 	return nil
-}
-
-func (p *Persistence) committedEvents(
-	cmd Command, proposalID uint64,
-) ([]*timebox.Event, error) {
-	if evs := p.proposalEvents(proposalID); len(evs) > 0 {
-		return evs, nil
-	}
-	if cmd.Type() != CmdTypeAppend {
-		return nil, nil
-	}
-
-	req, err := cmd.AppendRequest()
-	if err != nil {
-		return nil, err
-	}
-	return req.Events, nil
 }
 
 func (p *Persistence) applyConfChange(ent raftpb.Entry) error {

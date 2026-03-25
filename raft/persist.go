@@ -38,8 +38,9 @@ type (
 		flushBatch   func([]decodedEntry, []uint64) error
 
 		// Cluster routing
-		peers   map[uint64]peerInfo
-		sendChs map[uint64]chan peerMessage
+		peers     map[uint64]peerInfo
+		sendChs   map[uint64]chan peerMessage
+		compactCh chan struct{}
 
 		// Background loops
 		bgWG      sync.WaitGroup
@@ -127,8 +128,9 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		transport:    tr,
 		applyTimeout: defaultApplyTimeout,
 
-		peers:   buildPeerMap(cfg, tr),
-		sendChs: map[uint64]chan peerMessage{},
+		peers:     buildPeerMap(cfg, tr),
+		sendChs:   map[uint64]chan peerMessage{},
+		compactCh: make(chan struct{}, 1),
 
 		readyCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),

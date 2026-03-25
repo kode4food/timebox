@@ -31,7 +31,6 @@ type (
 
 const (
 	tickInterval   = 100 * time.Millisecond
-	peerBackoff    = time.Second
 	heartbeatTick  = 1
 	electionTick   = 10
 	maxSizePerMsg  = 1024 * 1024
@@ -39,7 +38,7 @@ const (
 )
 
 func (p *Persistence) startLoops() {
-	p.serveMaintenance()
+	p.serveCompaction()
 	p.servePeerSends()
 	p.serveTransport()
 	p.serveTicks()
@@ -63,7 +62,6 @@ func (p *Persistence) servePeerSends() {
 }
 
 func (p *Persistence) servePeerSend(peer peerInfo, ch <-chan peerMessage) {
-	backoff := time.Duration(0)
 	for {
 		select {
 		case <-p.stopCh:
@@ -73,17 +71,10 @@ func (p *Persistence) servePeerSend(peer peerInfo, ch <-chan peerMessage) {
 				p.sendSnapshotAsync(peer, s)
 				continue
 			}
-			if backoff > 0 {
-				p.drainPeer(ch, s.to)
-				p.sleepOrStop(backoff)
-				backoff = 0
-				continue
-			}
 			if err := p.transport.Send(
 				peer.RaftAddr, s.data...,
 			); err != nil {
 				p.node.ReportUnreachable(s.to)
-				backoff = peerBackoff
 			}
 		}
 	}
@@ -103,29 +94,6 @@ func (p *Persistence) sendSnapshotAsync(peer peerInfo, s peerMessage) {
 	})
 }
 
-func (p *Persistence) drainPeer(ch <-chan peerMessage, to uint64) {
-	for {
-		select {
-		case s := <-ch:
-			if s.snap != nil {
-				_ = s.snap.Close()
-				p.node.ReportSnapshot(to, raft.SnapshotFailure)
-			}
-		default:
-			return
-		}
-	}
-}
-
-func (p *Persistence) sleepOrStop(d time.Duration) {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-p.stopCh:
-	case <-t.C:
-	}
-}
-
 func (p *Persistence) serveTicks() {
 	t := time.NewTicker(tickInterval)
 	p.bgWG.Go(func() {
@@ -142,16 +110,13 @@ func (p *Persistence) serveTicks() {
 	})
 }
 
-func (p *Persistence) serveMaintenance() {
-	t := time.NewTicker(tickInterval)
+func (p *Persistence) serveCompaction() {
 	p.bgWG.Go(func() {
-		defer t.Stop()
-
 		for {
 			select {
 			case <-p.stopCh:
 				return
-			case <-t.C:
+			case <-p.compactCh:
 				if err := p.compactLog(); err != nil {
 					p.stop(internalError(err))
 					return
@@ -159,6 +124,13 @@ func (p *Persistence) serveMaintenance() {
 			}
 		}
 	})
+}
+
+func (p *Persistence) requestCompact() {
+	select {
+	case p.compactCh <- struct{}{}:
+	default:
+	}
 }
 
 func (p *Persistence) serveTransport() {

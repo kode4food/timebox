@@ -27,6 +27,7 @@ type (
 	}
 
 	ApplyResult struct {
+		Append   *timebox.AppendRequest
 		Conflict *timebox.AppendResult
 		Status   string
 		Code     string
