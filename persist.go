@@ -69,12 +69,12 @@ type (
 
 	// AppendRequest contains primitive inputs required for an atomic append
 	AppendRequest struct {
-		ID               AggregateID       `json:"id"`
-		ExpectedSequence int64             `json:"expected_seq"`
-		Status           *string           `json:"status,omitempty"`
-		StatusAt         string            `json:"status_at,omitempty"`
-		Labels           map[string]string `json:"labels,omitempty"`
-		Events           []*Event          `json:"-"`
+		ID               AggregateID
+		ExpectedSequence int64
+		Status           *string
+		StatusAt         time.Time
+		Labels           map[string]string
+		Events           []*Event
 	}
 
 	// EventsResult contains raw persisted events and the sequence to assign to

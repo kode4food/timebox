@@ -416,6 +416,75 @@ func TestSnapshotWorkerQueueFull(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestWorkerStopDrainsQueue(t *testing.T) {
+	blockCh := make(chan struct{})
+	p := &snapshotGatePersistence{
+		canSave:   true,
+		saveCh:    make(chan struct{}, 4),
+		startedCh: make(chan struct{}, 2),
+		blockCh:   blockCh,
+	}
+	store := newSnapshotGateStore(t, p)
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	first := timebox.NewAggregateID("counter", "drain-1")
+	second := timebox.NewAggregateID("counter", "drain-2")
+
+	_, err := executor.Exec(first, func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
+	assert.NoError(t, err)
+
+	<-p.startedCh
+
+	_, err = executor.Exec(second, func(
+		*CounterState, *timebox.Aggregator[*CounterState],
+	) error {
+		return nil
+	})
+	assert.NoError(t, err)
+
+	closedCh := make(chan struct{})
+	go func() {
+		_ = store.Close()
+		close(closedCh)
+	}()
+
+	assert.Never(t, func() bool {
+		select {
+		case <-closedCh:
+			return true
+		default:
+			return false
+		}
+	}, 100*time.Millisecond, 10*time.Millisecond)
+
+	close(blockCh)
+
+	assert.Eventually(t, func() bool {
+		select {
+		case <-closedCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+
+	count := 0
+	assert.Eventually(t, func() bool {
+		for {
+			select {
+			case <-p.saveCh:
+				count++
+			default:
+				return count == 2
+			}
+		}
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestSaveSnapshotLoadError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()

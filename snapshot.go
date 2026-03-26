@@ -1,7 +1,6 @@
 package timebox
 
 import (
-	"context"
 	"log/slog"
 	"sync"
 	"time"
@@ -11,10 +10,10 @@ type (
 	// SnapshotWorker processes snapshot save requests asynchronously
 	SnapshotWorker struct {
 		store  *Store
-		ctx    context.Context
 		queue  chan snapshotRequest
-		cancel context.CancelFunc
 		wg     sync.WaitGroup
+		mu     sync.Mutex
+		closed bool
 	}
 
 	snapshotRequest struct {
@@ -25,13 +24,9 @@ type (
 )
 
 func newSnapshotWorker(store *Store) *SnapshotWorker {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	sw := &SnapshotWorker{
-		store:  store,
-		queue:  make(chan snapshotRequest, store.config.Snapshot.MaxQueueSize),
-		ctx:    ctx,
-		cancel: cancel,
+		store: store,
+		queue: make(chan snapshotRequest, store.config.Snapshot.MaxQueueSize),
 	}
 
 	for i := 0; i < store.config.Snapshot.WorkerCount; i++ {
@@ -42,23 +37,25 @@ func newSnapshotWorker(store *Store) *SnapshotWorker {
 	return sw
 }
 
-// Stop cancels workers and waits for all pending snapshot requests to finish
+// Stop closes the worker queue and waits for pending snapshot requests to finish
 func (sw *SnapshotWorker) Stop() {
-	sw.cancel()
-	sw.wg.Wait()
+	sw.mu.Lock()
+	if sw.closed {
+		sw.mu.Unlock()
+		sw.wg.Wait()
+		return
+	}
+	sw.closed = true
 	close(sw.queue)
+	sw.mu.Unlock()
+	sw.wg.Wait()
 }
 
 func (sw *SnapshotWorker) worker(id int) {
 	defer sw.wg.Done()
 
-	for {
-		select {
-		case <-sw.ctx.Done():
-			return
-		case req := <-sw.queue:
-			sw.saveSnapshot(id, req)
-		}
+	for req := range sw.queue {
+		sw.saveSnapshot(id, req)
 	}
 }
 
@@ -93,6 +90,11 @@ func (sw *SnapshotWorker) enqueue(
 		sequence: sequence,
 	}
 
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if sw.closed {
+		return false
+	}
 	select {
 	case sw.queue <- req:
 		return true

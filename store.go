@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 )
 
 type (
@@ -100,7 +101,7 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 	}
 
 	var status *string
-	statusAt := ""
+	var statusAt time.Time
 	lbls := map[string]string{}
 	for _, idx := range idxs {
 		if idx != nil && idx.Status != nil {
@@ -111,7 +112,7 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 		}
 	}
 	if status != nil {
-		statusAt = fmt.Sprintf("%d", evs[len(evs)-1].Timestamp.UnixMilli())
+		statusAt = evs[len(evs)-1].Timestamp.UTC()
 	}
 
 	return s.persistence.Append(AppendRequest{

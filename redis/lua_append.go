@@ -3,6 +3,7 @@ package redis
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -34,7 +35,7 @@ type (
 		id       timebox.AggregateID
 		atSeq    int64
 		status   *string
-		statusAt string
+		statusAt time.Time
 		labels   map[string]string
 		events   [][]byte
 	}
@@ -321,7 +322,7 @@ func buildLuaAppendArgs(
 		if in.status != nil {
 			status = *in.status
 		}
-		args = append(args, status, in.statusAt)
+		args = append(args, status, in.statusAt.UnixMilli())
 	}
 	if spec.labels {
 		args = append(args, len(ops))

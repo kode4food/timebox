@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -113,9 +112,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	a.events = append(a.events, req.Events...)
 	if req.Status != nil {
 		a.status = *req.Status
-		if ts, err := strconv.ParseInt(req.StatusAt, 10, 64); err == nil {
-			a.statusAt = time.UnixMilli(ts).UTC()
-		}
+		a.statusAt = req.StatusAt.UTC()
 	}
 	for k, v := range req.Labels {
 		if v == "" {

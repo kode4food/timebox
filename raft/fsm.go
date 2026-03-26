@@ -187,7 +187,7 @@ func applyMutationsTx(
 ) error {
 	if req.Status != nil {
 		status := *req.Status
-		statusAt := parseStatusAt(req.StatusAt)
+		statusAt := req.StatusAt.UnixMilli()
 		if meta.Status != "" && meta.Status != status {
 			if err := b.Delete(
 				statusIndexKey(meta.Status, encodedID),

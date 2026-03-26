@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/kode4food/timebox"
@@ -71,15 +70,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	var statusAt int64
 	if req.Status != nil {
 		status = *req.Status
-		if req.StatusAt != "" {
-			v, err := strconv.ParseInt(req.StatusAt, 10, 64)
-			if err != nil {
-				return fmt.Errorf("%w: %s",
-					timebox.ErrUnexpectedResult, err,
-				)
-			}
-			statusAt = v
-		}
+		statusAt = req.StatusAt.UnixMilli()
 	}
 
 	var success bool

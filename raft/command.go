@@ -3,7 +3,7 @@ package raft
 import (
 	"encoding/binary"
 	"errors"
-	"strconv"
+	"time"
 
 	"github.com/kode4food/timebox"
 	bin "github.com/kode4food/timebox/internal/binary"
@@ -60,7 +60,7 @@ func MakeAppendCommand(
 	c = appendAggregateID(c, req.ID)
 	c = bin.AppendInt64(c, req.ExpectedSequence)
 	c = bin.AppendOptString(c, req.Status)
-	c = bin.AppendString(c, req.StatusAt)
+	c = bin.AppendInt64(c, req.StatusAt.UnixMilli())
 	c = appendStrMap(c, req.Labels)
 	return timebox.BinEvent.AppendAll(c, req.Events)
 }
@@ -116,7 +116,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	statusAt, data, err := bin.ReadString(data)
+	statusAt, data, err := bin.ReadInt64(data)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
 		ID:               id,
 		ExpectedSequence: expectedSeq,
 		Status:           status,
-		StatusAt:         statusAt,
+		StatusAt:         time.UnixMilli(statusAt).UTC(),
 		Labels:           labels,
 		Events:           events,
 	}, nil
@@ -253,11 +253,6 @@ func unmarshalMeta(data []byte) (*AggregateMeta, error) {
 		StatusAt:         statusAt,
 		Labels:           labels,
 	}, nil
-}
-
-func parseStatusAt(value string) int64 {
-	ts, _ := strconv.ParseInt(value, 10, 64)
-	return ts
 }
 
 func decodeOptionalInt64(value []byte) (int64, error) {

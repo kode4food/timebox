@@ -61,7 +61,7 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 		ID:               id,
 		ExpectedSequence: 7,
 		Status:           &status,
-		StatusAt:         time.Now().UTC().Format(time.RFC3339),
+		StatusAt:         time.Now().UTC().Truncate(time.Millisecond),
 		Labels:           map[string]string{"env": "prod"},
 		Events:           evs,
 	}

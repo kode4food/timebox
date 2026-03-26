@@ -95,7 +95,7 @@ func TestStoreConfigAndStatus(t *testing.T) {
 		ID:               id,
 		ExpectedSequence: 0,
 		Status:           &status,
-		StatusAt:         "1700000000000",
+		StatusAt:         time.UnixMilli(1_700_000_000_000).UTC(),
 		Events: []*timebox.Event{{
 			Timestamp: time.Unix(0, 0).UTC(),
 			Type:      "created",
