@@ -188,13 +188,11 @@ func (p *Persistence) Close() error {
 }
 
 // Append submits one aggregate transition through the replicated raft log
-func (p *Persistence) Append(
-	req timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
+func (p *Persistence) Append(req timebox.AppendRequest) error {
 	propID := p.newProposalID()
 	cmd, err := MakeAppendCommand(propID, &req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	res, err := p.applyWithTimeout(
 		context.Background(),
@@ -203,9 +201,9 @@ func (p *Persistence) Append(
 		req.Events,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return res.Conflict, nil
+	return res.Error
 }
 
 // LoadEvents returns raw events from the local materialized state

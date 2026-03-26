@@ -982,7 +982,7 @@ func TestAppendClosed(t *testing.T) {
 	closeNode(t, n)
 
 	id := timebox.NewAggregateID("order", "append-closed")
-	_, err := p.Append(timebox.AppendRequest{
+	err := p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
 		Events:           []*timebox.Event{numberEvent(id, 1)},

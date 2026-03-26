@@ -91,7 +91,7 @@ func TestStoreConfigAndStatus(t *testing.T) {
 
 	id := timebox.NewAggregateID("order", "1")
 	status := "active"
-	_, err = p.Append(timebox.AppendRequest{
+	err = p.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
 		Status:           &status,
@@ -404,10 +404,8 @@ func (f *fakePersistence) Close() error {
 	return nil
 }
 
-func (f *fakePersistence) Append(
-	timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
-	return nil, nil
+func (f *fakePersistence) Append(timebox.AppendRequest) error {
+	return nil
 }
 
 func (f *fakePersistence) LoadEvents(

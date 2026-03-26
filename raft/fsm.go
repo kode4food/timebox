@@ -322,8 +322,9 @@ func markApplied(b *bbolt.Bucket, logIndex uint64) error {
 func conflictResultTx(
 	b *bbolt.Bucket, encodedID string, meta *AggregateMeta, expectedSeq int64,
 ) (*ApplyResult, error) {
-	conflict := &timebox.AppendResult{
-		ActualSequence: meta.CurrentSequence,
+	conflict := &timebox.VersionConflictError{
+		ExpectedSequence: expectedSeq,
+		ActualSequence:   meta.CurrentSequence,
 	}
 	if expectedSeq < meta.CurrentSequence {
 		startSeq := max(expectedSeq, meta.BaseSequence)
@@ -333,7 +334,7 @@ func conflictResultTx(
 		}
 		conflict.NewEvents = evs
 	}
-	return &ApplyResult{Conflict: conflict}, nil
+	return &ApplyResult{Error: conflict}, nil
 }
 
 func loadEventsTx(

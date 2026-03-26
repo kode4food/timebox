@@ -24,8 +24,9 @@ type (
 		Ready() <-chan struct{}
 
 		// Append atomically appends events if the expected sequence still
-		// matches
-		Append(AppendRequest) (*AppendResult, error)
+		// matches. It returns a VersionConflictError when the sequence
+		// check fails
+		Append(AppendRequest) error
 
 		// LoadEvents loads raw persisted events starting at fromSeq
 		LoadEvents(id AggregateID, fromSeq int64) (*EventsResult, error)
@@ -74,13 +75,6 @@ type (
 		StatusAt         string            `json:"status_at,omitempty"`
 		Labels           map[string]string `json:"labels,omitempty"`
 		Events           []*Event          `json:"-"`
-	}
-
-	// AppendResult describes an optimistic concurrency conflict. A nil result
-	// means the append succeeded
-	AppendResult struct {
-		ActualSequence int64    `json:"actual_seq"`
-		NewEvents      []*Event `json:"-"`
 	}
 
 	// EventsResult contains raw persisted events and the sequence to assign to

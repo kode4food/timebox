@@ -212,9 +212,8 @@ func (p *Persistence) stop(err error) {
 
 func internalError(err error) error {
 	return (&ApplyResult{
-		Code:    applyCodeInternal,
-		Message: err.Error(),
-	}).Err()
+		Error: errors.Join(ErrUnexpectedApplyResult, err),
+	}).Error
 }
 
 func newRaftNodeConfig(

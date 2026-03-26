@@ -60,9 +60,7 @@ const (
 )
 
 // Append appends events if the expected sequence matches
-func (p *Persistence) Append(
-	req timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
+func (p *Persistence) Append(req timebox.AppendRequest) error {
 	ctx := context.Background()
 	key, parts := aggregateKey(req.ID)
 	evAts, evTypes, evData := encodeAppendEvents(req.Events)
@@ -76,7 +74,7 @@ func (p *Persistence) Append(
 		if req.StatusAt != "" {
 			v, err := strconv.ParseInt(req.StatusAt, 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf("%w: %s",
+				return fmt.Errorf("%w: %s",
 					timebox.ErrUnexpectedResult, err,
 				)
 			}
@@ -111,19 +109,20 @@ func (p *Persistence) Append(
 		).Scan(&success, &actualSeq)
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if success {
-		return nil, nil
+		return nil
 	}
 	evs, err := p.loadEvents(ctx, req.ID, key, req.ExpectedSequence)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return &timebox.AppendResult{
-		ActualSequence: actualSeq,
-		NewEvents:      evs,
-	}, nil
+	return &timebox.VersionConflictError{
+		ExpectedSequence: req.ExpectedSequence,
+		ActualSequence:   actualSeq,
+		NewEvents:        evs,
+	}
 }
 
 func buildAppendFunctionSQL(spec appendFunctionSpec) string {

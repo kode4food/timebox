@@ -20,7 +20,7 @@ func TestAppendBadStatusAt(t *testing.T) {
 		defer func() { _ = p.Close() }()
 
 		s := "active"
-		_, err = p.Append(timebox.AppendRequest{
+		err = p.Append(timebox.AppendRequest{
 			ID:               timebox.NewAggregateID("o", "1"),
 			ExpectedSequence: 0,
 			Status:           &s,

@@ -3,7 +3,6 @@ package raft
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/kode4food/timebox"
@@ -27,11 +26,8 @@ type (
 	}
 
 	ApplyResult struct {
-		Append   *timebox.AppendRequest
-		Conflict *timebox.AppendResult
-		Status   string
-		Code     string
-		Message  string
+		Append *timebox.AppendRequest
+		Error  error
 	}
 
 	Command []byte
@@ -42,8 +38,6 @@ const (
 	CmdTypeSnapshot = 1
 
 	cmdHeaderSize = 9 // 1 type byte + 8 proposalID bytes
-
-	applyCodeInternal = "internal"
 )
 
 var (
@@ -213,13 +207,6 @@ func readStrMap(data []byte) (map[string]string, []byte, error) {
 		m[k] = v
 	}
 	return m, data, nil
-}
-
-func (r *ApplyResult) Err() error {
-	if r.Code == "" {
-		return nil
-	}
-	return fmt.Errorf("%w: %s", ErrUnexpectedApplyResult, r.Message)
 }
 
 func marshalMeta(meta *AggregateMeta) []byte {

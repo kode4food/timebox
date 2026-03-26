@@ -30,8 +30,8 @@ func (p *Persistence) propose(
 		}
 		return nil, raft.ErrStopped
 	case res := <-st.ch:
-		if err := res.Err(); err != nil {
-			return nil, err
+		if res.Error != nil {
+			return nil, res.Error
 		}
 		return res, nil
 	}

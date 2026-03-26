@@ -483,10 +483,8 @@ func (p *snapshotGatePersistence) Close() error {
 	return nil
 }
 
-func (p *snapshotGatePersistence) Append(
-	timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
-	return nil, nil
+func (p *snapshotGatePersistence) Append(timebox.AppendRequest) error {
+	return nil
 }
 
 func (p *snapshotGatePersistence) LoadEvents(

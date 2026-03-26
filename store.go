@@ -114,7 +114,7 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 		statusAt = fmt.Sprintf("%d", evs[len(evs)-1].Timestamp.UnixMilli())
 	}
 
-	res, err := s.persistence.Append(AppendRequest{
+	return s.persistence.Append(AppendRequest{
 		ID:               id,
 		ExpectedSequence: atSeq,
 		Status:           status,
@@ -122,15 +122,6 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 		Labels:           lbls,
 		Events:           evs,
 	})
-	if err != nil {
-		return err
-	}
-	if res != nil {
-		return s.handleVersionConflict(
-			id, res.NewEvents, atSeq, res.ActualSequence,
-		)
-	}
-	return nil
 }
 
 // GetEvents returns all events for an aggregate starting at fromSeq
@@ -225,16 +216,6 @@ func (e *VersionConflictError) Error() string {
 		"version conflict: expected sequence %d, but at %d (%d new events)",
 		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
 	)
-}
-
-func (s *Store) handleVersionConflict(
-	_ AggregateID, newEvs []*Event, expectedSeq, actualSeq int64,
-) error {
-	return &VersionConflictError{
-		ExpectedSequence: expectedSeq,
-		ActualSequence:   actualSeq,
-		NewEvents:        newEvs,
-	}
 }
 
 func sequenceEvents(id AggregateID, atSeq int64, evs []*Event) []*Event {

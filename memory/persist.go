@@ -78,14 +78,12 @@ func (p *Persistence) Close() error {
 }
 
 // Append appends events if the expected sequence matches
-func (p *Persistence) Append(
-	req timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
+func (p *Persistence) Append(req timebox.AppendRequest) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if err := p.checkClosed(); err != nil {
-		return nil, err
+		return err
 	}
 
 	key := keyFor(req.ID)
@@ -105,10 +103,11 @@ func (p *Persistence) Append(
 			max(req.ExpectedSequence-a.baseSeq, 0),
 			int64(len(a.events)),
 		)
-		return &timebox.AppendResult{
-			ActualSequence: seq,
-			NewEvents:      a.events[start:],
-		}, nil
+		return &timebox.VersionConflictError{
+			ExpectedSequence: req.ExpectedSequence,
+			ActualSequence:   seq,
+			NewEvents:        a.events[start:],
+		}
 	}
 
 	a.events = append(a.events, req.Events...)
@@ -125,7 +124,7 @@ func (p *Persistence) Append(
 		}
 		a.labels[k] = v
 	}
-	return nil, nil
+	return nil
 }
 
 // LoadEvents loads events starting at fromSeq

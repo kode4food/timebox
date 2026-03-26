@@ -26,7 +26,7 @@ func TestClosedMethods(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = p.Append(timebox.AppendRequest{
+	err = p.Append(timebox.AppendRequest{
 		ID:               timebox.NewAggregateID("order", "1"),
 		ExpectedSequence: 0,
 		Events:           testEvents("created"),

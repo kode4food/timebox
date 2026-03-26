@@ -119,12 +119,10 @@ func (p *Persistence) Close() error {
 }
 
 // Append appends events if the expected sequence matches
-func (p *Persistence) Append(
-	req timebox.AppendRequest,
-) (*timebox.AppendResult, error) {
+func (p *Persistence) Append(req timebox.AppendRequest) error {
 	evs, err := timebox.EncodeJSONEvents(req.Events)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	call := buildLuaAppendCall(p, luaAppendInput{
@@ -140,24 +138,25 @@ func (p *Persistence) Append(
 		context.Background(), p.client, call.keys, call.args...,
 	).Result()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	res := result.([]any)
 	success := res[0].(int64)
 	seq := res[1].(int64)
 	if success != 0 {
-		return nil, nil
+		return nil
 	}
 
 	newEvents, err := decodeEvents(res[2].([]any))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return &timebox.AppendResult{
-		ActualSequence: seq,
-		NewEvents:      newEvents,
-	}, nil
+	return &timebox.VersionConflictError{
+		ExpectedSequence: req.ExpectedSequence,
+		ActualSequence:   seq,
+		NewEvents:        newEvents,
+	}
 }
 
 // LoadEvents loads events starting at fromSeq
