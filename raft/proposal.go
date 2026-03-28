@@ -13,6 +13,15 @@ func (p *Persistence) propose(
 	ctx context.Context, data []byte, proposalID uint64,
 	events []*timebox.Event,
 ) (*ApplyResult, error) {
+	select {
+	case <-p.stopCh:
+		if err, ok := p.stopErr.Load().(error); ok && err != nil {
+			return nil, err
+		}
+		return nil, raft.ErrStopped
+	default:
+	}
+
 	st := p.registerProposal(proposalID, events)
 	defer p.unregisterProposal(proposalID, st)
 

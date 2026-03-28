@@ -14,7 +14,6 @@ import (
 
 	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
-	"go.etcd.io/raft/v3/raftpb"
 
 	"github.com/kode4food/timebox"
 )
@@ -31,16 +30,15 @@ type (
 
 		// Raft runtime
 		node         raft.Node
-		storage      *raft.MemoryStorage
 		raftLog      *raftLog
 		transport    *raftTransport
 		applyTimeout time.Duration
 		flushBatch   func([]decodedEntry, []uint64) error
+		lastCommitAt time.Time
 
 		// Cluster routing
-		peers     map[uint64]peerInfo
-		sendChs   map[uint64]chan peerMessage
-		compactCh chan struct{}
+		peers      map[uint64]peerInfo
+		peerQueues map[uint64]*peerQueue
 
 		// Background loops
 		bgWG      sync.WaitGroup
@@ -72,6 +70,9 @@ const (
 	StateFollower  State = "follower"
 	StateCandidate State = "candidate"
 	StateLeader    State = "leader"
+
+	projectionDirName = "projection"
+	projectionDBName  = "bolt.db"
 )
 
 var _ timebox.Backend = (*Persistence)(nil)
@@ -101,8 +102,7 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 }
 
 func openPersistence(cfg Config) (*Persistence, error) {
-	dbPath := filepath.Join(cfg.DataDir, "bbolt.db")
-	db, err := openBoltDB(dbPath)
+	db, err := openProjectionDB(cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -123,14 +123,12 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	p := &Persistence{
 		Config:       cfg,
 		db:           db,
-		storage:      log.memory,
 		raftLog:      log,
 		transport:    tr,
-		applyTimeout: defaultApplyTimeout,
+		applyTimeout: DefaultApplyTimeout,
 
-		peers:     buildPeerMap(cfg, tr),
-		sendChs:   map[uint64]chan peerMessage{},
-		compactCh: make(chan struct{}, 1),
+		peers:      buildPeerMap(cfg, tr),
+		peerQueues: map[uint64]*peerQueue{},
 
 		readyCh: make(chan struct{}),
 		stopCh:  make(chan struct{}),
@@ -139,18 +137,15 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	}
 	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents)
 	p.flushBatch = p.flushBatchNoPublish
-	if err := p.restoreSnapshot(log.snapshot); err != nil {
-		_ = tr.Close()
-		_ = log.Close()
-		_ = db.Close()
-		return nil, err
-	}
 
-	if err := p.restoreMaterializedState(log.CommittedEntries()); err != nil {
-		_ = tr.Close()
-		_ = log.Close()
-		_ = db.Close()
-		return nil, err
+	if err := p.restoreMaterializedState(log); err != nil {
+		if err := rebuildProjection(p, cfg.DataDir, log); err != nil {
+			_ = tr.Close()
+			_ = log.Close()
+			_ = db.Close()
+			return nil, err
+		}
+		db = p.db
 	}
 	applied, err := loadLastApplied(db)
 	if err != nil {
@@ -162,7 +157,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	p.appliedIndex.Store(applied)
 
 	nodeCfg := newRaftNodeConfig(
-		nodeID(cfg.LocalID), log.memory, applied,
+		nodeID(cfg.LocalID), log, applied,
 	)
 	switch {
 	case stateExists:
@@ -302,10 +297,7 @@ func (p *Persistence) SaveSnapshot(
 // CanSaveSnapshot reports whether this node should originate background
 // Timebox snapshot writes
 func (p *Persistence) CanSaveSnapshot() bool {
-	if len(p.peers) <= 1 {
-		return true
-	}
-	return p.State() == StateLeader
+	return len(p.peers) <= 1
 }
 
 // State reports the local Raft node state
@@ -370,55 +362,45 @@ func (p *Persistence) ListAggregates(
 	return ids, nil
 }
 
-func (p *Persistence) restoreMaterializedState(ents []raftpb.Entry) error {
+func (p *Persistence) restoreMaterializedState(log *raftLog) error {
 	applied, err := loadLastApplied(p.db)
 	if err != nil {
 		return err
 	}
-
-	if err := p.applyCommittedEntries(
-		filterEntriesAfter(ents, applied),
-	); err != nil {
-		return err
-	}
-	return nil
+	return log.ReplayCommitted(applied, p.applyCommittedEntries)
 }
 
-func (p *Persistence) restoreSnapshot(sn raftpb.Snapshot) error {
-	if raft.IsEmptySnap(sn) {
-		return nil
+func openProjectionDB(dataDir string) (*bbolt.DB, error) {
+	dir := filepath.Join(dataDir, projectionDirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	return openBoltDB(filepath.Join(dir, projectionDBName))
+}
+
+func rebuildProjection(
+	p *Persistence, dataDir string, log *raftLog,
+) error {
+	_ = p.db.Close()
+	path := filepath.Join(dataDir, projectionDirName, projectionDBName)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 
-	applied, err := loadLastApplied(p.db)
+	db, err := openProjectionDB(dataDir)
 	if err != nil {
 		return err
 	}
-	if applied >= sn.Metadata.Index {
-		return nil
-	}
-
-	src, err := bbolt.Open(snapshotPath(
-		p.raftLog.snapshotDir, sn.Metadata.Index,
-	), 0o600, &bbolt.Options{
-		ReadOnly: true,
-		Timeout:  time.Second,
-	})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = src.Close() }()
-
-	if err := copySnapshot(p.db, src); err != nil {
-		return err
-	}
-	p.appliedIndex.Store(sn.Metadata.Index)
-	return os.Remove(snapshotPath(p.raftLog.snapshotDir, sn.Metadata.Index))
+	p.db = db
+	p.fsm = newFSM(db, p.Config.Timebox.Snapshot.TrimEvents)
+	return p.restoreMaterializedState(log)
 }
 
 func openBoltDB(path string) (*bbolt.DB, error) {
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{
-		Timeout:      time.Second,
-		FreelistType: bbolt.FreelistMapType,
+		Timeout:        time.Second,
+		FreelistType:   bbolt.FreelistMapType,
+		NoFreelistSync: true,
 	})
 	if err != nil {
 		return nil, err

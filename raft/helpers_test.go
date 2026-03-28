@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -28,13 +27,12 @@ type (
 	}
 
 	nodeConfig struct {
-		id             string
-		addr           string
-		dataDir        string
-		indexer        timebox.Indexer
-		trimEvents     bool
-		compactMinStep uint64
-		publisher      raft.Publisher
+		id         string
+		addr       string
+		dataDir    string
+		indexer    timebox.Indexer
+		trimEvents bool
+		publisher  raft.Publisher
 	}
 )
 
@@ -54,12 +52,11 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 	}
 
 	tbCfg := testRaftConfig(nodeConfig{
-		id:             cfg.id,
-		addr:           addr,
-		dataDir:        dataDir,
-		trimEvents:     cfg.trimEvents,
-		compactMinStep: cfg.compactMinStep,
-		publisher:      cfg.publisher,
+		id:         cfg.id,
+		addr:       addr,
+		dataDir:    dataDir,
+		trimEvents: cfg.trimEvents,
+		publisher:  cfg.publisher,
 	})
 
 	persistence, err := raft.NewPersistence(tbCfg)
@@ -100,7 +97,7 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 	t.Helper()
 
 	db, err := bbolt.Open(
-		filepath.Join(dataDir, "bbolt.db"), 0o600, nil,
+		filepath.Join(dataDir, "projection", "bolt.db"), 0o600, nil,
 	)
 	if !assert.NoError(t, err) {
 		t.FailNow()
@@ -123,39 +120,16 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 	assert.NoError(t, err)
 }
 
-func corruptWALFile(t *testing.T, dataDir string) {
+func corruptRaftLogFile(t *testing.T, dataDir string) {
 	t.Helper()
 
-	matches, err := filepath.Glob(
-		filepath.Join(dataDir, "raft-wal", "*.wal"),
+	files, err := filepath.Glob(
+		filepath.Join(dataDir, "log", "*.log"),
 	)
-	if !assert.NoError(t, err) {
+	if !assert.NoError(t, err) || !assert.NotEmpty(t, files) {
 		t.FailNow()
 	}
-	if !assert.NotEmpty(t, matches) {
-		t.FailNow()
-	}
-	assert.NoError(t,
-		os.WriteFile(matches[0], []byte("bad-wal"), 0o600),
-	)
-}
-
-func countSnapshotFiles(dir string) (int, error) {
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return 0, err
-	}
-
-	n := 0
-	for _, ent := range ents {
-		if ent.IsDir() {
-			continue
-		}
-		if strings.HasSuffix(ent.Name(), ".snap") {
-			n++
-		}
-	}
-	return n, nil
+	assert.NoError(t, os.WriteFile(files[0], []byte("bad-raft-log"), 0o600))
 }
 
 func newCluster(t *testing.T, n int) []*node {
@@ -174,12 +148,11 @@ func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 	}
 
 	tbCfg := testRaftConfig(nodeConfig{
-		id:             cfg.id,
-		addr:           cfg.addr,
-		dataDir:        dataDir,
-		trimEvents:     cfg.trimEvents,
-		compactMinStep: cfg.compactMinStep,
-		publisher:      cfg.publisher,
+		id:         cfg.id,
+		addr:       cfg.addr,
+		dataDir:    dataDir,
+		trimEvents: cfg.trimEvents,
+		publisher:  cfg.publisher,
 	})
 	tbCfg.Servers = srvs
 
@@ -322,22 +295,6 @@ func waitAllEvents(
 	}
 }
 
-func waitSnap(t *testing.T, dirs ...string) {
-	t.Helper()
-
-	if !assert.Eventually(t, func() bool {
-		for _, dir := range dirs {
-			n, err := countSnapshotFiles(dir)
-			if err == nil && n != 0 {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 100*time.Millisecond) {
-		t.FailNow()
-	}
-}
-
 func waitForWrite(t *testing.T, store *timebox.Store) {
 	t.Helper()
 
@@ -364,10 +321,9 @@ func testRaftConfig(cfg nodeConfig) raft.Config {
 	}
 
 	return raft.Config{
-		LocalID:        cfg.id,
-		DataDir:        cfg.dataDir,
-		Address:        cfg.addr,
-		CompactMinStep: cfg.compactMinStep,
+		LocalID: cfg.id,
+		DataDir: cfg.dataDir,
+		Address: cfg.addr,
 		Timebox: timebox.Config{
 			Indexer: indexer,
 			Snapshot: timebox.SnapshotConfig{
@@ -425,6 +381,21 @@ func numberEvent(id timebox.AggregateID, value int) *timebox.Event {
 		Data: json.RawMessage(
 			fmt.Sprintf("%d", value),
 		),
+	}
+}
+
+func largeEvent(
+	id timebox.AggregateID, value, size int,
+) *timebox.Event {
+	data := bytes.Repeat([]byte{'x'}, size)
+	if len(data) != 0 {
+		data[0] = byte('a' + value%26)
+	}
+	return &timebox.Event{
+		AggregateID: id,
+		Timestamp:   time.Now().UTC(),
+		Type:        testEventType,
+		Data:        data,
 	}
 }
 

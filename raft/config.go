@@ -19,15 +19,13 @@ type (
 		LocalID string
 		DataDir string
 
+		// RecentEntriesSize is the hot retained WAL suffix cache size in
+		// entries
+		RecentEntriesSize int
+
 		// Cluster identity
 		Address string
 		Servers []Server
-
-		// CompactMinStep is the minimum number of newly applied log entries
-		// between local snapshot/compaction points. The same window is
-		// retained after compaction so slow followers can catch up without
-		// immediately requiring a snapshot transfer. Defaults to 16,384
-		CompactMinStep uint64
 
 		Publisher Publisher
 	}
@@ -42,10 +40,11 @@ type (
 	}
 )
 
+const DefaultApplyTimeout = 10 * time.Second
+
 const (
-	defaultApplyTimeout   = 10 * time.Second
-	defaultCompactMinStep = 16_384
-	defaultSnapshotRetain = 1
+	DefaultRecentEntriesSize = 20480
+	MinRecentEntriesSize     = 2048
 )
 
 var (
@@ -71,8 +70,8 @@ var (
 // DefaultConfig returns the opinionated defaults for one Raft node
 func DefaultConfig() Config {
 	return Config{
-		Timebox:        timebox.DefaultConfig(),
-		CompactMinStep: defaultCompactMinStep,
+		Timebox:           timebox.DefaultConfig(),
+		RecentEntriesSize: DefaultRecentEntriesSize,
 	}
 }
 
@@ -88,11 +87,11 @@ func (c Config) With(other Config) Config {
 	if other.DataDir != "" {
 		c.DataDir = other.DataDir
 	}
+	if other.RecentEntriesSize != 0 {
+		c.RecentEntriesSize = other.RecentEntriesSize
+	}
 	if len(other.Servers) != 0 {
 		c.Servers = append([]Server(nil), other.Servers...)
-	}
-	if other.CompactMinStep != 0 {
-		c.CompactMinStep = other.CompactMinStep
 	}
 	if other.Publisher != nil {
 		c.Publisher = other.Publisher
@@ -109,6 +108,11 @@ func (c Config) Validate() error {
 		return ErrDataDirRequired
 	case c.Address == "":
 		return ErrAddressRequired
+	case c.RecentEntriesSize < MinRecentEntriesSize:
+		return fmt.Errorf(
+			"raft recent entries size must be at least %d entries",
+			MinRecentEntriesSize,
+		)
 	}
 	if _, _, err := parseAddress(c.Address); err != nil {
 		return err

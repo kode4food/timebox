@@ -1,6 +1,8 @@
 package raft
 
 import (
+	"time"
+
 	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
@@ -10,34 +12,23 @@ import (
 
 func (p *Persistence) handleReady(rd raft.Ready) error {
 	if !raft.IsEmptySnap(rd.Snapshot) {
-		if err := p.raftLog.ApplySnapshot(rd.Snapshot); err != nil {
-			return err
-		}
+		return ErrSnapshotUnsupported
 	}
 	if err := p.raftLog.Save(rd); err != nil {
 		return err
 	}
-	if len(rd.Entries) != 0 {
-		if err := p.raftLog.AppendEntries(rd.Entries); err != nil {
-			return err
-		}
-	}
 	if err := p.queueMessages(rd.Messages); err != nil {
 		return err
 	}
-	if err := p.restoreSnapshot(rd.Snapshot); err != nil {
-		return err
+	if len(rd.CommittedEntries) != 0 {
+		p.lastCommitAt = time.Now()
 	}
 	if err := p.applyCommittedEntries(rd.CommittedEntries); err != nil {
 		return err
 	}
-	if len(rd.CommittedEntries) != 0 {
-		p.requestCompact()
-	}
 	if p.State() == StateLeader {
 		p.markReady()
-	} else if !raft.IsEmptySnap(rd.Snapshot) ||
-		len(rd.CommittedEntries) != 0 {
+	} else if len(rd.CommittedEntries) == 0 {
 		p.markReadyFollower()
 	}
 	p.node.Advance()
@@ -162,7 +153,10 @@ func (p *Persistence) applyConfChange(ent raftpb.Entry) error {
 	if err := cc.Unmarshal(ent.Data); err != nil {
 		return err
 	}
-	p.node.ApplyConfChange(cc)
+	cs := p.node.ApplyConfChange(cc)
+	if err := p.raftLog.SetConfState(*cs); err != nil {
+		return err
+	}
 	return p.markAppliedEntry(ent.Index)
 }
 
@@ -176,8 +170,12 @@ func (p *Persistence) markReady() {
 }
 
 func (p *Persistence) markReadyFollower() {
+	if !p.lastCommitAt.IsZero() &&
+		time.Since(p.lastCommitAt) < readySettle {
+		return
+	}
 	addr, _ := p.LeaderWithID()
-	if addr != "" {
+	if addr != "" && p.appliedIndex.Load() >= p.raftLog.CommitIndex() {
 		p.markReady()
 	}
 }

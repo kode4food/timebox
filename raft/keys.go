@@ -74,9 +74,7 @@ func labelIndexPrefix(label, value string) []byte {
 	)
 }
 
-func labelIndexKey(
-	label, value, encodedID string,
-) []byte {
+func labelIndexKey(label, value, encodedID string) []byte {
 	return []byte(
 		labelRootPrefix + encodeKeyPart(label) + "/" + encodeKeyPart(value) +
 			"/" + encodedID,
