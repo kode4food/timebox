@@ -38,6 +38,18 @@ func (p *Persistence) handleReady(rd raft.Ready) error {
 }
 
 func (p *Persistence) applyCommittedEntries(ents []raftpb.Entry) error {
+	return p.applyEntries(ents, p.applyConfChange)
+}
+
+func (p *Persistence) applyStartupEntries(ents []raftpb.Entry) error {
+	return p.applyEntries(ents, func(ent raftpb.Entry) error {
+		return p.markAppliedEntry(ent.Index)
+	})
+}
+
+func (p *Persistence) applyEntries(
+	ents []raftpb.Entry, confChange func(raftpb.Entry) error,
+) error {
 	if len(ents) == 0 {
 		return nil
 	}
@@ -61,7 +73,7 @@ func (p *Persistence) applyCommittedEntries(ents []raftpb.Entry) error {
 			if err := flushAndReset(); err != nil {
 				return err
 			}
-			if err := p.applyConfChange(ent); err != nil {
+			if err := confChange(ent); err != nil {
 				return err
 			}
 		case raftpb.EntryNormal:

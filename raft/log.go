@@ -5,10 +5,11 @@ import (
 	"os"
 	"sync"
 
-	bin "github.com/kode4food/timebox/internal/binary"
 	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+
+	bin "github.com/kode4food/timebox/internal/binary"
 )
 
 type (

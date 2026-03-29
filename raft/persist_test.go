@@ -153,3 +153,63 @@ func TestBrokenRaftLog(t *testing.T) {
 	_, err := raft.NewPersistence(testRaftConfig(cfg))
 	assert.Error(t, err)
 }
+
+// TestRebuildProjection verifies that when the projection DB is corrupt
+// (loadLastApplied fails), the node deletes and rebuilds it from the raft log
+func TestRebuildProjection(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	id := timebox.NewAggregateID("order", "rebuild")
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	closeNode(t, n)
+	corruptLastApplied(t, cfg.dataDir)
+
+	n = newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	evs, err := n.store.GetEvents(id, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Len(t, evs, 1)
+}
+
+// TestRestartReplays verifies that when the projection's lastApplied cursor
+// falls behind the raft commit index (e.g. after a crash), the missing entries
+// are replayed from the raft log on the next startup
+func TestRestartReplays(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	id := timebox.NewAggregateID("order", "replay-pending")
+	appendN(t, n.store, id, 8)
+
+	closeNode(t, n)
+	decrementLastApplied(t, cfg.dataDir, 4)
+
+	n = newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	evs, err := n.store.GetEvents(id, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Len(t, evs, 8)
+}

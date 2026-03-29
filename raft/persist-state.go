@@ -92,7 +92,7 @@ func (p *Persistence) restoreMaterializedState(log *raftLog) error {
 	if err != nil {
 		return err
 	}
-	return log.ReplayCommitted(applied, p.applyCommittedEntries)
+	return log.ReplayCommitted(applied, p.applyStartupEntries)
 }
 
 func openProjectionDB(dataDir string) (*bbolt.DB, error) {

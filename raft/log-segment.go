@@ -10,8 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	bin "github.com/kode4food/timebox/internal/binary"
 	"go.etcd.io/raft/v3/raftpb"
+
+	bin "github.com/kode4food/timebox/internal/binary"
 )
 
 type (
@@ -35,11 +36,11 @@ const (
 	walLogExt     = ".log"
 	walIdxExt     = ".idx"
 
-	logRotateBytes = 128 * 1024 * 1024
 	logPointSpan   = 256
-
 	logReadBufSize = 64 * 1024
 )
+
+var logRotateBytes int64 = 128 * 1024 * 1024
 
 func (r *raftLog) trimTailLocked(first uint64) error {
 	if len(r.segs) == 0 {

@@ -3,6 +3,7 @@ package raft_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -116,6 +117,64 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 			}
 		}
 		return assert.AnError
+	})
+	assert.NoError(t, err)
+}
+
+// decrementLastApplied rolls the projection's lastApplied cursor back by
+// `by` raft log entries. A guard prevents going below index 3 so that
+// conf-change entries (always at the very start of the log) are never
+// included in the replay window
+func decrementLastApplied(t *testing.T, dataDir string, by int64) {
+	t.Helper()
+
+	db, err := bbolt.Open(
+		filepath.Join(dataDir, "projection", "bolt.db"), 0o600, nil,
+	)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	const minSafeIndex = int64(3) // indices 1-2 are conf-change/empty entries
+	err = db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("timebox"))
+		key := []byte("state/meta/last-applied-log")
+		raw := b.Get(key)
+		if len(raw) < 8 {
+			return nil
+		}
+		current := int64(binary.BigEndian.Uint64(raw[:8]))
+		target := current - by
+		if target < minSafeIndex {
+			return nil
+		}
+		var buf [8]byte
+		binary.BigEndian.PutUint64(buf[:], uint64(target))
+		return b.Put(key, buf[:])
+	})
+	assert.NoError(t, err)
+}
+
+func corruptLastApplied(t *testing.T, dataDir string) {
+	t.Helper()
+
+	db, err := bbolt.Open(
+		filepath.Join(dataDir, "projection", "bolt.db"), 0o600, nil,
+	)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	err = db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket([]byte("timebox")).Put(
+			[]byte("state/meta/last-applied-log"), []byte{0xff},
+		)
 	})
 	assert.NoError(t, err)
 }

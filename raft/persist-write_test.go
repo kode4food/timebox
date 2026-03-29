@@ -1,6 +1,7 @@
 package raft_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -212,4 +213,47 @@ func TestAppendConflictAheadOfCurrent(t *testing.T) {
 	assert.Equal(t, int64(2), conflict.ExpectedSequence)
 	assert.Equal(t, int64(1), conflict.ActualSequence)
 	assert.Empty(t, conflict.NewEvents)
+}
+
+// TestConcurrentAppend verifies that when concurrent appends for the same
+// aggregate all pass the pre-check and reach the FSM, only one commits and
+// the rest receive a VersionConflictError.
+func TestConcurrentAppend(t *testing.T) {
+	n := newNode(t, nodeConfig{id: "node-1"})
+	waitForWrite(t, n.store)
+
+	id := timebox.NewAggregateID("order", "concurrent")
+	const workers = 10
+
+	// All goroutines wait at the barrier so they checkConflict and
+	// propose simultaneously, before any raft commit can complete.
+	var ready sync.WaitGroup
+	ready.Add(workers)
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+
+	for i := range workers {
+		go func(i int) {
+			ready.Done()
+			<-start
+			errs <- n.store.AppendEvents(id, 0, []*timebox.Event{
+				numberEvent(id, i+1),
+			})
+		}(i)
+	}
+
+	ready.Wait()
+	close(start)
+
+	var successes int
+	for range workers {
+		err := <-errs
+		if err == nil {
+			successes++
+		} else {
+			var conflict *timebox.VersionConflictError
+			assert.ErrorAs(t, err, &conflict)
+		}
+	}
+	assert.Equal(t, 1, successes)
 }
