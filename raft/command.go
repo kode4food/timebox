@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"encoding/binary"
 	"errors"
 	"time"
 
@@ -52,8 +51,8 @@ func MakeAppendCommand(
 	proposalID uint64, req *timebox.AppendRequest,
 ) (Command, error) {
 	c := make(Command, 0, cmdHeaderSize+128)
-	c = append(c, CmdTypeAppend)
-	c = binary.BigEndian.AppendUint64(c, proposalID)
+	c = bin.AppendByte(c, CmdTypeAppend)
+	c = bin.AppendUint64(c, proposalID)
 	c = appendAggregateID(c, req.ID)
 	c = bin.AppendInt64(c, req.ExpectedSequence)
 	c = bin.AppendOptString(c, req.Status)
@@ -64,8 +63,8 @@ func MakeAppendCommand(
 
 func MakeSnapshotCommand(proposalID uint64, sc *SnapshotCommand) Command {
 	c := make(Command, 0, cmdHeaderSize+64)
-	c = append(c, CmdTypeSnapshot)
-	c = binary.BigEndian.AppendUint64(c, proposalID)
+	c = bin.AppendByte(c, CmdTypeSnapshot)
+	c = bin.AppendUint64(c, proposalID)
 	c = appendAggregateID(c, sc.ID)
 	c = bin.AppendInt64(c, sc.Sequence)
 	c = bin.AppendBytes(c, sc.Data)
@@ -80,10 +79,8 @@ func (c Command) Type() int {
 }
 
 func (c Command) ProposalID() (uint64, error) {
-	if len(c) < cmdHeaderSize {
-		return 0, bin.ErrCorruptState
-	}
-	return binary.BigEndian.Uint64(c[1:9]), nil
+	v, _, err := bin.ReadUint64(c[1:])
+	return v, err
 }
 
 func (c Command) AppendRequest() (*timebox.AppendRequest, error) {

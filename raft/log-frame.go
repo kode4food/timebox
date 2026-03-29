@@ -35,14 +35,13 @@ func appendFrame(dst []byte, ent raftpb.Entry) ([]byte, error) {
 	}
 	bodyLen := frameEntryMetaLen + len(ent.Data)
 	dst = slices.Grow(dst, frameHeaderSize+bodyLen+frameCRCLen)
-	body := make([]byte, 0, bodyLen)
-	body = bin.AppendByte(body, byte(ent.Type))
-	body = bin.AppendUint64(body, ent.Index)
-	body = bin.AppendUint64(body, ent.Term)
-	body = append(body, ent.Data...)
-
 	dst = bin.AppendUint32(dst, uint32(bodyLen))
-	dst = append(dst, body...)
+	bodyStart := len(dst)
+	dst = bin.AppendByte(dst, byte(ent.Type))
+	dst = bin.AppendUint64(dst, ent.Index)
+	dst = bin.AppendUint64(dst, ent.Term)
+	dst = append(dst, ent.Data...)
+	body := dst[bodyStart:]
 	sum := crc32.ChecksumIEEE(body)
 	dst = bin.AppendUint32(dst, sum)
 	return dst, nil
@@ -52,14 +51,13 @@ func appendHardStateFrame(dst []byte, hs raftpb.HardState) []byte {
 	const bodyLen = frameHardStateLen
 
 	dst = slices.Grow(dst, frameHeaderSize+bodyLen+frameCRCLen)
-	body := make([]byte, 0, bodyLen)
-	body = bin.AppendByte(body, frameTypeHardState)
-	body = bin.AppendUint64(body, hs.Commit)
-	body = bin.AppendUint64(body, hs.Term)
-	body = bin.AppendUint64(body, hs.Vote)
-
 	dst = bin.AppendUint32(dst, bodyLen)
-	dst = append(dst, body...)
+	bodyStart := len(dst)
+	dst = bin.AppendByte(dst, frameTypeHardState)
+	dst = bin.AppendUint64(dst, hs.Commit)
+	dst = bin.AppendUint64(dst, hs.Term)
+	dst = bin.AppendUint64(dst, hs.Vote)
+	body := dst[bodyStart:]
 	sum := crc32.ChecksumIEEE(body)
 	dst = bin.AppendUint32(dst, sum)
 	return dst
@@ -67,8 +65,6 @@ func appendHardStateFrame(dst []byte, hs raftpb.HardState) []byte {
 
 func appendIdxRecord(dst []byte, pt logPoint) []byte {
 	dst = slices.Grow(dst, idxRecordSize)
-	start := len(dst)
-	dst = dst[:start]
 	dst = bin.AppendUint64(dst, pt.idx)
 	dst = bin.AppendUint64(dst, uint64(pt.off))
 	return dst
@@ -116,11 +112,11 @@ func readWALFrame(r *bufio.Reader) (
 	if _, err := io.ReadFull(r, body); err != nil {
 		return nil, nil, 0, bin.ErrCorruptState
 	}
-	crc := make([]byte, frameCRCLen)
-	if _, err := io.ReadFull(r, crc); err != nil {
+	var crc [frameCRCLen]byte
+	if _, err := io.ReadFull(r, crc[:]); err != nil {
 		return nil, nil, 0, bin.ErrCorruptState
 	}
-	want, _, err := bin.ReadUint32(crc)
+	want, _, err := bin.ReadUint32(crc[:])
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -154,12 +150,11 @@ func readWALFrame(r *bufio.Reader) (
 		if len(body) != 0 {
 			return nil, nil, 0, bin.ErrCorruptState
 		}
-		hs := &raftpb.HardState{
+		return nil, &raftpb.HardState{
 			Commit: commit,
 			Term:   term,
 			Vote:   vote,
-		}
-		return nil, hs, frameSize, nil
+		}, frameSize, nil
 	}
 
 	index, body, err := bin.ReadUint64(body)
@@ -170,13 +165,12 @@ func readWALFrame(r *bufio.Reader) (
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	ent := &raftpb.Entry{
+	return &raftpb.Entry{
 		Type:  raftpb.EntryType(kind),
 		Index: index,
 		Term:  term,
 		Data:  append([]byte(nil), body...),
-	}
-	return ent, nil, frameSize, nil
+	}, nil, frameSize, nil
 }
 
 func writeIdxPoint(f *os.File, pt logPoint) error {

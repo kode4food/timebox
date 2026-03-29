@@ -149,10 +149,14 @@ func (r *raftLog) storeMetaLocked(
 	return r.db.Update(func(tx *bbolt.Tx) error {
 		mb := tx.Bucket(logMetaBucket)
 		if !termVoteEqual(r.hs, hs) {
-			if err := mb.Put(currentTermKey, putU64(nil, hs.Term)); err != nil {
+			if err := mb.Put(
+				currentTermKey, bin.AppendUint64(nil, hs.Term),
+			); err != nil {
 				return err
 			}
-			if err := mb.Put(votedForKey, putU64(nil, hs.Vote)); err != nil {
+			if err := mb.Put(
+				votedForKey, bin.AppendUint64(nil, hs.Vote),
+			); err != nil {
 				return err
 			}
 		}
@@ -165,7 +169,9 @@ func (r *raftLog) storeMetaLocked(
 			return nil
 		}
 
-		if err := mb.Put(commitKey, putU64(nil, hs.Commit)); err != nil {
+		if err := mb.Put(
+			commitKey, bin.AppendUint64(nil, hs.Commit),
+		); err != nil {
 			return err
 		}
 
@@ -174,16 +180,18 @@ func (r *raftLog) storeMetaLocked(
 
 		for _, first := range r.prevSegs {
 			if !containsU64(cur, first) {
-				if err := sb.Delete(putU64(nil, first)); err != nil {
+				if err := sb.Delete(bin.AppendUint64(nil, first)); err != nil {
 					return err
 				}
 			}
 		}
 		for _, seg := range r.segs {
 			if !containsU64(r.prevSegs, seg.first) {
+				key := bin.AppendUint64(nil, seg.first)
+				value := bin.AppendUint64(nil, seg.id)
 				if err := sb.Put(
-					putU64(nil, seg.first),
-					putU64(nil, seg.id),
+					key,
+					value,
 				); err != nil {
 					return err
 				}
@@ -191,13 +199,13 @@ func (r *raftLog) storeMetaLocked(
 		}
 		r.prevSegs = cur
 
-		if err := mb.Put(
-			compactedKey,
-			putCompacted(r.compacted, r.compactedTerm),
-		); err != nil {
+		compacted := make([]byte, 0, 16)
+		compacted = bin.AppendUint64(compacted, r.compacted)
+		compacted = bin.AppendUint64(compacted, r.compactedTerm)
+		if err := mb.Put(compactedKey, compacted); err != nil {
 			return err
 		}
-		return mb.Put(tailSegKey, putU64(nil, r.tailID))
+		return mb.Put(tailSegKey, bin.AppendUint64(nil, r.tailID))
 	})
 }
 
@@ -222,37 +230,56 @@ func loadRaftMeta(db *bbolt.DB) (raftMeta, error) {
 			return err
 		}
 		if v := mb.Get(currentTermKey); len(v) != 0 {
-			term, err := getU64(v)
+			term, rest, err := bin.ReadUint64(v)
 			if err != nil {
 				return err
+			}
+			if len(rest) != 0 {
+				return bin.ErrCorruptState
 			}
 			m.hs.Term = term
 		}
 		if v := mb.Get(votedForKey); len(v) != 0 {
-			vote, err := getU64(v)
+			vote, rest, err := bin.ReadUint64(v)
 			if err != nil {
 				return err
+			}
+			if len(rest) != 0 {
+				return bin.ErrCorruptState
 			}
 			m.hs.Vote = vote
 		}
 		if v := mb.Get(commitKey); len(v) != 0 {
-			commit, err := getU64(v)
+			commit, rest, err := bin.ReadUint64(v)
 			if err != nil {
 				return err
+			}
+			if len(rest) != 0 {
+				return bin.ErrCorruptState
 			}
 			m.hs.Commit = commit
 		}
 		if v := mb.Get(tailSegKey); len(v) != 0 {
-			id, err := getU64(v)
+			id, rest, err := bin.ReadUint64(v)
 			if err != nil {
 				return err
+			}
+			if len(rest) != 0 {
+				return bin.ErrCorruptState
 			}
 			m.tailID = id
 		}
 		if v := mb.Get(compactedKey); len(v) != 0 {
-			idx, term, err := getCompacted(v)
+			idx, rest, err := bin.ReadUint64(v)
 			if err != nil {
 				return err
+			}
+			term, rest, err := bin.ReadUint64(rest)
+			if err != nil {
+				return err
+			}
+			if len(rest) != 0 {
+				return bin.ErrCorruptState
 			}
 			m.compacted = idx
 			m.compactedTerm = term
@@ -260,13 +287,19 @@ func loadRaftMeta(db *bbolt.DB) (raftMeta, error) {
 
 		c := sb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			first, err := getU64(k)
+			first, rest, err := bin.ReadUint64(k)
 			if err != nil {
 				return err
 			}
-			id, err := getU64(v)
+			if len(rest) != 0 {
+				return bin.ErrCorruptState
+			}
+			id, rest, err := bin.ReadUint64(v)
 			if err != nil {
 				return err
+			}
+			if len(rest) != 0 {
+				return bin.ErrCorruptState
 			}
 			m.segs = append(m.segs, logSeg{
 				id:    id,
@@ -293,46 +326,6 @@ func loadProto(b *bbolt.Bucket, key []byte, m protoUnmarshaler) error {
 		return nil
 	}
 	return m.Unmarshal(data)
-}
-
-func putU64(dst []byte, v uint64) []byte {
-	return bin.AppendUint64(dst[:0], v)
-}
-
-func getU64(data []byte) (uint64, error) {
-	v, rest, err := bin.ReadUint64(data)
-	if err != nil {
-		return 0, bin.ErrCorruptState
-	}
-	if len(rest) != 0 {
-		return 0, bin.ErrCorruptState
-	}
-	return v, nil
-}
-
-func putCompacted(idx, term uint64) []byte {
-	b := make([]byte, 0, 16)
-	b = bin.AppendUint64(b, idx)
-	b = bin.AppendUint64(b, term)
-	return b
-}
-
-func getCompacted(data []byte) (uint64, uint64, error) {
-	if len(data) == 0 {
-		return 0, 0, nil
-	}
-	idx, rest, err := bin.ReadUint64(data)
-	if err != nil {
-		return 0, 0, bin.ErrCorruptState
-	}
-	term, rest, err := bin.ReadUint64(rest)
-	if err != nil {
-		return 0, 0, bin.ErrCorruptState
-	}
-	if len(rest) != 0 {
-		return 0, 0, bin.ErrCorruptState
-	}
-	return idx, term, nil
 }
 
 func containsU64(s []uint64, v uint64) bool {
