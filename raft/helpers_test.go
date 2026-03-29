@@ -132,6 +132,51 @@ func corruptRaftLogFile(t *testing.T, dataDir string) {
 	assert.NoError(t, os.WriteFile(files[0], []byte("bad-raft-log"), 0o600))
 }
 
+func corruptLastApplied(t *testing.T, dataDir string) {
+	t.Helper()
+
+	db, err := bbolt.Open(
+		filepath.Join(dataDir, "projection", "bolt.db"), 0o600, nil,
+	)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	err = db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket([]byte("timebox")).Put(
+			[]byte("state/meta/last-applied-log"),
+			[]byte{0xff},
+		)
+	})
+	assert.NoError(t, err)
+}
+
+func appendRaftTailGarbage(t *testing.T, dataDir string, data []byte) {
+	t.Helper()
+
+	files, err := filepath.Glob(
+		filepath.Join(dataDir, "log", "*.log"),
+	)
+	if !assert.NoError(t, err) || !assert.NotEmpty(t, files) {
+		t.FailNow()
+	}
+
+	path := files[len(files)-1]
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	_, err = f.Write(data)
+	assert.NoError(t, err)
+}
+
 func newCluster(t *testing.T, n int) []*node {
 	t.Helper()
 
@@ -384,9 +429,7 @@ func numberEvent(id timebox.AggregateID, value int) *timebox.Event {
 	}
 }
 
-func largeEvent(
-	id timebox.AggregateID, value, size int,
-) *timebox.Event {
+func largeEvent(id timebox.AggregateID, value, size int) *timebox.Event {
 	data := bytes.Repeat([]byte{'x'}, size)
 	if len(data) != 0 {
 		data[0] = byte('a' + value%26)

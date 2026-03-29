@@ -86,12 +86,14 @@ func (t *raftTransport) ServerAddress() ServerAddress {
 	return ServerAddress(t.listener.Addr().String())
 }
 
-func (t *raftTransport) Send(addr ServerAddress, data []byte) error {
+func (t *raftTransport) WithPeer(
+	addr ServerAddress, fn func(*bufio.Writer) error,
+) error {
 	peer, err := t.peer(addr)
 	if err != nil {
 		return err
 	}
-	if err := peer.Send(data); err != nil {
+	if err := peer.do(fn); err != nil {
 		t.dropPeer(addr, peer)
 		return err
 	}
@@ -163,15 +165,17 @@ func (p *raftPeerConn) Close() error {
 	return err
 }
 
-func (p *raftPeerConn) Send(data []byte) error {
+func (p *raftPeerConn) do(fn func(*bufio.Writer) error) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.conn == nil || p.wr == nil {
 		return ErrTransportClosed
 	}
-	_ = p.conn.SetDeadline(time.Now().Add(defaultWriteTimeout))
-	if err := writeFrame(p.wr, data); err != nil {
+	_ = p.conn.SetDeadline(
+		time.Now().Add(defaultWriteTimeout),
+	)
+	if err := fn(p.wr); err != nil {
 		return err
 	}
 	return p.wr.Flush()
@@ -227,11 +231,12 @@ func readTransportMessage(r *bufio.Reader) (raftpb.Message, error) {
 }
 
 func writeFrame(w *bufio.Writer, data []byte) error {
-	size := uint32(len(data))
-	if err := binary.Write(w, binary.BigEndian, size); err != nil {
+	var hdr [4]byte
+	binary.BigEndian.PutUint32(hdr[:], uint32(len(data)))
+	if _, err := w.Write(hdr[:]); err != nil {
 		return err
 	}
-	if size == 0 {
+	if len(data) == 0 {
 		return nil
 	}
 	_, err := w.Write(data)
@@ -239,14 +244,14 @@ func writeFrame(w *bufio.Writer, data []byte) error {
 }
 
 func readFrame(r *bufio.Reader) ([]byte, error) {
-	var size uint32
-	if err := binary.Read(r, binary.BigEndian, &size); err != nil {
+	var hdr [4]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return nil, err
 	}
+	size := binary.BigEndian.Uint32(hdr[:])
 	if size == 0 {
 		return nil, nil
 	}
-
 	data := make([]byte, size)
 	_, err := io.ReadFull(r, data)
 	if err != nil {

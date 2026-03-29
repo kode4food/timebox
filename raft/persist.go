@@ -1,13 +1,8 @@
 package raft
 
 import (
-	"bytes"
-	"context"
 	"errors"
 	"os"
-	"path/filepath"
-	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,11 +19,9 @@ type (
 	Persistence struct {
 		Config
 
-		// Local state
 		db  *bbolt.DB
 		fsm *fsm
 
-		// Raft runtime
 		node         raft.Node
 		raftLog      *raftLog
 		transport    *raftTransport
@@ -36,11 +29,9 @@ type (
 		flushBatch   func([]decodedEntry, []uint64) error
 		lastCommitAt time.Time
 
-		// Cluster routing
 		peers      map[uint64]peerInfo
 		peerQueues map[uint64]*peerQueue
 
-		// Background loops
 		bgWG      sync.WaitGroup
 		readyCh   chan struct{}
 		readyOnce sync.Once
@@ -48,7 +39,6 @@ type (
 		stopOnce  sync.Once
 		stopErr   atomic.Value
 
-		// Proposal tracking
 		pendingMu    sync.Mutex
 		pending      map[uint64]proposalState
 		nextProposal atomic.Uint64
@@ -59,7 +49,6 @@ type (
 	ServerAddress string
 	State         string
 
-	// peerInfo holds the addresses for one cluster member
 	peerInfo struct {
 		ID       ServerID
 		RaftAddr ServerAddress
@@ -137,6 +126,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	}
 	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents)
 	p.flushBatch = p.flushBatchNoPublish
+	log.snapshotFn = p.captureSnapshot
 
 	if err := p.restoreMaterializedState(log); err != nil {
 		if err := rebuildProjection(p, cfg.DataDir, log); err != nil {
@@ -182,241 +172,6 @@ func (p *Persistence) Close() error {
 	return errors.Join(errs...)
 }
 
-// Append submits one aggregate transition through the replicated raft log
-func (p *Persistence) Append(req timebox.AppendRequest) error {
-	propID := p.newProposalID()
-	cmd, err := MakeAppendCommand(propID, &req)
-	if err != nil {
-		return err
-	}
-	res, err := p.applyWithTimeout(
-		context.Background(),
-		cmd,
-		propID,
-		req.Events,
-	)
-	if err != nil {
-		return err
-	}
-	return res.Error
-}
-
-// LoadEvents returns raw events from the local materialized state
-func (p *Persistence) LoadEvents(
-	id timebox.AggregateID, fromSeq int64,
-) (*timebox.EventsResult, error) {
-	var res *timebox.EventsResult
-
-	encodedID := encodeAggregateID(id)
-	err := p.db.View(func(tx *bbolt.Tx) error {
-		meta, ok, err := loadMetaTx(tx.Bucket(bucketName), encodedID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			res = &timebox.EventsResult{
-				StartSequence: fromSeq,
-				Events:        []*timebox.Event{},
-			}
-			return nil
-		}
-
-		startSeq := max(fromSeq, meta.BaseSequence)
-
-		evs, err := loadEventsTx(tx.Bucket(bucketName), encodedID, startSeq)
-		if err != nil {
-			return err
-		}
-		res = &timebox.EventsResult{
-			StartSequence: startSeq,
-			Events:        evs,
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
-// LoadSnapshot returns the raw snapshot and trailing raw events
-func (p *Persistence) LoadSnapshot(
-	id timebox.AggregateID,
-) (*timebox.SnapshotRecord, error) {
-	var rec *timebox.SnapshotRecord
-
-	encodedID := encodeAggregateID(id)
-	err := p.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketName)
-		meta, ok, err := loadMetaTx(b, encodedID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			rec = &timebox.SnapshotRecord{}
-			return nil
-		}
-
-		startSeq := max(meta.SnapshotSequence, meta.BaseSequence)
-
-		evs, err := loadEventsTx(b, encodedID, startSeq)
-		if err != nil {
-			return err
-		}
-		rec = &timebox.SnapshotRecord{
-			Data:     slices.Clone(b.Get(aggregateSnapshotKey(encodedID))),
-			Sequence: meta.SnapshotSequence,
-			Events:   evs,
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return rec, nil
-}
-
-// SaveSnapshot submits snapshot state through the replicated log
-func (p *Persistence) SaveSnapshot(
-	id timebox.AggregateID, data []byte, sequence int64,
-) error {
-	propID := p.newProposalID()
-	_, err := p.applyWithTimeout(
-		context.Background(),
-		MakeSnapshotCommand(propID, &SnapshotCommand{
-			ID:       id,
-			Data:     data,
-			Sequence: sequence,
-		}),
-		propID,
-		nil,
-	)
-	return err
-}
-
-// CanSaveSnapshot reports whether this node should originate background
-// Timebox snapshot writes
-func (p *Persistence) CanSaveSnapshot() bool {
-	return len(p.peers) <= 1
-}
-
-// State reports the local Raft node state
-func (p *Persistence) State() State {
-	switch p.node.Status().RaftState {
-	case raft.StateLeader:
-		return StateLeader
-	case raft.StateCandidate, raft.StatePreCandidate:
-		return StateCandidate
-	default:
-		return StateFollower
-	}
-}
-
-// Ready reports when the local raft node can serve writes
-func (p *Persistence) Ready() <-chan struct{} {
-	return p.readyCh
-}
-
-// LeaderWithID reports the current leader address and server ID
-func (p *Persistence) LeaderWithID() (ServerAddress, ServerID) {
-	lead := p.node.Status().Lead
-	if lead == 0 {
-		return "", ""
-	}
-	peer := p.peers[lead]
-	return peer.RaftAddr, peer.ID
-}
-
-// ListAggregates lists aggregates that match the provided prefix
-func (p *Persistence) ListAggregates(
-	id timebox.AggregateID,
-) ([]timebox.AggregateID, error) {
-	var ids []timebox.AggregateID
-
-	err := p.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketName)
-		c := b.Cursor()
-		pfx := AggregateMetaPrefix()
-		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
-			key := string(k)
-			if !strings.HasSuffix(key, metaSuffix) {
-				k, _ = c.Next()
-				continue
-			}
-			enc := strings.TrimPrefix(key, aggRootPrefix)
-			enc = strings.TrimSuffix(enc, metaSuffix)
-			nextID, err := decodeAggregateID(enc)
-			if err != nil {
-				return err
-			}
-			if nextID.HasPrefix(id) {
-				ids = append(ids, nextID)
-			}
-			k, _ = c.Next()
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return ids, nil
-}
-
-func (p *Persistence) restoreMaterializedState(log *raftLog) error {
-	applied, err := loadLastApplied(p.db)
-	if err != nil {
-		return err
-	}
-	return log.ReplayCommitted(applied, p.applyCommittedEntries)
-}
-
-func openProjectionDB(dataDir string) (*bbolt.DB, error) {
-	dir := filepath.Join(dataDir, projectionDirName)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	return openBoltDB(filepath.Join(dir, projectionDBName))
-}
-
-func rebuildProjection(
-	p *Persistence, dataDir string, log *raftLog,
-) error {
-	_ = p.db.Close()
-	path := filepath.Join(dataDir, projectionDirName, projectionDBName)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	db, err := openProjectionDB(dataDir)
-	if err != nil {
-		return err
-	}
-	p.db = db
-	p.fsm = newFSM(db, p.Config.Timebox.Snapshot.TrimEvents)
-	return p.restoreMaterializedState(log)
-}
-
-func openBoltDB(path string) (*bbolt.DB, error) {
-	db, err := bbolt.Open(path, 0o600, &bbolt.Options{
-		Timeout:        time.Second,
-		FreelistType:   bbolt.FreelistMapType,
-		NoFreelistSync: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(bucketName)
-		return err
-	})
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
 func bootstrapPeers(cfg Config, tr *raftTransport) []raft.Peer {
 	srvs := cfg.Servers
 	if len(srvs) == 0 {
@@ -450,7 +205,6 @@ func buildPeerMap(cfg Config, tr *raftTransport) map[uint64]peerInfo {
 		}
 	}
 
-	// Ensure local node uses actual listen address
 	localNID := nodeID(cfg.LocalID)
 	local := res[localNID]
 	local.ID = ServerID(cfg.LocalID)

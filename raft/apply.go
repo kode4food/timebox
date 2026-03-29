@@ -12,9 +12,11 @@ import (
 
 func (p *Persistence) handleReady(rd raft.Ready) error {
 	if !raft.IsEmptySnap(rd.Snapshot) {
-		return ErrSnapshotUnsupported
+		if err := p.applySnapshot(rd.Snapshot); err != nil {
+			return err
+		}
 	}
-	if err := p.raftLog.Save(rd); err != nil {
+	if err := p.raftLog.Save(rd, p.compactBound()); err != nil {
 		return err
 	}
 	if err := p.queueMessages(rd.Messages); err != nil {
@@ -105,13 +107,9 @@ func (p *Persistence) flushBatchNoPublish(
 		return err
 	}
 	for i := range batch {
-		res := results[i]
-		p.resolveProposal(propIDs[i], res)
-		if err := res.Error; err != nil {
-			return err
-		}
-		p.appliedIndex.Store(batch[i].index)
+		p.resolveProposal(propIDs[i], results[i])
 	}
+	p.appliedIndex.Store(batch[len(batch)-1].index)
 	return nil
 }
 
@@ -129,16 +127,16 @@ func (p *Persistence) flushBatchPublish(
 	for i := range batch {
 		res := results[i]
 		p.resolveProposal(propIDs[i], res)
-		if err := res.Error; err != nil {
-			return err
+		if res.Error != nil {
+			continue
 		}
 		if evs := p.proposalEvents(propIDs[i]); len(evs) > 0 {
 			published = append(published, evs...)
 		} else if res.Append != nil {
 			published = append(published, res.Append.Events...)
 		}
-		p.appliedIndex.Store(batch[i].index)
 	}
+	p.appliedIndex.Store(batch[len(batch)-1].index)
 	if len(published) != 0 {
 		p.Publisher(published...)
 	}

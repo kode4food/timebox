@@ -20,6 +20,7 @@ type (
 	peerMessage struct {
 		to   uint64
 		data []byte
+		snap bool
 	}
 
 	peerQueue struct {
@@ -49,10 +50,6 @@ const (
 	readySettle    = 250 * time.Millisecond
 )
 
-var (
-	ErrSnapshotUnsupported = errors.New("raft snapshots are unsupported")
-)
-
 func (p *Persistence) startLoops() {
 	p.servePeerSends()
 	p.serveTransport()
@@ -69,9 +66,10 @@ func (p *Persistence) servePeerSends() {
 		q := newPeerQueue()
 		p.peerQueues[id] = q
 
+		id := id
 		peer := peer
 		p.bgWG.Go(func() {
-			p.servePeerSend(peer, q)
+			p.servePeerSend(id, peer, q)
 		})
 	}
 }
@@ -81,12 +79,12 @@ func (p *Persistence) queueMessages(msgs []raftpb.Message) error {
 		if msg.To == 0 {
 			continue
 		}
-		if msg.Type == raftpb.MsgSnap {
-			return ErrSnapshotUnsupported
-		}
 
 		q := p.peerQueues[msg.To]
 		if q == nil {
+			if msg.Type == raftpb.MsgSnap {
+				p.node.ReportSnapshot(msg.To, raft.SnapshotFailure)
+			}
 			p.node.ReportUnreachable(msg.To)
 			continue
 		}
@@ -98,25 +96,40 @@ func (p *Persistence) queueMessages(msgs []raftpb.Message) error {
 		q.Put(peerMessage{
 			to:   msg.To,
 			data: data,
+			snap: msg.Type == raftpb.MsgSnap,
 		})
 	}
 	return nil
 }
 
-func (p *Persistence) servePeerSend(peer peerInfo, q *peerQueue) {
+func (p *Persistence) servePeerSend(id uint64, peer peerInfo, q *peerQueue) {
 	for {
 		select {
 		case <-p.stopCh:
 			return
 		case <-q.Ready():
-			var msg peerMessage
-			err := q.Drain(func(m peerMessage) error {
-				msg = m
-				return p.transport.Send(peer.RaftAddr, m.data)
-			})
+			var hadSnap bool
+			err := p.transport.WithPeer(
+				peer.RaftAddr,
+				func(w *bufio.Writer) error {
+					return q.Drain(
+						func(m peerMessage) error {
+							if m.snap {
+								hadSnap = true
+							}
+							return writeFrame(w, m.data)
+						},
+					)
+				},
+			)
 			if err != nil {
-				p.node.ReportUnreachable(msg.to)
+				if hadSnap {
+					p.node.ReportSnapshot(id, raft.SnapshotFailure)
+				}
+				p.node.ReportUnreachable(id)
 				q.Signal()
+			} else if hadSnap {
+				p.node.ReportSnapshot(id, raft.SnapshotFinish)
 			}
 		}
 	}
@@ -167,10 +180,6 @@ func (p *Persistence) handleTransportConn(conn net.Conn) {
 	for {
 		msg, err := readTransportMessage(rd)
 		if err != nil {
-			return
-		}
-		if msg.Type == raftpb.MsgSnap {
-			p.stop(ErrSnapshotUnsupported)
 			return
 		}
 		err = p.node.Step(context.Background(), msg)
@@ -278,29 +287,18 @@ func (q *peerQueue) Ready() <-chan struct{} {
 }
 
 func (q *peerQueue) Drain(fn func(peerMessage) error) error {
-	for {
-		q.mu.Lock()
-		n := q.head
-		if n == nil {
-			q.mu.Unlock()
-			return nil
-		}
-		msg := n.msg
-		q.mu.Unlock()
+	q.mu.Lock()
+	head := q.head
+	q.head = nil
+	q.tail = nil
+	q.mu.Unlock()
 
-		if err := fn(msg); err != nil {
+	for n := head; n != nil; n = n.next {
+		if err := fn(n.msg); err != nil {
 			return err
 		}
-
-		q.mu.Lock()
-		if q.head == n {
-			q.head = n.next
-			if q.head == nil {
-				q.tail = nil
-			}
-		}
-		q.mu.Unlock()
 	}
+	return nil
 }
 
 func (q *peerQueue) Signal() {
