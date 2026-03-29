@@ -44,9 +44,6 @@ var (
 	// ErrUnexpectedApplyResult indicates the FSM returned an unexpected result
 	ErrUnexpectedApplyResult = errors.New("unexpected raft apply result")
 
-	// ErrCorruptState indicates local durable state failed local invariants
-	ErrCorruptState = bin.ErrCorruptState
-
 	// ErrCommandTypeUnknown indicates the FSM received an unknown command type
 	ErrCommandTypeUnknown = errors.New("unknown command type")
 )
@@ -84,21 +81,21 @@ func (c Command) Type() int {
 
 func (c Command) ProposalID() (uint64, error) {
 	if len(c) < cmdHeaderSize {
-		return 0, ErrCorruptState
+		return 0, bin.ErrCorruptState
 	}
 	return binary.BigEndian.Uint64(c[1:9]), nil
 }
 
 func (c Command) AppendRequest() (*timebox.AppendRequest, error) {
 	if len(c) < cmdHeaderSize {
-		return nil, ErrCorruptState
+		return nil, bin.ErrCorruptState
 	}
 	return decodeAppendRequest(c[cmdHeaderSize:])
 }
 
 func (c Command) SnapshotRequest() (*SnapshotCommand, error) {
 	if len(c) < cmdHeaderSize {
-		return nil, ErrCorruptState
+		return nil, bin.ErrCorruptState
 	}
 	return decodeSnapshotCommand(c[cmdHeaderSize:])
 }

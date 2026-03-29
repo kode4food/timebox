@@ -15,6 +15,10 @@ var (
 	AppendUint64 = binary.BigEndian.AppendUint64
 )
 
+func AppendByte(buf []byte, v byte) []byte {
+	return append(buf, v)
+}
+
 func AppendInt64(buf []byte, v int64) []byte {
 	return AppendUint64(buf, uint64(v))
 }
@@ -42,6 +46,20 @@ func ReadUint32(data []byte) (uint32, []byte, error) {
 		return 0, nil, ErrCorruptState
 	}
 	return binary.BigEndian.Uint32(data), data[4:], nil
+}
+
+func ReadUint64(data []byte) (uint64, []byte, error) {
+	if len(data) < 8 {
+		return 0, nil, ErrCorruptState
+	}
+	return binary.BigEndian.Uint64(data), data[8:], nil
+}
+
+func ReadByte(data []byte) (byte, []byte, error) {
+	if len(data) == 0 {
+		return 0, nil, ErrCorruptState
+	}
+	return data[0], data[1:], nil
 }
 
 func ReadInt64(data []byte) (int64, []byte, error) {

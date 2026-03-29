@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	bin "github.com/kode4food/timebox/internal/binary"
 	"github.com/kode4food/timebox/raft"
 )
 
@@ -45,7 +46,7 @@ func TestCommandProposalID(t *testing.T) {
 
 	t.Run("too short", func(t *testing.T) {
 		_, err := raft.Command([]byte{0x01}).ProposalID()
-		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 }
 
@@ -104,26 +105,26 @@ func TestCommandSnapshotRoundtrip(t *testing.T) {
 func TestCommandCorrupt(t *testing.T) {
 	t.Run("append too short", func(t *testing.T) {
 		_, err := raft.Command([]byte{raft.CmdTypeAppend}).AppendRequest()
-		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 
 	t.Run("append corrupt payload", func(t *testing.T) {
 		c := make(raft.Command, 9+4) // header + truncated payload
 		c[0] = raft.CmdTypeAppend
 		_, err := c.AppendRequest()
-		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 
 	t.Run("snapshot too short", func(t *testing.T) {
 		_, err := raft.Command([]byte{raft.CmdTypeSnapshot}).SnapshotRequest()
-		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 
 	t.Run("snapshot corrupt payload", func(t *testing.T) {
 		c := make(raft.Command, 9+4) // header + truncated payload
 		c[0] = raft.CmdTypeSnapshot
 		_, err := c.SnapshotRequest()
-		assert.True(t, errors.Is(err, raft.ErrCorruptState))
+		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 }
 

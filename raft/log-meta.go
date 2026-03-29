@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +9,8 @@ import (
 	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+
+	bin "github.com/kode4food/timebox/internal/binary"
 )
 
 type (
@@ -103,7 +104,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 	}
 	if hs.Commit > last {
 		_ = db.Close()
-		return nil, false, ErrCorruptState
+		return nil, false, bin.ErrCorruptState
 	}
 
 	lg := &raftLog{
@@ -295,24 +296,24 @@ func loadProto(b *bbolt.Bucket, key []byte, m protoUnmarshaler) error {
 }
 
 func putU64(dst []byte, v uint64) []byte {
-	if len(dst) < 8 {
-		dst = make([]byte, 8)
-	}
-	binary.BigEndian.PutUint64(dst[:8], v)
-	return dst[:8]
+	return bin.AppendUint64(dst[:0], v)
 }
 
 func getU64(data []byte) (uint64, error) {
-	if len(data) != 8 {
-		return 0, ErrCorruptState
+	v, rest, err := bin.ReadUint64(data)
+	if err != nil {
+		return 0, bin.ErrCorruptState
 	}
-	return binary.BigEndian.Uint64(data), nil
+	if len(rest) != 0 {
+		return 0, bin.ErrCorruptState
+	}
+	return v, nil
 }
 
 func putCompacted(idx, term uint64) []byte {
-	b := make([]byte, 16)
-	binary.BigEndian.PutUint64(b[:8], idx)
-	binary.BigEndian.PutUint64(b[8:], term)
+	b := make([]byte, 0, 16)
+	b = bin.AppendUint64(b, idx)
+	b = bin.AppendUint64(b, term)
 	return b
 }
 
@@ -320,11 +321,17 @@ func getCompacted(data []byte) (uint64, uint64, error) {
 	if len(data) == 0 {
 		return 0, 0, nil
 	}
-	if len(data) != 16 {
-		return 0, 0, ErrCorruptState
+	idx, rest, err := bin.ReadUint64(data)
+	if err != nil {
+		return 0, 0, bin.ErrCorruptState
 	}
-	idx := binary.BigEndian.Uint64(data[:8])
-	term := binary.BigEndian.Uint64(data[8:])
+	term, rest, err := bin.ReadUint64(rest)
+	if err != nil {
+		return 0, 0, bin.ErrCorruptState
+	}
+	if len(rest) != 0 {
+		return 0, 0, bin.ErrCorruptState
+	}
 	return idx, term, nil
 }
 

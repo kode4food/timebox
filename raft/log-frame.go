@@ -2,7 +2,6 @@ package raft
 
 import (
 	"bufio"
-	"encoding/binary"
 	"errors"
 	"hash/crc32"
 	"io"
@@ -10,6 +9,8 @@ import (
 	"slices"
 
 	"go.etcd.io/raft/v3/raftpb"
+
+	bin "github.com/kode4food/timebox/internal/binary"
 )
 
 const (
@@ -17,52 +18,59 @@ const (
 
 	frameTypeHardState = 0xFF
 
+	frameHeaderSize = 4
+	frameCRCLen     = 4
+	frameTypeLen    = 1
+	frameU64Len     = 8
+
+	frameEntryMetaLen = frameTypeLen + 2*frameU64Len
+	frameHardStateLen = frameTypeLen + 3*frameU64Len
+
 	idxRecordSize = 16
 )
 
 func appendFrame(dst []byte, ent raftpb.Entry) ([]byte, error) {
 	if len(ent.Data) > frameMaxBody {
-		return dst, ErrCorruptState
+		return dst, bin.ErrCorruptState
 	}
-	bodyLen := 1 + 8 + 8 + len(ent.Data)
-	frameLen := 4 + bodyLen + 4
-	dst = slices.Grow(dst, frameLen)
-	start := len(dst)
-	dst = dst[:start+frameLen]
-	frame := dst[start:]
-	binary.BigEndian.PutUint32(frame[:4], uint32(bodyLen))
-	frame[4] = byte(ent.Type)
-	binary.BigEndian.PutUint64(frame[5:13], ent.Index)
-	binary.BigEndian.PutUint64(frame[13:21], ent.Term)
-	copy(frame[21:21+len(ent.Data)], ent.Data)
-	sum := crc32.ChecksumIEEE(frame[4 : 4+bodyLen])
-	binary.BigEndian.PutUint32(frame[4+bodyLen:], sum)
+	bodyLen := frameEntryMetaLen + len(ent.Data)
+	dst = slices.Grow(dst, frameHeaderSize+bodyLen+frameCRCLen)
+	body := make([]byte, 0, bodyLen)
+	body = bin.AppendByte(body, byte(ent.Type))
+	body = bin.AppendUint64(body, ent.Index)
+	body = bin.AppendUint64(body, ent.Term)
+	body = append(body, ent.Data...)
+
+	dst = bin.AppendUint32(dst, uint32(bodyLen))
+	dst = append(dst, body...)
+	sum := crc32.ChecksumIEEE(body)
+	dst = bin.AppendUint32(dst, sum)
 	return dst, nil
 }
 
 func appendHardStateFrame(dst []byte, hs raftpb.HardState) []byte {
-	const bodyLen = 1 + 8 + 8 + 8
-	const frameLen = 4 + bodyLen + 4
-	dst = slices.Grow(dst, frameLen)
-	start := len(dst)
-	dst = dst[:start+frameLen]
-	frame := dst[start:]
-	binary.BigEndian.PutUint32(frame[:4], bodyLen)
-	frame[4] = frameTypeHardState
-	binary.BigEndian.PutUint64(frame[5:13], hs.Commit)
-	binary.BigEndian.PutUint64(frame[13:21], hs.Term)
-	binary.BigEndian.PutUint64(frame[21:29], hs.Vote)
-	sum := crc32.ChecksumIEEE(frame[4 : 4+bodyLen])
-	binary.BigEndian.PutUint32(frame[4+bodyLen:], sum)
+	const bodyLen = frameHardStateLen
+
+	dst = slices.Grow(dst, frameHeaderSize+bodyLen+frameCRCLen)
+	body := make([]byte, 0, bodyLen)
+	body = bin.AppendByte(body, frameTypeHardState)
+	body = bin.AppendUint64(body, hs.Commit)
+	body = bin.AppendUint64(body, hs.Term)
+	body = bin.AppendUint64(body, hs.Vote)
+
+	dst = bin.AppendUint32(dst, bodyLen)
+	dst = append(dst, body...)
+	sum := crc32.ChecksumIEEE(body)
+	dst = bin.AppendUint32(dst, sum)
 	return dst
 }
 
 func appendIdxRecord(dst []byte, pt logPoint) []byte {
 	dst = slices.Grow(dst, idxRecordSize)
 	start := len(dst)
-	dst = dst[:start+idxRecordSize]
-	binary.BigEndian.PutUint64(dst[start:start+8], pt.idx)
-	binary.BigEndian.PutUint64(dst[start+8:start+16], uint64(pt.off))
+	dst = dst[:start]
+	dst = bin.AppendUint64(dst, pt.idx)
+	dst = bin.AppendUint64(dst, uint64(pt.off))
 	return dst
 }
 
@@ -90,52 +98,91 @@ func readWALFrame(r *bufio.Reader) (
 	case errors.Is(err, io.EOF) && n == 0:
 		return nil, nil, 0, io.EOF
 	default:
-		return nil, nil, 0, ErrCorruptState
+		return nil, nil, 0, bin.ErrCorruptState
 	}
 
-	bodyLen := binary.BigEndian.Uint32(hdr[:])
+	bodyLen, _, err := bin.ReadUint32(hdr[:])
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	switch {
-	case bodyLen < 17:
-		return nil, nil, 0, ErrCorruptState
+	case bodyLen < frameEntryMetaLen:
+		return nil, nil, 0, bin.ErrCorruptState
 	case bodyLen > frameMaxBody:
-		return nil, nil, 0, ErrCorruptState
+		return nil, nil, 0, bin.ErrCorruptState
 	}
 
-	body := make([]byte, int(bodyLen)+4)
+	body := make([]byte, bodyLen)
 	if _, err := io.ReadFull(r, body); err != nil {
-		return nil, nil, 0, ErrCorruptState
+		return nil, nil, 0, bin.ErrCorruptState
 	}
-	want := binary.BigEndian.Uint32(body[len(body)-4:])
-	if crc32.ChecksumIEEE(body[:len(body)-4]) != want {
-		return nil, nil, 0, ErrCorruptState
+	crc := make([]byte, frameCRCLen)
+	if _, err := io.ReadFull(r, crc); err != nil {
+		return nil, nil, 0, bin.ErrCorruptState
+	}
+	want, _, err := bin.ReadUint32(crc)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if crc32.ChecksumIEEE(body) != want {
+		return nil, nil, 0, bin.ErrCorruptState
 	}
 
-	frameSize := int64(4 + len(body))
-	if body[0] == frameTypeHardState {
-		if bodyLen < 25 {
-			return nil, nil, 0, ErrCorruptState
+	frameSize := int64(frameHeaderSize + len(body) + frameCRCLen)
+
+	kind, body, err := bin.ReadByte(body)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	if kind == frameTypeHardState {
+		if bodyLen != frameHardStateLen {
+			return nil, nil, 0, bin.ErrCorruptState
+		}
+		commit, body, err := bin.ReadUint64(body)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		term, body, err := bin.ReadUint64(body)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		vote, body, err := bin.ReadUint64(body)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		if len(body) != 0 {
+			return nil, nil, 0, bin.ErrCorruptState
 		}
 		hs := &raftpb.HardState{
-			Commit: binary.BigEndian.Uint64(body[1:9]),
-			Term:   binary.BigEndian.Uint64(body[9:17]),
-			Vote:   binary.BigEndian.Uint64(body[17:25]),
+			Commit: commit,
+			Term:   term,
+			Vote:   vote,
 		}
 		return nil, hs, frameSize, nil
 	}
 
+	index, body, err := bin.ReadUint64(body)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	term, body, err := bin.ReadUint64(body)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	ent := &raftpb.Entry{
-		Type:  raftpb.EntryType(body[0]),
-		Index: binary.BigEndian.Uint64(body[1:9]),
-		Term:  binary.BigEndian.Uint64(body[9:17]),
-		Data:  append([]byte(nil), body[17:len(body)-4]...),
+		Type:  raftpb.EntryType(kind),
+		Index: index,
+		Term:  term,
+		Data:  append([]byte(nil), body...),
 	}
 	return ent, nil, frameSize, nil
 }
 
 func writeIdxPoint(f *os.File, pt logPoint) error {
-	var buf [idxRecordSize]byte
-	binary.BigEndian.PutUint64(buf[:8], pt.idx)
-	binary.BigEndian.PutUint64(buf[8:16], uint64(pt.off))
+	var buf []byte
+	buf = bin.AppendUint64(buf, pt.idx)
+	buf = bin.AppendUint64(buf, uint64(pt.off))
 	_, err := f.Write(buf[:])
 	return err
 }

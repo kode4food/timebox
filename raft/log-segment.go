@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	bin "github.com/kode4food/timebox/internal/binary"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -42,12 +43,12 @@ const (
 
 func (r *raftLog) trimTailLocked(first uint64) error {
 	if len(r.segs) == 0 {
-		return ErrCorruptState
+		return bin.ErrCorruptState
 	}
 
 	seg := &r.segs[len(r.segs)-1]
 	if first < seg.first || first > seg.last+1 {
-		return ErrCorruptState
+		return bin.ErrCorruptState
 	}
 	if first == seg.last+1 {
 		return nil
@@ -221,7 +222,7 @@ func openLogSegs(
 		tailID = segs[len(segs)-1].id
 	}
 	if segs[len(segs)-1].id != tailID {
-		return nil, 0, 0, nil, ErrCorruptState
+		return nil, 0, 0, nil, bin.ErrCorruptState
 	}
 
 	res := make([]logSeg, 0, len(segs))
@@ -242,9 +243,9 @@ func openLogSegs(
 		}
 		switch {
 		case opened.first != expect:
-			return nil, 0, 0, nil, ErrCorruptState
+			return nil, 0, 0, nil, bin.ErrCorruptState
 		case !allowTrunc && opened.last < opened.first:
-			return nil, 0, 0, nil, ErrCorruptState
+			return nil, 0, 0, nil, bin.ErrCorruptState
 		}
 		last = max(last, opened.last)
 		res = append(res, opened)
@@ -282,7 +283,7 @@ func scanSeg(
 				if allowTrunc {
 					goto repair
 				}
-				return logSeg{}, nil, ErrCorruptState
+				return logSeg{}, nil, bin.ErrCorruptState
 			}
 			if len(pts) == 0 ||
 				(ent.Index-first)%logPointSpan == 0 {
@@ -333,7 +334,7 @@ func loadEntries(
 	for idx := lo; idx < hi && !limited; {
 		i := findSeg(segs, idx)
 		if i < 0 {
-			return nil, ErrCorruptState
+			return nil, bin.ErrCorruptState
 		}
 		next, size, stop, err := readSegEntries(
 			dir, segs[i], idx, hi, maxSize, total, &ents,
@@ -348,7 +349,7 @@ func loadEntries(
 	if limited || len(ents) != 0 {
 		return ents[:len(ents):len(ents)], nil
 	}
-	return nil, ErrCorruptState
+	return nil, bin.ErrCorruptState
 }
 
 func readSegEntries(
@@ -384,7 +385,7 @@ func readSegEntries(
 		case ent.Index < want:
 			continue
 		case ent.Index != want:
-			return want, total, false, ErrCorruptState
+			return want, total, false, bin.ErrCorruptState
 		case len(*ents) != 0 && total+uint64(ent.Size()) > maxSize:
 			return want, total, true, nil
 		}
@@ -393,14 +394,14 @@ func readSegEntries(
 		want++
 	}
 	if want < min(hi, seg.last+1) {
-		return want, total, false, ErrCorruptState
+		return want, total, false, bin.ErrCorruptState
 	}
 	return want, total, false, nil
 }
 
 func readSegTerm(dir string, seg logSeg, idx uint64) (uint64, error) {
 	if seg.last < seg.first {
-		return 0, ErrCorruptState
+		return 0, bin.ErrCorruptState
 	}
 	pt := findPt(seg.pts, idx)
 
@@ -427,10 +428,10 @@ func readSegTerm(dir string, seg logSeg, idx uint64) (uint64, error) {
 		case ent.Index == idx:
 			return ent.Term, nil
 		default:
-			return 0, ErrCorruptState
+			return 0, bin.ErrCorruptState
 		}
 	}
-	return 0, ErrCorruptState
+	return 0, bin.ErrCorruptState
 }
 
 func segOffset(dir string, seg logSeg, idx uint64) (int64, error) {
@@ -460,11 +461,11 @@ func segOffset(dir string, seg logSeg, idx uint64) (int64, error) {
 			return off, nil
 		}
 		if ent.Index > idx {
-			return 0, ErrCorruptState
+			return 0, bin.ErrCorruptState
 		}
 		off += n
 	}
-	return 0, ErrCorruptState
+	return 0, bin.ErrCorruptState
 }
 
 func findSeg(segs []logSeg, idx uint64) int {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 
+	bin "github.com/kode4food/timebox/internal/binary"
 	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
@@ -306,7 +307,7 @@ func (r *raftLog) ReplayCommitted(
 			return err
 		}
 		if len(ents) == 0 {
-			return ErrCorruptState
+			return bin.ErrCorruptState
 		}
 		if err := fn(ents); err != nil {
 			return err
@@ -326,17 +327,17 @@ func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
 	switch {
 	case len(r.segs) == 0:
 		if first != r.compacted+1 {
-			return false, ErrCorruptState
+			return false, bin.ErrCorruptState
 		}
 		if err := r.startTailLocked(first); err != nil {
 			return false, err
 		}
 		manifest = true
 	case first > r.last+1:
-		return false, ErrCorruptState
+		return false, bin.ErrCorruptState
 	case first <= r.last:
 		if first <= r.hs.Commit {
-			return false, ErrCorruptState
+			return false, bin.ErrCorruptState
 		}
 		if err := r.trimTailLocked(first); err != nil {
 			return false, err
@@ -344,7 +345,7 @@ func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
 	}
 
 	if r.logf == nil || r.idxf == nil {
-		return false, ErrCorruptState
+		return false, bin.ErrCorruptState
 	}
 
 	seg := &r.segs[len(r.segs)-1]
@@ -353,7 +354,7 @@ func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
 
 	for _, ent := range ents {
 		if ent.Index != r.last+1 {
-			return false, ErrCorruptState
+			return false, bin.ErrCorruptState
 		}
 		off := seg.bytes + int64(len(logBuf))
 		var err error

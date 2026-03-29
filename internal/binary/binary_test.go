@@ -17,6 +17,22 @@ func TestAppendReadUint32(t *testing.T) {
 	assert.Empty(t, rest)
 }
 
+func TestAppendReadUint64(t *testing.T) {
+	buf := binary.AppendUint64(nil, 0xDEADBEEF01234567)
+	v, rest, err := binary.ReadUint64(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(0xDEADBEEF01234567), v)
+	assert.Empty(t, rest)
+}
+
+func TestAppendReadByte(t *testing.T) {
+	buf := binary.AppendByte(nil, 0xAB)
+	v, rest, err := binary.ReadByte(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, byte(0xAB), v)
+	assert.Empty(t, rest)
+}
+
 func TestAppendReadInt64(t *testing.T) {
 	buf := binary.AppendInt64(nil, -9876543210)
 	v, rest, err := binary.ReadInt64(buf)
@@ -128,6 +144,11 @@ func TestReadErrors(t *testing.T) {
 		assert.True(t, errors.Is(err, binary.ErrCorruptState))
 	})
 
+	t.Run("uint64 truncated", func(t *testing.T) {
+		_, _, err := binary.ReadUint64([]byte{0x00, 0x00, 0x00})
+		assert.True(t, errors.Is(err, binary.ErrCorruptState))
+	})
+
 	t.Run("string length truncated", func(t *testing.T) {
 		_, _, err := binary.ReadString([]byte{0x00})
 		assert.True(t, errors.Is(err, binary.ErrCorruptState))
@@ -145,6 +166,11 @@ func TestReadErrors(t *testing.T) {
 
 	t.Run("opt string empty", func(t *testing.T) {
 		_, _, err := binary.ReadOptString([]byte{})
+		assert.True(t, errors.Is(err, binary.ErrCorruptState))
+	})
+
+	t.Run("byte empty", func(t *testing.T) {
+		_, _, err := binary.ReadByte(nil)
 		assert.True(t, errors.Is(err, binary.ErrCorruptState))
 	})
 }
