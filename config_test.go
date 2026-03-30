@@ -13,30 +13,22 @@ func TestDefaultConfig(t *testing.T) {
 
 	assert.Equal(t, timebox.DefaultMaxRetries, cfg.MaxRetries)
 	assert.Equal(t, timebox.DefaultCacheSize, cfg.CacheSize)
-	assert.False(t, cfg.Snapshot.Workers)
-	assert.Equal(t, timebox.DefaultSnapshotWorkers, cfg.Snapshot.WorkerCount)
-	assert.Equal(t, timebox.DefaultSnapshotQueueSize, cfg.Snapshot.MaxQueueSize)
-	assert.Equal(t, timebox.DefaultTrimEvents, cfg.Snapshot.TrimEvents)
+	assert.Equal(t, timebox.DefaultTrimEvents, cfg.TrimEvents)
+	assert.Equal(t, timebox.DefaultSnapshotRatio, cfg.SnapshotRatio)
 }
 
 func TestConfigWith(t *testing.T) {
 	cfg := timebox.Configure(timebox.DefaultConfig(), timebox.Config{
-		MaxRetries: 9,
-		CacheSize:  17,
-		Snapshot: timebox.SnapshotConfig{
-			Workers:      true,
-			WorkerCount:  2,
-			MaxQueueSize: 7,
-			TrimEvents:   true,
-		},
+		MaxRetries:    9,
+		CacheSize:     17,
+		TrimEvents:    true,
+		SnapshotRatio: 2.5,
 	})
 
 	assert.Equal(t, 9, cfg.MaxRetries)
 	assert.Equal(t, 17, cfg.CacheSize)
-	assert.True(t, cfg.Snapshot.Workers)
-	assert.Equal(t, 2, cfg.Snapshot.WorkerCount)
-	assert.Equal(t, 7, cfg.Snapshot.MaxQueueSize)
-	assert.True(t, cfg.Snapshot.TrimEvents)
+	assert.True(t, cfg.TrimEvents)
+	assert.Equal(t, 2.5, cfg.SnapshotRatio)
 }
 
 func TestConfigValidate(t *testing.T) {
@@ -46,28 +38,26 @@ func TestConfigValidate(t *testing.T) {
 		err  error
 	}{
 		{
+			name: "Negative SnapshotRatio",
+			cfg: timebox.Config{
+				SnapshotRatio: -1,
+				MaxRetries:    1,
+				CacheSize:     1,
+			},
+			err: timebox.ErrInvalidSnapshotRatio,
+		},
+		{
 			name: "Missing MaxRetries",
-			cfg:  timebox.Config{},
+			cfg:  timebox.Config{SnapshotRatio: 0},
 			err:  timebox.ErrInvalidMaxRetries,
 		},
 		{
 			name: "Missing CacheSize",
-			cfg:  timebox.Config{MaxRetries: 1},
-			err:  timebox.ErrInvalidCacheSize,
-		},
-		{
-			name: "Missing WorkerCount",
-			cfg:  timebox.Config{MaxRetries: 1, CacheSize: 1},
-			err:  timebox.ErrInvalidWorkerCount,
-		},
-		{
-			name: "Missing MaxQueueSize",
 			cfg: timebox.Config{
-				MaxRetries: 1,
-				CacheSize:  1,
-				Snapshot:   timebox.SnapshotConfig{WorkerCount: 1},
+				SnapshotRatio: 0,
+				MaxRetries:    1,
 			},
-			err: timebox.ErrInvalidMaxQueueSize,
+			err: timebox.ErrInvalidCacheSize,
 		},
 	}
 
@@ -77,4 +67,13 @@ func TestConfigValidate(t *testing.T) {
 			assert.ErrorIs(t, err, tc.err)
 		})
 	}
+}
+
+func TestConfigValidateValid(t *testing.T) {
+	err := timebox.Config{
+		SnapshotRatio: 0,
+		MaxRetries:    1,
+		CacheSize:     1,
+	}.Validate()
+	assert.NoError(t, err)
 }

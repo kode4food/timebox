@@ -197,7 +197,7 @@ func (p *Persistence) SaveSnapshot(
 	}
 
 	newBase := baseSeq
-	if p.Timebox.Snapshot.TrimEvents && sequence > baseSeq {
+	if p.Timebox.TrimEvents && sequence > baseSeq {
 		newBase = min(sequence, nextSeq)
 		if newBase > baseSeq {
 			if _, err := tx.Exec(ctx, `

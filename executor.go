@@ -158,10 +158,11 @@ func (e *Executor[T]) loadFromStore(
 		proj = e.applyEvents(state, snap.AdditionalEvents, snap.NextSequence)
 	}
 
-	if snap.ShouldSnapshot &&
-		e.store.snapshotWorker != nil &&
-		e.store.canSaveSnapshot() {
-		e.store.snapshotWorker.enqueue(id, proj.state, proj.nextSeq)
+	if e.shouldSnapshot(snap) {
+		err := e.store.PutSnapshot(id, proj.state, proj.nextSeq)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	entry.value = proj
@@ -180,6 +181,17 @@ func (e *Executor[T]) applyEvents(
 		state:   st,
 		nextSeq: startSeq + int64(len(evs)),
 	}
+}
+
+func (e *Executor[_]) shouldSnapshot(snap *SnapshotResult) bool {
+	if len(snap.AdditionalEvents) == 0 {
+		return false
+	}
+	if snap.SnapshotSize == 0 {
+		return true
+	}
+	rat := float64(snap.EventsSize) / float64(snap.SnapshotSize)
+	return rat > e.store.config.SnapshotRatio
 }
 
 func (e *Executor[T]) updateCache(id AggregateID, proj *projection[T]) {

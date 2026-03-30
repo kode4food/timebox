@@ -45,7 +45,3 @@ func (p *Persistence) SaveSnapshot(
 	)
 	return err
 }
-
-func (p *Persistence) CanSaveSnapshot() bool {
-	return len(p.peers) <= 1
-}

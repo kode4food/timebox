@@ -82,7 +82,7 @@ func (p *Persistence) applySnapshot(snap raftpb.Snapshot) error {
 		return err
 	}
 	p.db = db
-	p.fsm = newFSM(db, p.Config.Timebox.Snapshot.TrimEvents)
+	p.fsm = newFSM(db, p.Config.Timebox.TrimEvents)
 	p.appliedIndex.Store(snap.Metadata.Index)
 	return p.raftLog.ApplySnapshot(snap.Metadata)
 }
@@ -115,7 +115,7 @@ func rebuildProjection(p *Persistence, dataDir string, log *raftLog) error {
 		return err
 	}
 	p.db = db
-	p.fsm = newFSM(db, p.Config.Timebox.Snapshot.TrimEvents)
+	p.fsm = newFSM(db, p.Config.Timebox.TrimEvents)
 	return p.restoreMaterializedState(log)
 }
 

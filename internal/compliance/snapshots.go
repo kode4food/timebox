@@ -20,8 +20,9 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.Nil(t, state)
 		assert.NotNil(t, snap)
 		assert.Equal(t, int64(0), snap.NextSequence)
+		assert.Equal(t, 0, snap.SnapshotSize)
+		assert.Equal(t, 0, snap.EventsSize)
 		assert.Empty(t, snap.AdditionalEvents)
-		assert.False(t, snap.ShouldSnapshot)
 	})
 
 	t.Run("BeforeEvents", func(t *testing.T) {
@@ -35,8 +36,9 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Equal(t, map[string]int{"v": 0}, state)
 		assert.Equal(t, int64(0), snap.NextSequence)
+		assert.Equal(t, encodedSize(t, map[string]int{"v": 0}), snap.SnapshotSize)
+		assert.Equal(t, 0, snap.EventsSize)
 		assert.Empty(t, snap.AdditionalEvents)
-		assert.False(t, snap.ShouldSnapshot)
 
 		ids, err := store.ListAggregates(timebox.NewAggregateID("order"))
 		assert.NoError(t, err)
@@ -58,7 +60,8 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Nil(t, empty)
 		assert.Equal(t, int64(0), snap.NextSequence)
-		assert.True(t, snap.ShouldSnapshot)
+		assert.Equal(t, 0, snap.SnapshotSize)
+		assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
 		if !assert.Len(t, snap.AdditionalEvents, 1) {
 			t.FailNow()
 		}
@@ -80,6 +83,11 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Equal(t, map[string]int{"value": 1}, state)
 		assert.Equal(t, int64(1), snap.NextSequence)
+		assert.Equal(t,
+			encodedSize(t, map[string]int{"value": 1}),
+			snap.SnapshotSize,
+		)
+		assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
 		if !assert.Len(t, snap.AdditionalEvents, 1) {
 			t.FailNow()
 		}
@@ -142,6 +150,11 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Equal(t, map[string]int{"value": 3}, state)
 		assert.Equal(t, int64(3), snap.NextSequence)
+		assert.Equal(t,
+			encodedSize(t, map[string]int{"value": 3}),
+			snap.SnapshotSize,
+		)
+		assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
 		if !assert.Len(t, snap.AdditionalEvents, 2) {
 			t.FailNow()
 		}

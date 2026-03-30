@@ -237,8 +237,7 @@ func TestConflictRetry(t *testing.T) {
 }
 
 func TestMaxRetriesOverride(t *testing.T) {
-	server, store, executor := setupExecutorWithConfigs(
-		t,
+	server, store, executor := setupExecutorWithConfigs(t,
 		timebox.Config{MaxRetries: 2},
 		timebox.Config{MaxRetries: 1},
 	)
@@ -272,8 +271,7 @@ func TestMaxRetriesOverride(t *testing.T) {
 }
 
 func TestMaxRetriesInherited(t *testing.T) {
-	server, store, executor := setupExecutorWithConfigs(
-		t,
+	server, store, executor := setupExecutorWithConfigs(t,
 		timebox.Config{MaxRetries: 2},
 		timebox.Config{},
 	)
@@ -337,8 +335,7 @@ func TestCacheEviction(t *testing.T) {
 }
 
 func TestCacheSizeOverride(t *testing.T) {
-	server, store, executor, count := setupExecutorWithCacheConfigs(
-		t,
+	server, store, executor, count := setupExecutorWithCacheConfigs(t,
 		timebox.Config{CacheSize: 2},
 		timebox.Config{CacheSize: 1},
 	)
@@ -349,8 +346,7 @@ func TestCacheSizeOverride(t *testing.T) {
 }
 
 func TestCacheSizeInherited(t *testing.T) {
-	server, store, executor, count := setupExecutorWithCacheConfigs(
-		t,
+	server, store, executor, count := setupExecutorWithCacheConfigs(t,
 		timebox.Config{CacheSize: 1},
 		timebox.Config{},
 	)

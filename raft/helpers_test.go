@@ -407,10 +407,8 @@ func testRaftConfig(cfg nodeConfig) raft.Config {
 		DataDir: cfg.dataDir,
 		Address: cfg.addr,
 		Timebox: timebox.Config{
-			Indexer: indexer,
-			Snapshot: timebox.SnapshotConfig{
-				TrimEvents: cfg.trimEvents,
-			},
+			Indexer:    indexer,
+			TrimEvents: cfg.trimEvents,
 		},
 		Publisher: cfg.publisher,
 	}

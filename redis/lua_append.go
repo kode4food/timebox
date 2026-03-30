@@ -282,7 +282,7 @@ func buildAppendLua(spec luaAppendSpec) string {
 func buildLuaAppendCall(p *Persistence, in luaAppendInput) luaAppendCall {
 	ops := newLuaAppendOps(in.labels)
 	spec := luaAppendSpec{
-		trim:   p.Timebox.Snapshot.TrimEvents,
+		trim:   p.Timebox.TrimEvents,
 		status: in.status != nil,
 		labels: len(ops) > 0,
 	}

@@ -26,7 +26,7 @@ func TestStore(t *testing.T) {
 				tbCfg.Prefix = storeSuitePrefix(t)
 				tbCfg.Timebox = timebox.DefaultConfig()
 				tbCfg.Timebox.Indexer = tc.Indexer
-				tbCfg.Timebox.Snapshot.TrimEvents = tc.TrimEvents
+				tbCfg.Timebox.TrimEvents = tc.TrimEvents
 
 				store, err := postgres.NewStore(tbCfg)
 				if !assert.NoError(t, err) {

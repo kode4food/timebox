@@ -83,10 +83,9 @@ func TestStoreIndexer(t *testing.T) {
 		}
 
 		t.Run(mode, func(t *testing.T) {
-			server, store, executor := setupTestExecutorWithConfig(
-				t,
+			server, store, executor := setupTestExecutorWithConfig(t,
 				func(cfg *timebox.Config) {
-					cfg.Snapshot.TrimEvents = trimEvents
+					cfg.TrimEvents = trimEvents
 					cfg.Indexer = func(
 						events []*timebox.Event,
 					) []*timebox.Index {
@@ -152,4 +151,22 @@ func setupTestExecutorWithConfig(
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	return p, store, executor
+}
+
+func encodedSize(t *testing.T, value any) int {
+	t.Helper()
+
+	data, err := json.Marshal(value)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	return len(data)
+}
+
+func eventsDataSize(evs []*timebox.Event) int {
+	size := 0
+	for _, ev := range evs {
+		size += len(ev.Data)
+	}
+	return size
 }

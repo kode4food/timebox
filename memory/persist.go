@@ -201,7 +201,7 @@ func (p *Persistence) SaveSnapshot(
 
 	a.snapshotData = data
 	a.snapshotSeq = sequence
-	if p.Snapshot.TrimEvents && sequence > a.baseSeq {
+	if p.TrimEvents && sequence > a.baseSeq {
 		trim := min(sequence-a.baseSeq, int64(len(a.events)))
 		a.events = a.events[trim:]
 		a.baseSeq += trim

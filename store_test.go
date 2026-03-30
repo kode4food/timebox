@@ -77,10 +77,6 @@ func TestStoreConfigAndStatus(t *testing.T) {
 	cfg := timebox.Config{
 		MaxRetries: 3,
 		CacheSize:  5,
-		Snapshot: timebox.SnapshotConfig{
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-		},
 	}
 	p := memory.NewPersistence(cfg)
 	store, err := timebox.NewStore(p, cfg)
@@ -193,15 +189,6 @@ func TestNewStoreInvalidConfig(t *testing.T) {
 			},
 			err: timebox.ErrInvalidCacheSize,
 		},
-		{
-			name: "Negative WorkerCount",
-			cfg: timebox.Config{
-				Snapshot: timebox.SnapshotConfig{
-					WorkerCount: -1,
-				},
-			},
-			err: timebox.ErrInvalidWorkerCount,
-		},
 	}
 
 	for _, tc := range tests {
@@ -286,7 +273,7 @@ func TestGetEventsEmpty(t *testing.T) {
 
 func TestStoreTrimmedPlainAppend(t *testing.T) {
 	server, store, err := newMemoryStore(timebox.Config{
-		Snapshot: timebox.SnapshotConfig{TrimEvents: true},
+		TrimEvents: true,
 	})
 	assert.NoError(t, err)
 	defer func() { _ = server.Close() }()
@@ -350,8 +337,8 @@ func withIndexedMemoryStore(
 	t.Helper()
 
 	server, store, err := newMemoryStore(timebox.Config{
-		Snapshot: timebox.SnapshotConfig{TrimEvents: trimEvents},
-		Indexer:  indexer,
+		TrimEvents: trimEvents,
+		Indexer:    indexer,
 	})
 	assert.NoError(t, err)
 	defer func() { _ = server.Close() }()

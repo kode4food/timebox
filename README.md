@@ -25,13 +25,14 @@ Timebox currently ships with:
 
 `timebox.Config` controls store behavior regardless of backend:
 
-- `Snapshot`: background snapshot worker settings and trim policy
+- `TrimEvents`: whether saving a snapshot trims older stored events
 - `MaxRetries`: optimistic concurrency retry limit
 - `CacheSize`: executor projection cache size
-- `Archiving`: enables archive APIs
 - `Indexer`: optional function that derives status and label updates from an appended event batch
 
 Create a store either by using a backend helper such as `postgres.NewStore(cfg)` or by calling `timebox.NewStore(persistence, cfg)` directly.
+
+Snapshotting is explicit: call `Executor.SaveSnapshot(id)` or `Store.PutSnapshot(id, value, sequence)`. Timebox does not schedule snapshots on its own.
 
 ## Backend Config
 
@@ -89,7 +90,7 @@ Read paths exposed by the store:
 
 Archiving moves an aggregate's snapshot and event history into backend-specific archive storage and clears the live records. It is a one-way operation. The `memory` and `redis` backends support archiving, while `postgres` and `raft` do not.
 
-Enable it with `Archiving`, then call `Store.Archive(id)`.
+Call `Store.Archive(id)`.
 
 To consume archived records, call `Store.ConsumeArchive(ctx, handler)`. It blocks until one record is processed or the context is done. Use `context.WithTimeout` to poll with a deadline.
 

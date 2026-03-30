@@ -12,9 +12,8 @@ type (
 	// Store persists, queries, and snapshots aggregate events
 	Store struct {
 		Queries
-		persistence    Persistence
-		snapshotWorker *SnapshotWorker
-		config         Config
+		persistence Persistence
+		config      Config
 	}
 
 	// VersionConflictError is returned when AppendEvents encounters a sequence
@@ -30,33 +29,26 @@ type (
 	SnapshotResult struct {
 		AdditionalEvents []*Event
 		NextSequence     int64
-		ShouldSnapshot   bool
-	}
-
-	snapshotSaver interface {
-		CanSaveSnapshot() bool
+		SnapshotSize     int
+		EventsSize       int
 	}
 )
 
 // NewStore creates a Store backed by the supplied Backend
 func NewStore(b Backend, cfg Config) (*Store, error) {
 	cfg = Configure(DefaultConfig(), cfg)
-	if err := cfg.validateStore(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return newStore(cfg, b), nil
 }
 
 func newStore(cfg Config, b Backend) *Store {
-	s := &Store{
+	return &Store{
 		Queries:     b,
 		persistence: b,
 		config:      cfg,
 	}
-	if cfg.Snapshot.Workers {
-		s.snapshotWorker = newSnapshotWorker(s)
-	}
-	return s
 }
 
 // Config returns the Store configuration
@@ -79,11 +71,8 @@ func (s *Store) WaitReady(ctx context.Context) error {
 	}
 }
 
-// Close stops background workers and closes the underlying persistence
+// Close closes the underlying persistence
 func (s *Store) Close() error {
-	if s.snapshotWorker != nil {
-		s.snapshotWorker.Stop()
-	}
 	return s.persistence.Close()
 }
 
@@ -153,43 +142,27 @@ func (s *Store) GetSnapshot(
 		}
 	}
 
-	events := rec.Events
-
 	eventsSize := 0
-	for _, item := range rec.Events {
-		eventsSize += len(item.Data)
+	for _, ev := range rec.Events {
+		eventsSize += len(ev.Data)
 	}
 
 	return &SnapshotResult{
-		AdditionalEvents: events,
+		AdditionalEvents: rec.Events,
 		NextSequence:     rec.Sequence,
-		ShouldSnapshot:   eventsSize > len(rec.Data),
+		SnapshotSize:     len(rec.Data),
+		EventsSize:       eventsSize,
 	}, nil
 }
 
 // PutSnapshot saves a snapshot value and sequence if the provided sequence is
 // newer than any stored snapshot
-func (s *Store) PutSnapshot(
-	id AggregateID, value any, sequence int64,
-) error {
-	return s.writeSnapshot(id, value, sequence)
-}
-
-func (s *Store) writeSnapshot(
-	id AggregateID, value any, sequence int64,
-) error {
+func (s *Store) PutSnapshot(id AggregateID, value any, sequence int64) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
 	return s.persistence.SaveSnapshot(id, data, sequence)
-}
-
-func (s *Store) canSaveSnapshot() bool {
-	if p, ok := s.persistence.(snapshotSaver); ok {
-		return p.CanSaveSnapshot()
-	}
-	return true
 }
 
 // Archive moves aggregate artifacts to persistent archive storage

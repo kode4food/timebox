@@ -20,7 +20,7 @@ func TestStore(t *testing.T) {
 
 			tbCfg := timebox.DefaultConfig()
 			tbCfg.Indexer = cfg.Indexer
-			tbCfg.Snapshot.TrimEvents = cfg.TrimEvents
+			tbCfg.TrimEvents = cfg.TrimEvents
 
 			store, err := memory.NewStore(tbCfg)
 			if !assert.NoError(t, err) {

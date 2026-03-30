@@ -3,8 +3,6 @@ package timebox_test
 import (
 	"encoding/json"
 	"errors"
-	"io"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,36 +10,6 @@ import (
 
 	"github.com/kode4food/timebox"
 )
-
-type snapshotGatePersistence struct {
-	timebox.AlwaysReady
-	canSave   bool
-	saveCh    chan struct{}
-	saveErr   error
-	startedCh chan struct{} // signaled when SaveSnapshot starts
-	blockCh   chan struct{} // SaveSnapshot blocks until this is closed
-	mu        sync.Mutex
-}
-
-func TestWithoutSnapshotWorker(t *testing.T) {
-	server, store, executor := setupTestExecutorWithoutSnapshotWorker(t)
-	defer func() { _ = server.Close() }()
-	defer func() { _ = store.Close() }()
-
-	id := timebox.NewAggregateID("counter", "no-snapshot")
-
-	state, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		return timebox.Raise(ag, EventIncremented, 10)
-	})
-
-	assert.NoError(t, err)
-	assert.Equal(t, 10, state.Value)
-
-	err = executor.SaveSnapshot(id)
-	assert.NoError(t, err)
-}
 
 func TestSequenceWithSnapshot(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
@@ -77,6 +45,8 @@ func TestSequenceWithSnapshot(t *testing.T) {
 	snap, err := store.GetSnapshot(id, &state)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2), snap.NextSequence)
+	assert.Equal(t, encodedSize(t, &CounterState{Value: 10}), snap.SnapshotSize)
+	assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
 
 	assert.Len(t, snap.AdditionalEvents, 2)
 	assert.Equal(t, int64(2), snap.AdditionalEvents[0].Sequence)
@@ -84,10 +54,9 @@ func TestSequenceWithSnapshot(t *testing.T) {
 }
 
 func TestSnapshotTrimsEvents(t *testing.T) {
-	server, store, executor := setupTestExecutorWithConfig(
-		t,
+	server, store, executor := setupTestExecutorWithConfig(t,
 		func(cfg *timebox.Config) {
-			cfg.Snapshot.TrimEvents = true
+			cfg.TrimEvents = true
 		},
 	)
 	defer func() { _ = server.Close() }()
@@ -193,27 +162,23 @@ func TestSnapshotLargeBatch(t *testing.T) {
 	snap, err := store.GetSnapshot(id, &snapState)
 	assert.NoError(t, err)
 	assert.Equal(t, numEvents, snapState.Value)
+	assert.Equal(t, encodedSize(t, &CounterState{Value: numEvents}), snap.SnapshotSize)
+	assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
 	assert.Len(t, snap.AdditionalEvents, 50)
 	for i := range 50 {
 		assert.Equal(t, int64(numEvents+i), snap.AdditionalEvents[i].Sequence)
 	}
 }
 
-func TestSnapshotWorker(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{
-		Snapshot: timebox.SnapshotConfig{
-			Workers:      true,
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-		},
-	})
+func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
+	server, store, err := newMemoryStore(timebox.Config{})
 	assert.NoError(t, err)
 	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snapshot")
 	ev := &timebox.Event{
-		Timestamp: time.Now(),
+		Timestamp: time.Unix(1_700_000_021, 0).UTC(),
 		Type:      EventIncremented,
 		Data:      json.RawMessage(`1`),
 	}
@@ -221,22 +186,72 @@ func TestSnapshotWorker(t *testing.T) {
 	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	_, err = executor.Exec(id, func(
+	state, err := executor.Exec(id, func(
 		s *CounterState, ag *timebox.Aggregator[*CounterState],
 	) error {
 		assert.Equal(t, 1, s.Value)
 		return nil
 	})
 	assert.NoError(t, err)
+	assert.Equal(t, 1, state.Value)
 
-	assert.Eventually(t, func() bool {
-		var snap CounterState
-		result, err := store.GetSnapshot(id, &snap)
-		if err != nil || result == nil {
-			return false
-		}
-		return result.NextSequence > 0
-	}, time.Second, 10*time.Millisecond)
+	var snapState CounterState
+	snap, err := store.GetSnapshot(id, &snapState)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), snap.NextSequence)
+	assert.Equal(t, encodedSize(t, &CounterState{Value: 1}), snap.SnapshotSize)
+	assert.Equal(t, 0, snap.EventsSize)
+	assert.Len(t, snap.AdditionalEvents, 0)
+	assert.Equal(t, 1, snapState.Value)
+}
+
+func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
+	server, store, setupExecutor := setupTestExecutorWithConfig(t,
+		func(cfg *timebox.Config) {
+			cfg.SnapshotRatio = 100
+		},
+	)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("counter", "snapshot-ratio")
+	_, err := setupExecutor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 10)
+	})
+	assert.NoError(t, err)
+
+	err = setupExecutor.SaveSnapshot(id)
+	assert.NoError(t, err)
+
+	ev := &timebox.Event{
+		Timestamp: time.Unix(1_700_000_022, 0).UTC(),
+		Type:      EventIncremented,
+		Data:      json.RawMessage(`1`),
+	}
+	err = store.AppendEvents(id, 1, []*timebox.Event{ev})
+	assert.NoError(t, err)
+
+	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	state, err := executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		assert.Equal(t, 11, s.Value)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 11, state.Value)
+
+	var snapState CounterState
+	snap, err := store.GetSnapshot(id, &snapState)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), snap.NextSequence)
+	assert.Equal(t, encodedSize(t, &CounterState{Value: 10}), snap.SnapshotSize)
+	assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
+	assert.Len(t, snap.AdditionalEvents, 1)
+	assert.Equal(t, int64(1), snap.AdditionalEvents[0].Sequence)
+	assert.Equal(t, 10, snapState.Value)
 }
 
 func TestSaveSnapshotError(t *testing.T) {
@@ -280,209 +295,9 @@ func TestSaveSnapshot(t *testing.T) {
 	snap, err := store.GetSnapshot(id, &state)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), snap.NextSequence)
+	assert.Equal(t, encodedSize(t, &CounterState{Value: 2}), snap.SnapshotSize)
+	assert.Equal(t, 0, snap.EventsSize)
 	assert.Equal(t, 2, state.Value)
-}
-
-func TestSnapshotWorkerSkipsPersistenceThatCannotSave(t *testing.T) {
-	p := &snapshotGatePersistence{
-		saveCh: make(chan struct{}, 1),
-	}
-	store := newSnapshotGateStore(t, p)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	_, err := executor.Exec(timebox.NewAggregateID("counter", "no-auto"), func(
-		*CounterState, *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
-	assert.NoError(t, err)
-
-	assert.Never(t, func() bool {
-		select {
-		case <-p.saveCh:
-			return true
-		default:
-			return false
-		}
-	}, 100*time.Millisecond, 10*time.Millisecond)
-}
-
-func TestSnapshotWorkerRunsWhenPersistenceCanSave(t *testing.T) {
-	p := &snapshotGatePersistence{
-		canSave: true,
-		saveCh:  make(chan struct{}, 1),
-	}
-	store := newSnapshotGateStore(t, p)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	_, err := executor.Exec(timebox.NewAggregateID("counter", "auto"), func(
-		*CounterState, *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
-	assert.NoError(t, err)
-
-	assert.Eventually(t, func() bool {
-		select {
-		case <-p.saveCh:
-			return true
-		default:
-			return false
-		}
-	}, time.Second, 10*time.Millisecond)
-}
-
-func TestSnapshotWorkerSaveError(t *testing.T) {
-	saveErr := errors.New("storage full")
-	p := &snapshotGatePersistence{
-		canSave: true,
-		saveCh:  make(chan struct{}, 1),
-		saveErr: saveErr,
-	}
-	store := newSnapshotGateStore(t, p)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	_, err := executor.Exec(
-		timebox.NewAggregateID("counter", "save-error"),
-		func(
-			*CounterState, *timebox.Aggregator[*CounterState],
-		) error {
-			return nil
-		},
-	)
-	assert.NoError(t, err)
-
-	assert.Eventually(t, func() bool {
-		select {
-		case <-p.saveCh:
-			return true
-		default:
-			return false
-		}
-	}, time.Second, 10*time.Millisecond)
-}
-
-func TestSnapshotWorkerQueueFull(t *testing.T) {
-	blockCh := make(chan struct{})
-	p := &snapshotGatePersistence{
-		canSave:   true,
-		saveCh:    make(chan struct{}, 3),
-		startedCh: make(chan struct{}, 1),
-		blockCh:   blockCh,
-	}
-	store := newSnapshotGateStore(t, p)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	first := timebox.NewAggregateID("counter", "queue-full-1")
-	second := timebox.NewAggregateID("counter", "queue-full-2")
-	third := timebox.NewAggregateID("counter", "queue-full-3")
-
-	_, err := executor.Exec(first, func(
-		*CounterState, *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
-	assert.NoError(t, err)
-
-	// Wait until the worker has dequeued the first item and is blocking
-	<-p.startedCh
-
-	// Fill the queue (1/1) then overflow it — enqueue drops the third
-	_, err = executor.Exec(second, func(
-		*CounterState, *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
-	assert.NoError(t, err)
-	_, err = executor.Exec(third, func(
-		*CounterState, *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
-	assert.NoError(t, err)
-
-	close(blockCh)
-
-	count := 0
-	assert.Eventually(t, func() bool {
-		for {
-			select {
-			case <-p.saveCh:
-				count++
-			default:
-				return count == 2
-			}
-		}
-	}, time.Second, 10*time.Millisecond)
-}
-
-func TestWorkerStopDrainsQueue(t *testing.T) {
-	blockCh := make(chan struct{})
-	p := &snapshotGatePersistence{
-		canSave:   true,
-		saveCh:    make(chan struct{}, 4),
-		startedCh: make(chan struct{}, 2),
-		blockCh:   blockCh,
-	}
-	store := newSnapshotGateStore(t, p)
-
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	first := timebox.NewAggregateID("counter", "drain-1")
-	second := timebox.NewAggregateID("counter", "drain-2")
-
-	_, err := executor.Exec(first, func(
-		*CounterState, *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
-	assert.NoError(t, err)
-
-	<-p.startedCh
-
-	_, err = executor.Exec(second, func(
-		*CounterState, *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
-	assert.NoError(t, err)
-
-	closedCh := make(chan struct{})
-	go func() {
-		_ = store.Close()
-		close(closedCh)
-	}()
-
-	assert.Never(t, func() bool {
-		select {
-		case <-closedCh:
-			return true
-		default:
-			return false
-		}
-	}, 100*time.Millisecond, 10*time.Millisecond)
-
-	close(blockCh)
-
-	assert.Eventually(t, func() bool {
-		select {
-		case <-closedCh:
-			return true
-		default:
-			return false
-		}
-	}, time.Second, 10*time.Millisecond)
-
-	count := 0
-	assert.Eventually(t, func() bool {
-		for {
-			select {
-			case <-p.saveCh:
-				count++
-			default:
-				return count == 2
-			}
-		}
-	}, time.Second, 10*time.Millisecond)
 }
 
 func TestSaveSnapshotLoadError(t *testing.T) {
@@ -511,115 +326,90 @@ func TestGetSnapshotEmpty(t *testing.T) {
 	assert.NotNil(t, snap)
 	assert.Len(t, snap.AdditionalEvents, 0)
 	assert.Equal(t, int64(0), snap.NextSequence)
+	assert.Equal(t, 0, snap.SnapshotSize)
+	assert.Equal(t, 0, snap.EventsSize)
 }
 
-func setupTestExecutorWithoutSnapshotWorker(t *testing.T) (
-	io.Closer, *timebox.Store, *timebox.Executor[*CounterState],
-) {
-	server, store, err := newMemoryStore(timebox.Config{})
+func TestExecInlineSnapshotSaveError(t *testing.T) {
+	saveErr := errors.New("snapshot save failed")
+	recData, err := json.Marshal(&CounterState{Value: 10})
 	assert.NoError(t, err)
+
+	p := &inlineSnapshotPersistence{
+		rec: &timebox.SnapshotRecord{
+			Data:     recData,
+			Sequence: 1,
+			Events: []*timebox.Event{
+				inlineSnapshotEvent(t, 1_000_000),
+				inlineSnapshotEvent(t, 1_000_000),
+			},
+		},
+		saveErr: saveErr,
+	}
+	store, err := timebox.NewStore(p, timebox.Config{})
+	assert.NoError(t, err)
+	defer func() { _ = store.Close() }()
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	return server, store, executor
-}
+	id := timebox.NewAggregateID("counter", "inline-save-error")
 
-func newSnapshotGateStore(
-	t *testing.T, p *snapshotGatePersistence,
-) *timebox.Store {
-	t.Helper()
-	store, err := timebox.NewStore(p, timebox.Config{
-		Snapshot: timebox.SnapshotConfig{
-			Workers:      true,
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-		},
+	_, err = executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		assert.Equal(t, 2_000_010, s.Value)
+		return nil
 	})
+	assert.ErrorIs(t, err, saveErr)
+	assert.Equal(t, 1, p.saveCount)
+	assert.Equal(t, id, p.saveID)
+	assert.Equal(t, int64(3), p.saveSequence)
+
+	var saved CounterState
+	err = json.Unmarshal(p.saveData, &saved)
 	assert.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-	return store
+	assert.Equal(t, 2_000_010, saved.Value)
 }
 
-func snapshotGateEvent(delta int) *timebox.Event {
-	data, _ := json.Marshal(delta)
+type inlineSnapshotPersistence struct {
+	fakePersistence
+	rec          *timebox.SnapshotRecord
+	saveErr      error
+	saveData     []byte
+	saveSequence int64
+	saveID       timebox.AggregateID
+	saveCount    int
+}
+
+func inlineSnapshotEvent(t *testing.T, delta int) *timebox.Event {
+	t.Helper()
+
+	data, err := json.Marshal(delta)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 	return &timebox.Event{
-		Timestamp: time.Now().UTC(),
+		Timestamp: time.Unix(1_700_000_023, 0).UTC(),
 		Type:      EventIncremented,
 		Data:      data,
 	}
 }
 
-func (p *snapshotGatePersistence) Close() error {
-	return nil
-}
-
-func (p *snapshotGatePersistence) Append(timebox.AppendRequest) error {
-	return nil
-}
-
-func (p *snapshotGatePersistence) LoadEvents(
-	timebox.AggregateID, int64,
-) (*timebox.EventsResult, error) {
-	return &timebox.EventsResult{}, nil
-}
-
-func (p *snapshotGatePersistence) LoadSnapshot(
+func (p *inlineSnapshotPersistence) LoadSnapshot(
 	timebox.AggregateID,
 ) (*timebox.SnapshotRecord, error) {
 	return &timebox.SnapshotRecord{
-		Events: []*timebox.Event{snapshotGateEvent(1)},
+		Data:     append([]byte(nil), p.rec.Data...),
+		Sequence: p.rec.Sequence,
+		Events:   append([]*timebox.Event(nil), p.rec.Events...),
 	}, nil
 }
 
-func (p *snapshotGatePersistence) SaveSnapshot(
-	timebox.AggregateID, []byte, int64,
+func (p *inlineSnapshotPersistence) SaveSnapshot(
+	id timebox.AggregateID, data []byte, sequence int64,
 ) error {
-	if p.startedCh != nil {
-		select {
-		case p.startedCh <- struct{}{}:
-		default:
-		}
-	}
-	if p.blockCh != nil {
-		<-p.blockCh
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	select {
-	case p.saveCh <- struct{}{}:
-	default:
-	}
+	p.saveID = append(timebox.AggregateID(nil), id...)
+	p.saveData = append([]byte(nil), data...)
+	p.saveSequence = sequence
+	p.saveCount++
 	return p.saveErr
-}
-
-func (p *snapshotGatePersistence) ListAggregates(
-	timebox.AggregateID,
-) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) GetAggregateStatus(
-	timebox.AggregateID,
-) (string, error) {
-	return "", nil
-}
-
-func (p *snapshotGatePersistence) ListAggregatesByStatus(
-	string,
-) ([]timebox.StatusEntry, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) ListAggregatesByLabel(
-	string, string,
-) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) ListLabelValues(string) ([]string, error) {
-	return nil, nil
-}
-
-func (p *snapshotGatePersistence) CanSaveSnapshot() bool {
-	return p.canSave
 }

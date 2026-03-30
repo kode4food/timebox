@@ -24,12 +24,7 @@ func TestConfigWith(t *testing.T) {
 		Timebox: timebox.Config{
 			MaxRetries: 9,
 			CacheSize:  17,
-			Snapshot: timebox.SnapshotConfig{
-				Workers:      true,
-				WorkerCount:  2,
-				MaxQueueSize: 7,
-				TrimEvents:   true,
-			},
+			TrimEvents: true,
 		},
 		Addr:   "127.0.0.1:6380",
 		Prefix: "orders",
@@ -41,10 +36,7 @@ func TestConfigWith(t *testing.T) {
 	assert.Equal(t, "blue", cfg.Shard)
 	assert.Equal(t, 9, cfg.Timebox.MaxRetries)
 	assert.Equal(t, 17, cfg.Timebox.CacheSize)
-	assert.True(t, cfg.Timebox.Snapshot.Workers)
-	assert.Equal(t, 2, cfg.Timebox.Snapshot.WorkerCount)
-	assert.Equal(t, 7, cfg.Timebox.Snapshot.MaxQueueSize)
-	assert.True(t, cfg.Timebox.Snapshot.TrimEvents)
+	assert.True(t, cfg.Timebox.TrimEvents)
 }
 
 func TestConfigWithFields(t *testing.T) {
@@ -97,9 +89,5 @@ func validTimeboxConfig() timebox.Config {
 	return timebox.Config{
 		MaxRetries: 1,
 		CacheSize:  1,
-		Snapshot: timebox.SnapshotConfig{
-			WorkerCount:  1,
-			MaxQueueSize: 1,
-		},
 	}
 }

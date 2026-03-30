@@ -90,3 +90,21 @@ func newIndexer(t *testing.T) timebox.Indexer {
 		return res
 	}
 }
+
+func encodedSize(t *testing.T, value any) int {
+	t.Helper()
+
+	data, err := json.Marshal(value)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	return len(data)
+}
+
+func eventsDataSize(evs []*timebox.Event) int {
+	size := 0
+	for _, ev := range evs {
+		size += len(ev.Data)
+	}
+	return size
+}

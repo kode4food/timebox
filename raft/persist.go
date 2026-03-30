@@ -124,7 +124,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 
 		pending: map[uint64]proposalState{},
 	}
-	p.fsm = newFSM(db, cfg.Timebox.Snapshot.TrimEvents)
+	p.fsm = newFSM(db, cfg.Timebox.TrimEvents)
 	p.flushBatch = p.flushBatchNoPublish
 	log.snapshotFn = p.captureSnapshot
 

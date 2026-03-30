@@ -94,7 +94,7 @@ func newPersistence(cfg Config) (*Persistence, error) {
 	getEventsScript := luaGetEvents
 	putSnapshotScript := luaPutSnapshot
 	getSnapshotScript := luaGetSnapshot
-	if cfg.Timebox.Snapshot.TrimEvents {
+	if cfg.Timebox.TrimEvents {
 		getEventsScript = luaGetEventsTrim
 		putSnapshotScript = luaPutSnapshotTrim
 		getSnapshotScript = luaGetSnapshotTrim
@@ -165,7 +165,7 @@ func (p *Persistence) LoadEvents(
 ) (*timebox.EventsResult, error) {
 	eventsKey := p.buildKey(id, eventsSuffix)
 	keys := []string{eventsKey}
-	if p.Timebox.Snapshot.TrimEvents {
+	if p.Timebox.TrimEvents {
 		snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
 		keys = []string{eventsKey, snapSeqKey}
 	}
@@ -178,7 +178,7 @@ func (p *Persistence) LoadEvents(
 		return nil, err
 	}
 
-	if p.Timebox.Snapshot.TrimEvents {
+	if p.Timebox.TrimEvents {
 		res := result.([]any)
 		if len(res) < 2 {
 			return nil, errors.Join(
@@ -270,7 +270,7 @@ func (p *Persistence) SaveSnapshot(
 	snapKey := p.buildKey(id, snapshotValSuffix)
 	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
 	keys := []string{snapKey, snapSeqKey}
-	if p.Timebox.Snapshot.TrimEvents {
+	if p.Timebox.TrimEvents {
 		eventsKey := p.buildKey(id, eventsSuffix)
 		keys = []string{snapKey, snapSeqKey, eventsKey}
 	}

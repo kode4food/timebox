@@ -13,7 +13,7 @@ import (
 
 func TestArchiveToStream(t *testing.T) {
 	server, store, err := newMemoryStore(timebox.Config{
-		Snapshot: timebox.SnapshotConfig{TrimEvents: true},
+		TrimEvents: true,
 		Indexer: func([]*timebox.Event) []*timebox.Index {
 			active := "active"
 			return []*timebox.Index{{

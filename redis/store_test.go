@@ -34,7 +34,7 @@ func TestStore(t *testing.T) {
 			tbCfg.Addr = server.Addr()
 			tbCfg.Prefix = suitePrefix(t)
 			tbCfg.Timebox.Indexer = cfg.Indexer
-			tbCfg.Timebox.Snapshot.TrimEvents = cfg.TrimEvents
+			tbCfg.Timebox.TrimEvents = cfg.TrimEvents
 
 			store, err := tbredis.NewStore(tbCfg)
 			if !assert.NoError(t, err) {

@@ -43,9 +43,7 @@ func TestFollower(t *testing.T) {
 	if !assert.NotNil(t, follower) {
 		return
 	}
-	assert.False(t, leader.persistence.CanSaveSnapshot())
 	assert.Equal(t, leader.persistence.State(), raft.StateLeader)
-	assert.False(t, follower.persistence.CanSaveSnapshot())
 	assert.Equal(t, follower.persistence.State(), raft.StateFollower)
 
 	id := timebox.NewAggregateID("order", "replicated")
