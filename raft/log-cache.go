@@ -99,6 +99,10 @@ func (c *tailCache) reset() {
 	c.first = 0
 }
 
+func (c *tailCache) len() int {
+	return c.n
+}
+
 func (c *tailCache) has(idx uint64) bool {
 	if c.n == 0 {
 		return false

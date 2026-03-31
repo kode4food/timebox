@@ -16,7 +16,6 @@ type (
 	// Persistence keeps store state in memory for semantic tests
 	Persistence struct {
 		timebox.AlwaysReady
-		timebox.Config
 
 		mu        sync.RWMutex
 		closed    bool
@@ -50,19 +49,16 @@ var (
 var _ timebox.Backend = (*Persistence)(nil)
 
 // NewPersistence creates a new in-memory Persistence
-func NewPersistence(cfgs ...timebox.Config) *Persistence {
-	cfg := timebox.Configure(timebox.DefaultConfig(), cfgs...)
+func NewPersistence() *Persistence {
 	return &Persistence{
-		Config:    cfg,
 		aggs:      map[string]*aggregate{},
 		archive:   []*timebox.ArchiveRecord{},
 		archiveCh: make(chan struct{}, 1),
 	}
 }
 
-// NewStore creates a Store backed by in-memory Persistence
-func NewStore(cfg timebox.Config) (*timebox.Store, error) {
-	p := NewPersistence(cfg)
+// NewStore creates a Store using the current in-memory Persistence
+func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
 	return timebox.NewStore(p, cfg)
 }
 
@@ -126,7 +122,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 
 // LoadEvents loads events starting at fromSeq
 func (p *Persistence) LoadEvents(
-	id timebox.AggregateID, fromSeq int64,
+	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -135,15 +131,15 @@ func (p *Persistence) LoadEvents(
 		return nil, err
 	}
 
-	a, ok := p.aggs[keyFor(id)]
+	a, ok := p.aggs[keyFor(req.ID)]
 	if !ok {
 		return &timebox.EventsResult{
-			StartSequence: fromSeq,
+			StartSequence: req.FromSeq,
 			Events:        []*timebox.Event{},
 		}, nil
 	}
 
-	start := max(fromSeq, a.baseSeq)
+	start := max(req.FromSeq, a.baseSeq)
 	return &timebox.EventsResult{
 		StartSequence: start,
 		Events:        a.events[start-a.baseSeq:],
@@ -152,7 +148,7 @@ func (p *Persistence) LoadEvents(
 
 // LoadSnapshot loads the snapshot and trailing events for an aggregate
 func (p *Persistence) LoadSnapshot(
-	id timebox.AggregateID,
+	req timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -161,7 +157,7 @@ func (p *Persistence) LoadSnapshot(
 		return nil, err
 	}
 
-	a, ok := p.aggs[keyFor(id)]
+	a, ok := p.aggs[keyFor(req.ID)]
 	if !ok {
 		return &timebox.SnapshotRecord{}, nil
 	}
@@ -175,9 +171,7 @@ func (p *Persistence) LoadSnapshot(
 }
 
 // SaveSnapshot saves a snapshot if the sequence is not older
-func (p *Persistence) SaveSnapshot(
-	id timebox.AggregateID, data []byte, sequence int64,
-) error {
+func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -185,24 +179,24 @@ func (p *Persistence) SaveSnapshot(
 		return err
 	}
 
-	key := keyFor(id)
+	key := keyFor(req.ID)
 	a, ok := p.aggs[key]
 	if !ok {
 		a = &aggregate{
-			id:     id,
+			id:     req.ID,
 			events: []*timebox.Event{},
 			labels: map[string]string{},
 		}
 		p.aggs[key] = a
 	}
-	if sequence < a.snapshotSeq {
+	if req.Sequence < a.snapshotSeq {
 		return nil
 	}
 
-	a.snapshotData = data
-	a.snapshotSeq = sequence
-	if p.TrimEvents && sequence > a.baseSeq {
-		trim := min(sequence-a.baseSeq, int64(len(a.events)))
+	a.snapshotData = req.Data
+	a.snapshotSeq = req.Sequence
+	if req.Config().TrimEvents && req.Sequence > a.baseSeq {
+		trim := min(req.Sequence-a.baseSeq, int64(len(a.events)))
 		a.events = a.events[trim:]
 		a.baseSeq += trim
 	}

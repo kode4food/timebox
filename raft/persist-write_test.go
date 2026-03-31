@@ -217,7 +217,7 @@ func TestAppendConflictAheadOfCurrent(t *testing.T) {
 
 // TestConcurrentAppend verifies that when concurrent appends for the same
 // aggregate all pass the pre-check and reach the FSM, only one commits and
-// the rest receive a VersionConflictError.
+// the rest receive a VersionConflictError
 func TestConcurrentAppend(t *testing.T) {
 	n := newNode(t, nodeConfig{id: "node-1"})
 	waitForWrite(t, n.store)
@@ -226,7 +226,7 @@ func TestConcurrentAppend(t *testing.T) {
 	const workers = 10
 
 	// All goroutines wait at the barrier so they checkConflict and
-	// propose simultaneously, before any raft commit can complete.
+	// propose simultaneously, before any raft commit can complete
 	var ready sync.WaitGroup
 	ready.Add(workers)
 	start := make(chan struct{})

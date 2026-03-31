@@ -22,13 +22,18 @@ func TestStore(t *testing.T) {
 			) *timebox.Store {
 				t.Helper()
 
-				tbCfg := cfg
-				tbCfg.Prefix = storeSuitePrefix(t)
-				tbCfg.Timebox = timebox.DefaultConfig()
-				tbCfg.Timebox.Indexer = tc.Indexer
-				tbCfg.Timebox.TrimEvents = tc.TrimEvents
+				pCfg := cfg
+				pCfg.Prefix = storeSuitePrefix(t)
+				p, err := postgres.NewPersistence(pCfg)
+				if !assert.NoError(t, err) {
+					t.FailNow()
+				}
 
-				store, err := postgres.NewStore(tbCfg)
+				storeCfg := timebox.DefaultConfig()
+				storeCfg.Indexer = tc.Indexer
+				storeCfg.TrimEvents = tc.TrimEvents
+
+				store, err := p.NewStore(storeCfg)
 				if !assert.NoError(t, err) {
 					t.FailNow()
 				}

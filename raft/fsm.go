@@ -4,16 +4,13 @@ import (
 	"bytes"
 	"slices"
 
-	"go.etcd.io/bbolt"
-
 	"github.com/kode4food/timebox"
 	bin "github.com/kode4food/timebox/internal/binary"
 )
 
 type (
 	fsm struct {
-		db         *bbolt.DB
-		trimEvents bool
+		db *kvDB
 	}
 
 	// decodedEntry pairs a raft log index with its command bytes
@@ -23,11 +20,8 @@ type (
 	}
 )
 
-func newFSM(db *bbolt.DB, trimEvents bool) *fsm {
-	return &fsm{
-		db:         db,
-		trimEvents: trimEvents,
-	}
+func newFSM(db *kvDB) *fsm {
+	return &fsm{db: db}
 }
 
 func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
@@ -37,7 +31,7 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
 
 	results := make([]*ApplyResult, len(ents))
 
-	err := f.db.Update(func(tx *bbolt.Tx) error {
+	err := f.db.Update(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		lastApplied, err := loadLastAppliedTx(b)
 		if err != nil {
@@ -87,7 +81,7 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
 }
 
 func (f *fsm) applyAppendTx(
-	b *bbolt.Bucket, req *timebox.AppendRequest,
+	b *kvBucket, req *timebox.AppendRequest,
 ) (*ApplyResult, error) {
 	encodedID := encodeAggregateID(req.ID)
 	meta, err := loadOrCreateMetaTx(b, encodedID)
@@ -120,7 +114,7 @@ func (f *fsm) applyAppendTx(
 }
 
 func (f *fsm) applySnapshotTx(
-	b *bbolt.Bucket, cmd *SnapshotCommand,
+	b *kvBucket, cmd *SnapshotCommand,
 ) (*ApplyResult, error) {
 	encodedID := encodeAggregateID(cmd.ID)
 	metaKey := AggregateMetaKey(encodedID)
@@ -144,7 +138,7 @@ func (f *fsm) applySnapshotTx(
 		meta.CurrentSequence = cmd.Sequence
 	}
 
-	if f.trimEvents {
+	if cmd.TrimEvents {
 		trimTo := min(cmd.Sequence, currentSeq)
 		if trimTo > meta.BaseSequence {
 			for seq := meta.BaseSequence; seq < trimTo; seq++ {
@@ -166,7 +160,7 @@ func (f *fsm) applySnapshotTx(
 }
 
 func writeEventsTx(
-	b *bbolt.Bucket, evtPrefix []byte, events []*timebox.Event,
+	b *kvBucket, evtPrefix []byte, events []*timebox.Event,
 ) error {
 	for _, ev := range events {
 		event, err := timebox.BinEvent.Encode(ev)
@@ -182,7 +176,7 @@ func writeEventsTx(
 }
 
 func applyMutationsTx(
-	b *bbolt.Bucket, meta *AggregateMeta, encodedID string,
+	b *kvBucket, meta *AggregateMeta, encodedID string,
 	req *timebox.AppendRequest,
 ) error {
 	if req.Status != nil {
@@ -213,7 +207,7 @@ func applyMutationsTx(
 }
 
 func applyLabelMutations(
-	b *bbolt.Bucket, meta *AggregateMeta, encodedID string,
+	b *kvBucket, meta *AggregateMeta, encodedID string,
 	labels map[string]string,
 ) error {
 	for label, value := range labels {
@@ -254,7 +248,7 @@ func applyLabelMutations(
 }
 
 func updateLabelValueCount(
-	b *bbolt.Bucket, label, value string, delta int64,
+	b *kvBucket, label, value string, delta int64,
 ) error {
 	key := labelValueKey(label, value)
 	current, err := decodeOptionalInt64(b.Get(key))
@@ -269,9 +263,7 @@ func updateLabelValueCount(
 	return b.Put(key, bin.AppendInt64(nil, next))
 }
 
-func loadOrCreateMetaTx(
-	b *bbolt.Bucket, encodedID string,
-) (*AggregateMeta, error) {
+func loadOrCreateMetaTx(b *kvBucket, encodedID string) (*AggregateMeta, error) {
 	meta, ok, err := loadMetaTx(b, encodedID)
 	if err != nil {
 		return nil, err
@@ -282,9 +274,7 @@ func loadOrCreateMetaTx(
 	return &AggregateMeta{Labels: map[string]string{}}, nil
 }
 
-func loadMetaTx(
-	b *bbolt.Bucket, encodedID string,
-) (*AggregateMeta, bool, error) {
+func loadMetaTx(b *kvBucket, encodedID string) (*AggregateMeta, bool, error) {
 	value := b.Get(AggregateMetaKey(encodedID))
 	if len(value) == 0 {
 		return nil, false, nil
@@ -297,9 +287,9 @@ func loadMetaTx(
 	return meta, true, nil
 }
 
-func loadLastApplied(db *bbolt.DB) (uint64, error) {
+func loadLastApplied(db *kvDB) (uint64, error) {
 	var applied uint64
-	err := db.View(func(tx *bbolt.Tx) error {
+	err := db.View(func(tx *kvTx) error {
 		var err error
 		applied, err = loadLastAppliedTx(tx.Bucket(bucketName))
 		return err
@@ -307,7 +297,7 @@ func loadLastApplied(db *bbolt.DB) (uint64, error) {
 	return applied, err
 }
 
-func loadLastAppliedTx(b *bbolt.Bucket) (uint64, error) {
+func loadLastAppliedTx(b *kvBucket) (uint64, error) {
 	applied, err := decodeOptionalInt64(b.Get(lastAppliedKey()))
 	if err != nil {
 		return 0, err
@@ -315,12 +305,12 @@ func loadLastAppliedTx(b *bbolt.Bucket) (uint64, error) {
 	return uint64(applied), nil
 }
 
-func markApplied(b *bbolt.Bucket, logIndex uint64) error {
+func markApplied(b *kvBucket, logIndex uint64) error {
 	return b.Put(lastAppliedKey(), bin.AppendInt64(nil, int64(logIndex)))
 }
 
 func conflictResultTx(
-	b *bbolt.Bucket, encodedID string, meta *AggregateMeta, expectedSeq int64,
+	b *kvBucket, encodedID string, meta *AggregateMeta, expectedSeq int64,
 ) (*ApplyResult, error) {
 	conflict := &timebox.VersionConflictError{
 		ExpectedSequence: expectedSeq,
@@ -338,12 +328,13 @@ func conflictResultTx(
 }
 
 func loadEventsTx(
-	b *bbolt.Bucket, encodedID string, fromSeq int64,
+	b *kvBucket, encodedID string, fromSeq int64,
 ) ([]*timebox.Event, error) {
 	if fromSeq < 0 {
 		fromSeq = 0
 	}
 	c := b.Cursor()
+	defer func() { _ = c.Close() }()
 	pfx := aggregateEventPrefix(encodedID)
 	var events []*timebox.Event
 	for k, v := c.Seek(aggregateEventKeyFromPrefix(pfx, fromSeq)); k != nil; {

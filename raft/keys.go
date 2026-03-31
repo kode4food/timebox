@@ -34,10 +34,12 @@ var bucketName = []byte("timebox")
 // Variable key parts are base64url encoded so iteration remains
 // lexicographically well-structured without introducing ambiguous separators
 
+// AggregateMetaPrefix returns the key prefix for aggregate metadata
 func AggregateMetaPrefix() []byte {
 	return []byte(aggRootPrefix)
 }
 
+// AggregateMetaKey returns the metadata key for one encoded aggregate ID
 func AggregateMetaKey(encodedID string) []byte {
 	return []byte(aggRootPrefix + encodedID + metaSuffix)
 }

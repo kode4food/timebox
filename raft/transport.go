@@ -6,10 +6,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
-
-	"go.etcd.io/raft/v3/raftpb"
 )
 
 type (
@@ -38,6 +37,43 @@ const (
 var (
 	ErrTransportClosed = errors.New("transport closed")
 )
+
+func newRaftTransport(cfg Config) (*raftTransport, error) {
+	ln, err := net.Listen("tcp", cfg.Address)
+	if err != nil {
+		return nil, err
+	}
+
+	t := &raftTransport{
+		advertise: ServerAddress(cfg.Address),
+		listener:  ln.(*net.TCPListener),
+		peers:     map[ServerAddress]*raftPeerConn{},
+		conns:     map[net.Conn]struct{}{},
+	}
+
+	if t.advertise == "" {
+		t.advertise = ServerAddress(t.listener.Addr().String())
+	}
+	return t, nil
+}
+
+func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
+	conn, err := net.DialTimeout(
+		"tcp", string(addr), defaultDialTimeout,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetNoDelay(true)
+		_ = tcp.SetKeepAlive(true)
+		_ = tcp.SetKeepAlivePeriod(defaultKeepAlive)
+	}
+	return &raftPeerConn{
+		conn: conn,
+		wr:   bufio.NewWriter(conn),
+	}, nil
+}
 
 func (t *raftTransport) Accept() (net.Conn, error) {
 	conn, err := t.listener.Accept()
@@ -181,53 +217,24 @@ func (p *raftPeerConn) do(fn func(*bufio.Writer) error) error {
 	return p.wr.Flush()
 }
 
-func newRaftTransport(cfg Config) (*raftTransport, error) {
-	ln, err := net.Listen("tcp", cfg.Address)
+func writeSnapshotFile(w io.Writer, path string) error {
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer func() {
+		_ = f.Close()
+	}()
 
-	t := &raftTransport{
-		advertise: ServerAddress(cfg.Address),
-		listener:  ln.(*net.TCPListener),
-		peers:     map[ServerAddress]*raftPeerConn{},
-		conns:     map[net.Conn]struct{}{},
-	}
-
-	if t.advertise == "" {
-		t.advertise = ServerAddress(t.listener.Addr().String())
-	}
-	return t, nil
-}
-
-func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
-	conn, err := net.DialTimeout(
-		"tcp", string(addr), defaultDialTimeout,
-	)
+	info, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if tcp, ok := conn.(*net.TCPConn); ok {
-		_ = tcp.SetNoDelay(true)
-		_ = tcp.SetKeepAlive(true)
-		_ = tcp.SetKeepAlivePeriod(defaultKeepAlive)
+	if err := writeSnapshotSize(w, uint64(info.Size())); err != nil {
+		return err
 	}
-	return &raftPeerConn{
-		conn: conn,
-		wr:   bufio.NewWriter(conn),
-	}, nil
-}
-
-func readTransportMessage(r *bufio.Reader) (raftpb.Message, error) {
-	data, err := readFrame(r)
-	if err != nil {
-		return raftpb.Message{}, err
-	}
-	var msg raftpb.Message
-	if err := msg.Unmarshal(data); err != nil {
-		return raftpb.Message{}, err
-	}
-	return msg, nil
+	_, err = io.Copy(w, f)
+	return err
 }
 
 func writeFrame(w *bufio.Writer, data []byte) error {
@@ -258,4 +265,19 @@ func readFrame(r *bufio.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func writeSnapshotSize(w io.Writer, size uint64) error {
+	var hdr [8]byte
+	binary.BigEndian.PutUint64(hdr[:], size)
+	_, err := w.Write(hdr[:])
+	return err
+}
+
+func readSnapshotSize(r *bufio.Reader) (uint64, error) {
+	var hdr [8]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint64(hdr[:]), nil
 }

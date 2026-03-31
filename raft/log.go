@@ -5,7 +5,6 @@ import (
 	"os"
 	"sync"
 
-	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
 
@@ -17,7 +16,7 @@ type (
 		mu sync.RWMutex
 
 		logDir   string
-		db       *bbolt.DB
+		db       *kvDB
 		hs       raftpb.HardState
 		cs       raftpb.ConfState
 		segs     []logSeg
@@ -129,10 +128,28 @@ func (r *raftLog) LastIndex() (uint64, error) {
 	return r.last, nil
 }
 
+func (r *raftLog) Last() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.last
+}
+
 func (r *raftLog) FirstIndex() (uint64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.compacted + 1, nil
+}
+
+func (r *raftLog) Compacted() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.compacted
+}
+
+func (r *raftLog) HotLen() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.hot.len()
 }
 
 func (r *raftLog) Snapshot() (raftpb.Snapshot, error) {

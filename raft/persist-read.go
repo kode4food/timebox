@@ -4,31 +4,30 @@ import (
 	"bytes"
 	"strings"
 
-	"go.etcd.io/bbolt"
-
 	"github.com/kode4food/timebox"
 )
 
+// LoadEvents returns events for one aggregate starting at the requested sequence
 func (p *Persistence) LoadEvents(
-	id timebox.AggregateID, fromSeq int64,
+	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
 	var res *timebox.EventsResult
 
-	encodedID := encodeAggregateID(id)
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	encodedID := encodeAggregateID(req.ID)
+	err := p.db.View(func(tx *kvTx) error {
 		meta, ok, err := loadMetaTx(tx.Bucket(bucketName), encodedID)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			res = &timebox.EventsResult{
-				StartSequence: fromSeq,
+				StartSequence: req.FromSeq,
 				Events:        []*timebox.Event{},
 			}
 			return nil
 		}
 
-		startSeq := max(fromSeq, meta.BaseSequence)
+		startSeq := max(req.FromSeq, meta.BaseSequence)
 
 		evs, err := loadEventsTx(tx.Bucket(bucketName), encodedID, startSeq)
 		if err != nil {
@@ -46,13 +45,14 @@ func (p *Persistence) LoadEvents(
 	return res, nil
 }
 
+// LoadSnapshot returns the latest snapshot and tail events for one aggregate
 func (p *Persistence) LoadSnapshot(
-	id timebox.AggregateID,
+	req timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	var rec *timebox.SnapshotRecord
 
-	encodedID := encodeAggregateID(id)
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	encodedID := encodeAggregateID(req.ID)
+	err := p.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		meta, ok, err := loadMetaTx(b, encodedID)
 		if err != nil {
@@ -82,14 +82,16 @@ func (p *Persistence) LoadSnapshot(
 	return rec, nil
 }
 
+// ListAggregates lists known aggregate IDs that share the given prefix
 func (p *Persistence) ListAggregates(
 	id timebox.AggregateID,
 ) ([]timebox.AggregateID, error) {
 	var ids []timebox.AggregateID
 
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	err := p.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
+		defer func() { _ = c.Close() }()
 		pfx := AggregateMetaPrefix()
 		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			key := string(k)
@@ -121,7 +123,7 @@ func (p *Persistence) checkConflict(
 ) error {
 	encodedID := encodeAggregateID(id)
 	var conflict error
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	err := p.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		meta, ok, err := loadMetaTx(b, encodedID)
 		if err != nil || !ok {

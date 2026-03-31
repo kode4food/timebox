@@ -42,6 +42,47 @@ const (
 
 var logRotateBytes int64 = 128 * 1024 * 1024
 
+func openLogSegs(
+	dir string, segs []logSeg, tailID, compacted uint64,
+) ([]logSeg, uint64, uint64, *raftpb.HardState, error) {
+	if len(segs) == 0 {
+		return nil, 0, 0, nil, nil
+	}
+	if tailID == 0 {
+		tailID = segs[len(segs)-1].id
+	}
+	if segs[len(segs)-1].id != tailID {
+		return nil, 0, 0, nil, bin.ErrCorruptState
+	}
+
+	res := make([]logSeg, 0, len(segs))
+	var last uint64
+	var walHS *raftpb.HardState
+	for i, seg := range segs {
+		allowTrunc := seg.id == tailID
+		opened, hs, err := scanSeg(dir, seg.id, seg.first, allowTrunc)
+		if err != nil {
+			return nil, 0, 0, nil, err
+		}
+		if hs != nil {
+			walHS = hs
+		}
+		expect := compacted + 1
+		if i != 0 {
+			expect = last + 1
+		}
+		switch {
+		case opened.first != expect:
+			return nil, 0, 0, nil, bin.ErrCorruptState
+		case !allowTrunc && opened.last < opened.first:
+			return nil, 0, 0, nil, bin.ErrCorruptState
+		}
+		last = max(last, opened.last)
+		res = append(res, opened)
+	}
+	return res, last, tailID, walHS, nil
+}
+
 func (r *raftLog) trimTailLocked(first uint64) error {
 	if len(r.segs) == 0 {
 		return bin.ErrCorruptState
@@ -211,47 +252,6 @@ func (r *raftLog) closeTailLocked() error {
 		r.logf = nil
 	}
 	return errors.Join(errs...)
-}
-
-func openLogSegs(
-	dir string, segs []logSeg, tailID, compacted uint64,
-) ([]logSeg, uint64, uint64, *raftpb.HardState, error) {
-	if len(segs) == 0 {
-		return nil, 0, 0, nil, nil
-	}
-	if tailID == 0 {
-		tailID = segs[len(segs)-1].id
-	}
-	if segs[len(segs)-1].id != tailID {
-		return nil, 0, 0, nil, bin.ErrCorruptState
-	}
-
-	res := make([]logSeg, 0, len(segs))
-	var last uint64
-	var walHS *raftpb.HardState
-	for i, seg := range segs {
-		allowTrunc := seg.id == tailID
-		opened, hs, err := scanSeg(dir, seg.id, seg.first, allowTrunc)
-		if err != nil {
-			return nil, 0, 0, nil, err
-		}
-		if hs != nil {
-			walHS = hs
-		}
-		expect := compacted + 1
-		if i != 0 {
-			expect = last + 1
-		}
-		switch {
-		case opened.first != expect:
-			return nil, 0, 0, nil, bin.ErrCorruptState
-		case !allowTrunc && opened.last < opened.first:
-			return nil, 0, 0, nil, bin.ErrCorruptState
-		}
-		last = max(last, opened.last)
-		res = append(res, opened)
-	}
-	return res, last, tailID, walHS, nil
 }
 
 func scanSeg(

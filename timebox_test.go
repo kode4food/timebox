@@ -126,8 +126,8 @@ func setupTestExecutor(t *testing.T) (
 }
 
 func newMemoryStore(cfg timebox.Config) (io.Closer, *timebox.Store, error) {
-	p := memory.NewPersistence(cfg)
-	s, err := timebox.NewStore(p, cfg)
+	p := memory.NewPersistence()
+	s, err := p.NewStore(cfg)
 	if err != nil {
 		_ = p.Close()
 		return nil, nil, err

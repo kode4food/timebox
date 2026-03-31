@@ -14,13 +14,18 @@ import (
 
 func TestLabelRow(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, cfg postgres.Config) {
-		cfg.Timebox.Indexer = statusEnvIndexer(t)
-
-		store, err := postgres.NewStore(cfg)
+		p, err := postgres.NewPersistence(cfg)
 		if !assert.NoError(t, err) {
 			return
 		}
-		defer func() { _ = store.Close() }()
+		defer func() { _ = p.Close() }()
+
+		store, err := p.NewStore(timebox.Config{
+			Indexer: statusEnvIndexer(t),
+		})
+		if !assert.NoError(t, err) {
+			return
+		}
 
 		id := timebox.NewAggregateID("order", "row")
 		ev := testEvent(t,

@@ -85,9 +85,10 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 
 func TestCommandSnapshotRoundtrip(t *testing.T) {
 	sc := &raft.SnapshotCommand{
-		ID:       timebox.NewAggregateID("ns", "id2"),
-		Sequence: 3,
-		Data:     []byte{0xDE, 0xAD, 0xBE, 0xEF},
+		ID:         timebox.NewAggregateID("ns", "id2"),
+		Sequence:   3,
+		TrimEvents: true,
+		Data:       []byte{0xDE, 0xAD, 0xBE, 0xEF},
 	}
 	c := raft.MakeSnapshotCommand(77, sc)
 
@@ -99,6 +100,7 @@ func TestCommandSnapshotRoundtrip(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, sc.ID, got.ID)
 	assert.Equal(t, sc.Sequence, got.Sequence)
+	assert.Equal(t, sc.TrimEvents, got.TrimEvents)
 	assert.Equal(t, sc.Data, got.Data)
 }
 

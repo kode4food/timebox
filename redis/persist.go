@@ -22,9 +22,9 @@ type Persistence struct {
 	client         *redis.Client
 	prefix         string
 	appendScripts  map[luaAppendSpec]*redis.Script
-	getEvents      *redis.Script
-	putSnapshot    *redis.Script
-	getSnapshot    *redis.Script
+	getEvents      map[bool]*redis.Script
+	putSnapshot    map[bool]*redis.Script
+	getSnapshot    map[bool]*redis.Script
 	publishArchive *redis.Script
 	consumeArchive *redis.Script
 }
@@ -56,15 +56,7 @@ var (
 	joinAggregateID, parseAggregateID = id.MakeCodec(':')
 )
 
-// NewStore creates a Store backed by Redis persistence
-func NewStore(cfgs ...Config) (*timebox.Store, error) {
-	p, err := NewPersistence(cfgs...)
-	if err != nil {
-		return nil, err
-	}
-	cfg := timebox.Configure(DefaultConfig(), cfgs...)
-	return timebox.NewStore(p, cfg.Timebox)
-}
+var _ timebox.Backend = (*Persistence)(nil)
 
 // NewPersistence creates Redis-backed Persistence
 func NewPersistence(cfgs ...Config) (*Persistence, error) {
@@ -73,6 +65,11 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 		return nil, err
 	}
 	return newPersistence(cfg)
+}
+
+// NewStore creates a Store using the current Redis Persistence
+func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(p, cfg)
 }
 
 func newPersistence(cfg Config) (*Persistence, error) {
@@ -91,22 +88,22 @@ func newPersistence(cfg Config) (*Persistence, error) {
 		return nil, err
 	}
 
-	getEventsScript := luaGetEvents
-	putSnapshotScript := luaPutSnapshot
-	getSnapshotScript := luaGetSnapshot
-	if cfg.Timebox.TrimEvents {
-		getEventsScript = luaGetEventsTrim
-		putSnapshotScript = luaPutSnapshotTrim
-		getSnapshotScript = luaGetSnapshotTrim
-	}
-
 	return &Persistence{
-		client:         client,
-		prefix:         buildStorePrefix(cfg),
-		appendScripts:  makeLuaAppendScripts(),
-		getEvents:      redis.NewScript(getEventsScript),
-		putSnapshot:    redis.NewScript(putSnapshotScript),
-		getSnapshot:    redis.NewScript(getSnapshotScript),
+		client:        client,
+		prefix:        buildStorePrefix(cfg),
+		appendScripts: makeLuaAppendScripts(),
+		getEvents: map[bool]*redis.Script{
+			false: redis.NewScript(luaGetEvents),
+			true:  redis.NewScript(luaGetEventsTrim),
+		},
+		putSnapshot: map[bool]*redis.Script{
+			false: redis.NewScript(luaPutSnapshot),
+			true:  redis.NewScript(luaPutSnapshotTrim),
+		},
+		getSnapshot: map[bool]*redis.Script{
+			false: redis.NewScript(luaGetSnapshot),
+			true:  redis.NewScript(luaGetSnapshotTrim),
+		},
 		publishArchive: redis.NewScript(luaPublishArchive),
 		consumeArchive: redis.NewScript(luaConsumeArchive),
 		Config:         cfg,
@@ -125,7 +122,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 		return err
 	}
 
-	call := buildLuaAppendCall(p, luaAppendInput{
+	call := buildLuaAppendCall(req.Store, p, luaAppendInput{
 		id:       req.ID,
 		atSeq:    req.ExpectedSequence,
 		status:   req.Status,
@@ -161,24 +158,24 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 
 // LoadEvents loads events starting at fromSeq
 func (p *Persistence) LoadEvents(
-	id timebox.AggregateID, fromSeq int64,
+	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
-	eventsKey := p.buildKey(id, eventsSuffix)
+	trimEvents := req.Config().TrimEvents
+	eventsKey := p.buildKey(req.ID, eventsSuffix)
 	keys := []string{eventsKey}
-	if p.Timebox.TrimEvents {
-		snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
-		keys = []string{eventsKey, snapSeqKey}
+	if trimEvents {
+		keys = append(keys, p.buildKey(req.ID, snapshotSeqSuffix))
 	}
-	args := []any{fromSeq}
+	args := []any{req.FromSeq}
 
-	result, err := p.getEvents.Run(
+	result, err := p.getEvents[trimEvents].Run(
 		context.Background(), p.client, keys, args...,
 	).Result()
 	if err != nil {
 		return nil, err
 	}
 
-	if p.Timebox.TrimEvents {
+	if trimEvents {
 		res := result.([]any)
 		if len(res) < 2 {
 			return nil, errors.Join(
@@ -193,13 +190,12 @@ func (p *Persistence) LoadEvents(
 			)
 		}
 
-		start := max(fromSeq, offset)
 		evs, err := decodeEvents(res[1].([]any))
 		if err != nil {
 			return nil, err
 		}
 		return &timebox.EventsResult{
-			StartSequence: start,
+			StartSequence: max(req.FromSeq, offset),
 			Events:        evs,
 		}, nil
 	}
@@ -209,21 +205,21 @@ func (p *Persistence) LoadEvents(
 		return nil, err
 	}
 	return &timebox.EventsResult{
-		StartSequence: fromSeq,
+		StartSequence: req.FromSeq,
 		Events:        evs,
 	}, nil
 }
 
 // LoadSnapshot loads the snapshot and trailing events for an aggregate
 func (p *Persistence) LoadSnapshot(
-	id timebox.AggregateID,
+	req timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
-	snapKey := p.buildKey(id, snapshotValSuffix)
-	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
-	eventsKey := p.buildKey(id, eventsSuffix)
+	snapKey := p.buildKey(req.ID, snapshotValSuffix)
+	snapSeqKey := p.buildKey(req.ID, snapshotSeqSuffix)
+	eventsKey := p.buildKey(req.ID, eventsSuffix)
 	keys := []string{snapKey, snapSeqKey, eventsKey}
 
-	result, err := p.getSnapshot.Run(
+	result, err := p.getSnapshot[req.Config().TrimEvents].Run(
 		context.Background(), p.client, keys,
 	).Result()
 	if err != nil {
@@ -264,19 +260,17 @@ func (p *Persistence) LoadSnapshot(
 }
 
 // SaveSnapshot saves a snapshot if the provided sequence is not older
-func (p *Persistence) SaveSnapshot(
-	id timebox.AggregateID, data []byte, sequence int64,
-) error {
-	snapKey := p.buildKey(id, snapshotValSuffix)
-	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
+func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
+	trimEvents := req.Config().TrimEvents
+	snapKey := p.buildKey(req.ID, snapshotValSuffix)
+	snapSeqKey := p.buildKey(req.ID, snapshotSeqSuffix)
 	keys := []string{snapKey, snapSeqKey}
-	if p.Timebox.TrimEvents {
-		eventsKey := p.buildKey(id, eventsSuffix)
-		keys = []string{snapKey, snapSeqKey, eventsKey}
+	if trimEvents {
+		keys = []string{snapKey, snapSeqKey, p.buildKey(req.ID, eventsSuffix)}
 	}
 
-	_, err := p.putSnapshot.Run(
-		context.Background(), p.client, keys, string(data), sequence,
+	_, err := p.putSnapshot[trimEvents].Run(
+		context.Background(), p.client, keys, string(req.Data), req.Sequence,
 	).Result()
 	return err
 }

@@ -13,8 +13,6 @@ import (
 type (
 	// Config defines one opinionated Raft persistence node
 	Config struct {
-		Timebox timebox.Config
-
 		// Local state
 		LocalID string
 		DataDir string
@@ -30,7 +28,7 @@ type (
 		Publisher Publisher
 	}
 
-	// Publisher is a callback that can be used to report committed events
+	// Publisher reports committed events after they are durably applied
 	Publisher func(...*timebox.Event)
 
 	// Server identifies one voter in the bootstrap configuration
@@ -40,11 +38,15 @@ type (
 	}
 )
 
+// DefaultApplyTimeout bounds one local proposal round trip
 const DefaultApplyTimeout = 10 * time.Second
 
 const (
+	// DefaultRecentEntriesSize is the default hot retained WAL cache size
 	DefaultRecentEntriesSize = 20480
-	MinRecentEntriesSize     = 2048
+
+	// MinRecentEntriesSize is the smallest allowed hot retained WAL cache size
+	MinRecentEntriesSize = 2048
 )
 
 var (
@@ -70,14 +72,12 @@ var (
 // DefaultConfig returns the opinionated defaults for one Raft node
 func DefaultConfig() Config {
 	return Config{
-		Timebox:           timebox.DefaultConfig(),
 		RecentEntriesSize: DefaultRecentEntriesSize,
 	}
 }
 
 // With merges another config into this config
 func (c Config) With(other Config) Config {
-	c.Timebox = timebox.Configure(c.Timebox, other.Timebox)
 	if other.LocalID != "" {
 		c.LocalID = other.LocalID
 	}
@@ -126,7 +126,7 @@ func (c Config) Validate() error {
 		!containsLocalServer(c.Servers, c.LocalID) {
 		return ErrBootstrapMissingLocalServer
 	}
-	return c.Timebox.Validate()
+	return nil
 }
 
 // LocalServer returns the local server entry derived from this config

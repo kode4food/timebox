@@ -78,7 +78,7 @@ func TestStoreConfigAndStatus(t *testing.T) {
 		MaxRetries: 3,
 		CacheSize:  5,
 	}
-	p := memory.NewPersistence(cfg)
+	p := memory.NewPersistence()
 	store, err := timebox.NewStore(p, cfg)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
@@ -391,25 +391,27 @@ func (f *fakePersistence) Close() error {
 	return nil
 }
 
+func (f *fakePersistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(f, cfg)
+}
+
 func (f *fakePersistence) Append(timebox.AppendRequest) error {
 	return nil
 }
 
 func (f *fakePersistence) LoadEvents(
-	timebox.AggregateID, int64,
+	timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
 	return &timebox.EventsResult{}, nil
 }
 
 func (f *fakePersistence) LoadSnapshot(
-	timebox.AggregateID,
+	timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	return &timebox.SnapshotRecord{}, nil
 }
 
-func (f *fakePersistence) SaveSnapshot(
-	timebox.AggregateID, []byte, int64,
-) error {
+func (f *fakePersistence) SaveSnapshot(timebox.SnapshotRequest) error {
 	return nil
 }
 

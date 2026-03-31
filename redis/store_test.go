@@ -30,13 +30,15 @@ func TestStore(t *testing.T) {
 		) *timebox.Store {
 			t.Helper()
 
-			tbCfg := tbredis.DefaultConfig()
-			tbCfg.Addr = server.Addr()
-			tbCfg.Prefix = suitePrefix(t)
-			tbCfg.Timebox.Indexer = cfg.Indexer
-			tbCfg.Timebox.TrimEvents = cfg.TrimEvents
+			pCfg := tbredis.DefaultConfig()
+			pCfg.Addr = server.Addr()
+			pCfg.Prefix = suitePrefix(t)
 
-			store, err := tbredis.NewStore(tbCfg)
+			storeCfg := timebox.DefaultConfig()
+			storeCfg.Indexer = cfg.Indexer
+			storeCfg.TrimEvents = cfg.TrimEvents
+
+			store, err := newStore(pCfg, storeCfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}

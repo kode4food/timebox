@@ -279,10 +279,12 @@ func buildAppendLua(spec luaAppendSpec) string {
 	return b.out.String()
 }
 
-func buildLuaAppendCall(p *Persistence, in luaAppendInput) luaAppendCall {
+func buildLuaAppendCall(
+	store *timebox.Store, p *Persistence, in luaAppendInput,
+) luaAppendCall {
 	ops := newLuaAppendOps(in.labels)
 	spec := luaAppendSpec{
-		trim:   p.Timebox.TrimEvents,
+		trim:   store.Config().TrimEvents,
 		status: in.status != nil,
 		labels: len(ops) > 0,
 	}

@@ -33,6 +33,24 @@ func TestAppendReadByte(t *testing.T) {
 	assert.Empty(t, rest)
 }
 
+func TestAppendReadBool(t *testing.T) {
+	t.Run("true", func(t *testing.T) {
+		buf := binary.AppendBool(nil, true)
+		v, rest, err := binary.ReadBool(buf)
+		assert.NoError(t, err)
+		assert.True(t, v)
+		assert.Empty(t, rest)
+	})
+
+	t.Run("false", func(t *testing.T) {
+		buf := binary.AppendBool(nil, false)
+		v, rest, err := binary.ReadBool(buf)
+		assert.NoError(t, err)
+		assert.False(t, v)
+		assert.Empty(t, rest)
+	})
+}
+
 func TestAppendReadInt64(t *testing.T) {
 	buf := binary.AppendInt64(nil, -9876543210)
 	v, rest, err := binary.ReadInt64(buf)
@@ -171,6 +189,11 @@ func TestReadErrors(t *testing.T) {
 
 	t.Run("byte empty", func(t *testing.T) {
 		_, _, err := binary.ReadByte(nil)
+		assert.True(t, errors.Is(err, binary.ErrCorruptState))
+	})
+
+	t.Run("bool empty", func(t *testing.T) {
+		_, _, err := binary.ReadBool(nil)
 		assert.True(t, errors.Is(err, binary.ErrCorruptState))
 	})
 }

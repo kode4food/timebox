@@ -4,9 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"time"
 
-	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
 
@@ -34,7 +32,7 @@ type (
 
 const (
 	walMetaDirName  = "meta"
-	walMetaFileName = "wal-meta.db"
+	walMetaFileName = "wal-meta"
 )
 
 var (
@@ -61,21 +59,10 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		return nil, false, err
 	}
 
-	db, err := bbolt.Open(filepath.Join(metaDir, walMetaFileName), 0o600,
-		&bbolt.Options{
-			Timeout:        time.Second,
-			FreelistType:   bbolt.FreelistMapType,
-			NoFreelistSync: true,
-		},
-	)
+	db, err := openKVDB(filepath.Join(metaDir, walMetaFileName))
 	if err != nil {
 		return nil, false, err
 	}
-	if err := initRaftMetaDB(db); err != nil {
-		_ = db.Close()
-		return nil, false, err
-	}
-
 	m, err := loadRaftMeta(db)
 	if err != nil {
 		_ = db.Close()
@@ -146,7 +133,7 @@ func (r *raftLog) storeMetaLocked(
 		return nil
 	}
 
-	return r.db.Update(func(tx *bbolt.Tx) error {
+	return r.db.Update(func(tx *kvTx) error {
 		mb := tx.Bucket(logMetaBucket)
 		if !termVoteEqual(r.hs, hs) {
 			if err := mb.Put(
@@ -209,20 +196,10 @@ func (r *raftLog) storeMetaLocked(
 	})
 }
 
-func initRaftMetaDB(db *bbolt.DB) error {
-	return db.Update(func(tx *bbolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists(logMetaBucket); err != nil {
-			return err
-		}
-		_, err := tx.CreateBucketIfNotExists(logSegBucket)
-		return err
-	})
-}
-
-func loadRaftMeta(db *bbolt.DB) (raftMeta, error) {
+func loadRaftMeta(db *kvDB) (raftMeta, error) {
 	var m raftMeta
 
-	err := db.View(func(tx *bbolt.Tx) error {
+	err := db.View(func(tx *kvTx) error {
 		mb := tx.Bucket(logMetaBucket)
 		sb := tx.Bucket(logSegBucket)
 
@@ -286,6 +263,7 @@ func loadRaftMeta(db *bbolt.DB) (raftMeta, error) {
 		}
 
 		c := sb.Cursor()
+		defer func() { _ = c.Close() }()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			first, rest, err := bin.ReadUint64(k)
 			if err != nil {
@@ -312,7 +290,7 @@ func loadRaftMeta(db *bbolt.DB) (raftMeta, error) {
 	return m, err
 }
 
-func putProto(b *bbolt.Bucket, key []byte, m protoMarshaler) error {
+func putProto(b *kvBucket, key []byte, m protoMarshaler) error {
 	data, err := m.Marshal()
 	if err != nil {
 		return err
@@ -320,7 +298,7 @@ func putProto(b *bbolt.Bucket, key []byte, m protoMarshaler) error {
 	return b.Put(key, data)
 }
 
-func loadProto(b *bbolt.Bucket, key []byte, m protoUnmarshaler) error {
+func loadProto(b *kvBucket, key []byte, m protoUnmarshaler) error {
 	data := b.Get(key)
 	if len(data) == 0 {
 		return nil

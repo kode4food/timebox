@@ -22,7 +22,8 @@ func TestStore(t *testing.T) {
 			tbCfg.Indexer = cfg.Indexer
 			tbCfg.TrimEvents = cfg.TrimEvents
 
-			store, err := memory.NewStore(tbCfg)
+			p := memory.NewPersistence()
+			store, err := p.NewStore(tbCfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}

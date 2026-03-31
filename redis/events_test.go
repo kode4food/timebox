@@ -21,7 +21,7 @@ func TestCorruptEvents(t *testing.T) {
 		cfg.Prefix = "corrupt"
 	})
 
-	store, err := newStore(storeCfg)
+	store, err := newStore(storeCfg, timebox.Config{})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 

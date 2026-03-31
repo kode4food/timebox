@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"go.etcd.io/bbolt"
-
 	"github.com/kode4food/timebox"
 )
 
@@ -16,7 +14,7 @@ func (p *Persistence) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
 	var status string
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	err := p.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		meta, ok, err := loadMetaTx(b, encodeAggregateID(id))
 		if err != nil {
@@ -36,9 +34,10 @@ func (p *Persistence) ListAggregatesByStatus(
 ) ([]timebox.StatusEntry, error) {
 	var res []timebox.StatusEntry
 
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	err := p.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
+		defer func() { _ = c.Close() }()
 		pfx := statusIndexPrefix(status)
 		for k, v := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			parts := strings.Split(string(k), "/")
@@ -74,9 +73,10 @@ func (p *Persistence) ListAggregatesByLabel(
 ) ([]timebox.AggregateID, error) {
 	var ids []timebox.AggregateID
 
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	err := p.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
+		defer func() { _ = c.Close() }()
 		pfx := labelIndexPrefix(label, value)
 		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			parts := strings.Split(string(k), "/")
@@ -99,9 +99,10 @@ func (p *Persistence) ListAggregatesByLabel(
 func (p *Persistence) ListLabelValues(label string) ([]string, error) {
 	var vals []string
 
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	err := p.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
+		defer func() { _ = c.Close() }()
 		pfx := labelValuesPrefix(label)
 		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			parts := strings.Split(string(k), "/")

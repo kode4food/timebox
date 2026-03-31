@@ -21,7 +21,7 @@ func TestSnapshotCorrupt(t *testing.T) {
 		cfg.Prefix = "corrupt-snapshot"
 	})
 
-	store, err := newStore(storeCfg)
+	store, err := newStore(storeCfg, timebox.Config{})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 

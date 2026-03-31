@@ -3,7 +3,6 @@ package raft
 import (
 	"time"
 
-	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
 
@@ -150,7 +149,7 @@ func (p *Persistence) flushBatchPublish(
 	}
 	p.appliedIndex.Store(batch[len(batch)-1].index)
 	if len(published) != 0 {
-		p.Publisher(published...)
+		p.publishQ.Put(published)
 	}
 	return nil
 }
@@ -191,7 +190,7 @@ func (p *Persistence) markReadyFollower() {
 }
 
 func (p *Persistence) markAppliedEntry(index uint64) error {
-	err := p.db.Update(func(tx *bbolt.Tx) error {
+	err := p.db.Update(func(tx *kvTx) error {
 		return markApplied(tx.Bucket(bucketName), index)
 	})
 	if err != nil {

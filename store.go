@@ -52,8 +52,8 @@ func newStore(cfg Config, b Backend) *Store {
 }
 
 // Config returns the Store configuration
-func (s *Store) Config() Config {
-	return s.config
+func (s *Store) Config() *Config {
+	return &s.config
 }
 
 // Ready reports when the underlying persistence can serve requests
@@ -105,6 +105,7 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 	}
 
 	return s.persistence.Append(AppendRequest{
+		Store:            s,
 		ID:               id,
 		ExpectedSequence: atSeq,
 		Status:           status,
@@ -116,7 +117,11 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 
 // GetEvents returns all events for an aggregate starting at fromSeq
 func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
-	res, err := s.persistence.LoadEvents(id, fromSeq)
+	res, err := s.persistence.LoadEvents(LoadEventsRequest{
+		Store:   s,
+		ID:      id,
+		FromSeq: fromSeq,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +136,10 @@ func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
 func (s *Store) GetSnapshot(
 	id AggregateID, target any,
 ) (*SnapshotResult, error) {
-	rec, err := s.persistence.LoadSnapshot(id)
+	rec, err := s.persistence.LoadSnapshot(LoadSnapshotRequest{
+		Store: s,
+		ID:    id,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +170,12 @@ func (s *Store) PutSnapshot(id AggregateID, value any, sequence int64) error {
 	if err != nil {
 		return err
 	}
-	return s.persistence.SaveSnapshot(id, data, sequence)
+	return s.persistence.SaveSnapshot(SnapshotRequest{
+		Store:    s,
+		ID:       id,
+		Data:     data,
+		Sequence: sequence,
+	})
 }
 
 // Archive moves aggregate artifacts to persistent archive storage

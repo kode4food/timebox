@@ -53,13 +53,19 @@ func TestPersistenceCorruptEvents(t *testing.T) {
 	}, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
+		store, err := p.NewStore(timebox.Config{})
+		assert.NoError(t, err)
 		id := timebox.NewAggregateID("order", "1")
-		err := client.RPush(ctx,
+		err = client.RPush(ctx,
 			"corrupt:"+joinAggregateID(id)+":events", "not-json",
 		).Err()
 		assert.NoError(t, err)
 
-		_, err = p.LoadEvents(id, 0)
+		_, err = p.LoadEvents(timebox.LoadEventsRequest{
+			Store:   store,
+			ID:      id,
+			FromSeq: 0,
+		})
 		assert.Error(t, err)
 	})
 }
@@ -70,15 +76,20 @@ func TestCorruptSnapshot(t *testing.T) {
 	}, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
+		store, err := p.NewStore(timebox.Config{})
+		assert.NoError(t, err)
 		id := timebox.NewAggregateID("order", "1")
-		err := client.Set(ctx,
+		err = client.Set(ctx,
 			"corrupt-snapshot:"+joinAggregateID(id)+":snapshot:val",
 			"not-json",
 			0,
 		).Err()
 		assert.NoError(t, err)
 
-		snap, err := p.LoadSnapshot(id)
+		snap, err := p.LoadSnapshot(timebox.LoadSnapshotRequest{
+			Store: store,
+			ID:    id,
+		})
 		assert.NoError(t, err)
 		assert.Equal(t, json.RawMessage("not-json"), snap.Data)
 	})

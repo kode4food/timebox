@@ -635,8 +635,8 @@ func setupExecutorStore(
 	t.Helper()
 
 	cfg := timebox.Configure(tbCfg, storeCfg)
-	p := memory.NewPersistence(cfg)
-	store, err := timebox.NewStore(p, cfg)
+	p := memory.NewPersistence()
+	store, err := p.NewStore(cfg)
 	assert.NoError(t, err)
 
 	return p, store

@@ -4,21 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/kode4food/timebox"
 )
 
-type (
-	// Config configures Redis persistence and embeds Timebox store behavior
-	Config struct {
-		Timebox  timebox.Config
-		Addr     string
-		Password string
-		Prefix   string
-		Shard    string
-		DB       int
-	}
-)
+// Config configures Redis persistence
+type Config struct {
+	Addr     string
+	Password string
+	Prefix   string
+	Shard    string
+	DB       int
+}
 
 const (
 	// DefaultEndpoint is the default Redis/Valkey endpoint
@@ -42,16 +37,14 @@ var (
 // DefaultConfig returns a Config populated with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Timebox: timebox.DefaultConfig(),
-		Addr:    DefaultEndpoint,
-		Prefix:  DefaultPrefix,
-		DB:      DefaultDB,
+		Addr:   DefaultEndpoint,
+		Prefix: DefaultPrefix,
+		DB:     DefaultDB,
 	}
 }
 
 // With overlays the non-zero values from other onto cfg
 func (cfg Config) With(other Config) Config {
-	cfg.Timebox = timebox.Configure(cfg.Timebox, other.Timebox)
 	if other.Addr != "" {
 		cfg.Addr = other.Addr
 	}
@@ -78,7 +71,7 @@ func (cfg Config) Validate() error {
 	case strings.ContainsAny(cfg.Shard, "{}:"):
 		return ErrInvalidShard
 	}
-	return cfg.Timebox.Validate()
+	return nil
 }
 
 func buildStorePrefix(cfg Config) string {

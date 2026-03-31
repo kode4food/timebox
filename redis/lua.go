@@ -69,7 +69,7 @@ const (
 		local storedSeq = tonumber(storedSeqStr or "0")
 		local dropCount = newSeq - storedSeq
 		if dropCount > 0 then
-			redis.call('LTRIM', KEYS[3], dropCount, -1)
+			redis.call('LTRIM', KEYS[3], tostring(dropCount), -1)
 		end
 		redis.call('SET', KEYS[1], ARGV[1])
 		redis.call('SET', KEYS[2], newSeq)

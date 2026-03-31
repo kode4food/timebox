@@ -17,15 +17,22 @@ func TestStore(t *testing.T) {
 		) *timebox.Store {
 			t.Helper()
 
-			tbCfg := testRaftConfig(nodeConfig{
-				id:         "node-1",
-				addr:       freeAddr(t),
-				dataDir:    t.TempDir(),
+			pCfg := testRaftConfig(nodeConfig{
+				id:      "node-1",
+				addr:    freeAddr(t),
+				dataDir: t.TempDir(),
+			})
+			storeCfg := testRaftStoreConfig(nodeConfig{
 				indexer:    cfg.Indexer,
 				trimEvents: cfg.TrimEvents,
 			})
 
-			store, err := raft.NewStore(tbCfg)
+			p, err := raft.NewPersistence(pCfg)
+			if !assert.NoError(t, err) {
+				t.FailNow()
+			}
+
+			store, err := p.NewStore(storeCfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}

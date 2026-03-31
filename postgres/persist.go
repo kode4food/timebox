@@ -26,16 +26,6 @@ const defaultConnectTimeout = 5 * time.Second
 
 var _ timebox.Backend = (*Persistence)(nil)
 
-// NewStore creates a Store backed by Postgres persistence
-func NewStore(cfgs ...Config) (*timebox.Store, error) {
-	p, err := NewPersistence(cfgs...)
-	if err != nil {
-		return nil, err
-	}
-	cfg := timebox.Configure(DefaultConfig(), cfgs...)
-	return timebox.NewStore(p, cfg.Timebox)
-}
-
 // NewPersistence creates Postgres-backed Persistence
 func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	cfg := timebox.Configure(DefaultConfig(), cfgs...)
@@ -43,6 +33,11 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 		return nil, err
 	}
 	return newPersistence(cfg)
+}
+
+// NewStore creates a Store using the current Postgres Persistence
+func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(p, cfg)
 }
 
 func newPersistence(cfg Config) (*Persistence, error) {
@@ -92,10 +87,10 @@ func (p *Persistence) Close() error {
 
 // LoadEvents loads events starting at fromSeq
 func (p *Persistence) LoadEvents(
-	id timebox.AggregateID, fromSeq int64,
+	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
 	ctx := context.Background()
-	key, _ := aggregateKey(id)
+	key, _ := aggregateKey(req.ID)
 
 	var baseSeq int64
 	var err error
@@ -110,8 +105,8 @@ func (p *Persistence) LoadEvents(
 		return nil, err
 	}
 
-	start := max(fromSeq, baseSeq)
-	evs, err := p.loadEvents(ctx, id, key, start)
+	start := max(req.FromSeq, baseSeq)
+	evs, err := p.loadEvents(ctx, req.ID, key, start)
 	if err != nil {
 		return nil, err
 	}
@@ -124,10 +119,10 @@ func (p *Persistence) LoadEvents(
 // LoadSnapshot loads the snapshot and trailing events for an
 // aggregate
 func (p *Persistence) LoadSnapshot(
-	id timebox.AggregateID,
+	req timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	ctx := context.Background()
-	key, _ := aggregateKey(id)
+	key, _ := aggregateKey(req.ID)
 
 	var snapData string
 	var snapSeq int64
@@ -144,7 +139,7 @@ func (p *Persistence) LoadSnapshot(
 		return nil, err
 	}
 
-	evs, err := p.loadEvents(ctx, id, key, snapSeq)
+	evs, err := p.loadEvents(ctx, req.ID, key, snapSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -158,10 +153,10 @@ func (p *Persistence) LoadSnapshot(
 // SaveSnapshot saves a snapshot if the provided sequence is not
 // older
 func (p *Persistence) SaveSnapshot(
-	id timebox.AggregateID, data []byte, sequence int64,
+	req timebox.SnapshotRequest,
 ) error {
 	ctx := context.Background()
-	key, parts := aggregateKey(id)
+	key, parts := aggregateKey(req.ID)
 	var err error
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -192,13 +187,13 @@ func (p *Persistence) SaveSnapshot(
 			)
 		}
 	}
-	if sequence < snapSeq {
+	if req.Sequence < snapSeq {
 		return nil
 	}
 
 	newBase := baseSeq
-	if p.Timebox.TrimEvents && sequence > baseSeq {
-		newBase = min(sequence, nextSeq)
+	if req.Config().TrimEvents && req.Sequence > baseSeq {
+		newBase = min(req.Sequence, nextSeq)
 		if newBase > baseSeq {
 			if _, err := tx.Exec(ctx, `
 				DELETE FROM timebox_events
@@ -220,7 +215,7 @@ func (p *Persistence) SaveSnapshot(
 		SET base_seq = EXCLUDED.base_seq,
 		    snapshot_seq = EXCLUDED.snapshot_seq,
 		    snapshot_data = EXCLUDED.snapshot_data
-	`, p.Prefix, key, newBase, sequence, data); err != nil {
+	`, p.Prefix, key, newBase, req.Sequence, req.Data); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

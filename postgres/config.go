@@ -1,20 +1,13 @@
 package postgres
 
-import (
-	"errors"
+import "errors"
 
-	"github.com/kode4food/timebox"
-)
-
-type (
-	// Config configures Postgres persistence and embeds Timebox store behavior
-	Config struct {
-		Timebox  timebox.Config
-		URL      string
-		Prefix   string
-		MaxConns int32
-	}
-)
+// Config configures Postgres persistence
+type Config struct {
+	URL      string
+	Prefix   string
+	MaxConns int32
+}
 
 const (
 	// DefaultURL is the default Postgres connection URL
@@ -41,7 +34,6 @@ var (
 // DefaultConfig returns a Config populated with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Timebox:  timebox.DefaultConfig(),
 		URL:      DefaultURL,
 		Prefix:   DefaultPrefix,
 		MaxConns: DefaultMaxConns,
@@ -50,7 +42,6 @@ func DefaultConfig() Config {
 
 // With overlays the non-zero values from other onto cfg
 func (cfg Config) With(other Config) Config {
-	cfg.Timebox = timebox.Configure(cfg.Timebox, other.Timebox)
 	if other.URL != "" {
 		cfg.URL = other.URL
 	}
@@ -73,5 +64,5 @@ func (cfg Config) Validate() error {
 	case cfg.MaxConns <= 0:
 		return ErrInvalidMaxConns
 	}
-	return cfg.Timebox.Validate()
+	return nil
 }

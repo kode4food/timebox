@@ -23,6 +23,7 @@ func TestStoreDefaultKeys(t *testing.T) {
 		testStoreConfig(server.Addr(), func(cfg *tbredis.Config) {
 			cfg.Prefix = "noslot"
 		}),
+		timebox.Config{},
 	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
@@ -44,6 +45,7 @@ func TestStoreDefaultKeys(t *testing.T) {
 	assert.Contains(t, keys, "noslot:order:1:events")
 	assert.Contains(t, keys, "noslot:order:1:snapshot:val")
 	assert.Contains(t, keys, "noslot:order:1:snapshot:seq")
+	assert.NotContains(t, keys, "noslot:order:1:snapshot:base")
 	assert.NotContains(t, keys, "noslot:{order:1}:events")
 }
 
@@ -56,6 +58,7 @@ func TestStoreShardKeys(t *testing.T) {
 		testStoreConfig(server.Addr(), func(cfg *tbredis.Config) {
 			cfg.Shard = "blue"
 		}),
+		timebox.Config{},
 	)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
@@ -77,6 +80,7 @@ func TestStoreShardKeys(t *testing.T) {
 	assert.Contains(t, keys, "timebox:{blue}:order:1:events")
 	assert.Contains(t, keys, "timebox:{blue}:order:1:snapshot:val")
 	assert.Contains(t, keys, "timebox:{blue}:order:1:snapshot:seq")
+	assert.NotContains(t, keys, "timebox:{blue}:order:1:snapshot:base")
 	assert.NotContains(t, keys, "{blue}:order:1:events")
 
 	events, err := store.GetEvents(id, 0)
@@ -90,7 +94,7 @@ func TestNewStorePingError(t *testing.T) {
 	addr := server.Addr()
 	server.Close()
 
-	store, err := newStore(tbredis.Config{Addr: addr})
+	store, err := newStore(tbredis.Config{Addr: addr}, timebox.Config{})
 	assert.Error(t, err)
 	assert.Nil(t, store)
 }

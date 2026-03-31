@@ -110,9 +110,14 @@ func main() {
 }
 
 func setupExample() *orderExample {
-	store, err := redis.NewStore(redis.Config{
+	p, err := redis.NewPersistence(redis.Config{
 		Prefix: "example",
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	store, err := p.NewStore(timebox.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}

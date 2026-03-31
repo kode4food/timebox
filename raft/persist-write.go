@@ -6,6 +6,7 @@ import (
 	"github.com/kode4food/timebox"
 )
 
+// Append proposes one append mutation through the local Raft node
 func (p *Persistence) Append(req timebox.AppendRequest) error {
 	if err := p.checkConflict(
 		req.ID, req.ExpectedSequence,
@@ -29,16 +30,16 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	return res.Error
 }
 
-func (p *Persistence) SaveSnapshot(
-	id timebox.AggregateID, data []byte, sequence int64,
-) error {
+// SaveSnapshot proposes one Timebox snapshot mutation through Raft
+func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 	propID := p.newProposalID()
 	_, err := p.applyWithTimeout(
 		context.Background(),
 		MakeSnapshotCommand(propID, &SnapshotCommand{
-			ID:       id,
-			Data:     data,
-			Sequence: sequence,
+			ID:         req.ID,
+			Data:       req.Data,
+			Sequence:   req.Sequence,
+			TrimEvents: req.Config().TrimEvents,
 		}),
 		propID,
 		nil,

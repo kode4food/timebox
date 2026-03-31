@@ -18,9 +18,10 @@ import (
 
 type (
 	peerMessage struct {
-		to   uint64
-		data []byte
-		snap bool
+		to      uint64
+		data    []byte
+		snap    bool
+		snapRef uint64
 	}
 
 	peerQueue struct {
@@ -28,6 +29,7 @@ type (
 		head   *peerQueueNode
 		tail   *peerQueueNode
 		notify chan struct{}
+		len    int
 	}
 
 	peerQueueNode struct {
@@ -50,11 +52,72 @@ const (
 	readySettle    = 250 * time.Millisecond
 )
 
+func newRaftNodeConfig(
+	id uint64, storage raft.Storage, applied uint64,
+) *raft.Config {
+	lg := slog.Default()
+	raftLogger := &raft.DefaultLogger{
+		Logger: slog.NewLogLogger(
+			lg.With(
+				slog.String("component", "timebox-raft"),
+			).Handler(),
+			slog.LevelInfo,
+		),
+	}
+	return &raft.Config{
+		ID:              id,
+		ElectionTick:    electionTick,
+		HeartbeatTick:   heartbeatTick,
+		Storage:         storage,
+		Applied:         applied,
+		MaxSizePerMsg:   maxSizePerMsg,
+		MaxInflightMsgs: maxInflightMsg,
+		PreVote:         true,
+		CheckQuorum:     true,
+		Logger:          raftLogger,
+	}
+}
+
+func newPeerQueue() *peerQueue {
+	return &peerQueue{
+		notify: make(chan struct{}, 1),
+	}
+}
+
 func (p *Persistence) startLoops() {
+	p.servePublish()
 	p.servePeerSends()
 	p.serveTransport()
 	p.serveTicks()
 	p.serveReady()
+}
+
+func (p *Persistence) servePublish() {
+	if p.publishQ == nil {
+		return
+	}
+	p.bgWG.Go(func() {
+		for {
+			select {
+			case <-p.stopCh:
+				for {
+					events, ok := p.publishQ.Pop()
+					if !ok {
+						return
+					}
+					p.Publisher(events...)
+				}
+			case <-p.publishQ.Ready():
+				for {
+					events, ok := p.publishQ.Pop()
+					if !ok {
+						break
+					}
+					p.Publisher(events...)
+				}
+			}
+		}
+	})
 }
 
 func (p *Persistence) servePeerSends() {
@@ -93,10 +156,19 @@ func (p *Persistence) queueMessages(msgs []raftpb.Message) error {
 		if err != nil {
 			return err
 		}
+		var snapRef uint64
+		if msg.Type == raftpb.MsgSnap {
+			var ok bool
+			snapRef, ok = decodeSnapshotRef(msg.Snapshot.Data)
+			if !ok {
+				return raft.ErrSnapshotTemporarilyUnavailable
+			}
+		}
 		q.Put(peerMessage{
-			to:   msg.To,
-			data: data,
-			snap: msg.Type == raftpb.MsgSnap,
+			to:      msg.To,
+			data:    data,
+			snap:    msg.Type == raftpb.MsgSnap,
+			snapRef: snapRef,
 		})
 	}
 	return nil
@@ -108,31 +180,60 @@ func (p *Persistence) servePeerSend(id uint64, peer peerInfo, q *peerQueue) {
 		case <-p.stopCh:
 			return
 		case <-q.Ready():
-			var hadSnap bool
-			err := p.transport.WithPeer(
-				peer.RaftAddr,
-				func(w *bufio.Writer) error {
-					return q.Drain(
-						func(m peerMessage) error {
-							if m.snap {
-								hadSnap = true
-							}
-							return writeFrame(w, m.data)
-						},
-					)
-				},
-			)
+			err := p.sendPeerQueue(id, peer, q)
 			if err != nil {
-				if hadSnap {
-					p.node.ReportSnapshot(id, raft.SnapshotFailure)
-				}
 				p.node.ReportUnreachable(id)
 				q.Signal()
-			} else if hadSnap {
-				p.node.ReportSnapshot(id, raft.SnapshotFinish)
 			}
 		}
 	}
+}
+
+func (p *Persistence) sendPeerQueue(
+	id uint64, peer peerInfo, q *peerQueue,
+) error {
+	var (
+		hadSnap bool
+		sent    []uint64
+	)
+
+	err := p.transport.WithPeer(
+		peer.RaftAddr,
+		func(w *bufio.Writer) error {
+			for {
+				msg, ok := q.Peek()
+				if !ok {
+					return nil
+				}
+				if msg.snap {
+					hadSnap = true
+				}
+				if err := writeFrame(w, msg.data); err != nil {
+					return err
+				}
+				if msg.snap {
+					if err := p.writeSnapshotStream(w, msg.snapRef); err != nil {
+						return err
+					}
+					sent = append(sent, msg.snapRef)
+				}
+				q.Drop()
+			}
+		},
+	)
+	if err != nil {
+		if hadSnap {
+			p.node.ReportSnapshot(id, raft.SnapshotFailure)
+		}
+		return err
+	}
+	for _, ref := range sent {
+		p.releaseOutgoingSnapshot(ref)
+	}
+	if hadSnap {
+		p.node.ReportSnapshot(id, raft.SnapshotFinish)
+	}
+	return nil
 }
 
 func (p *Persistence) serveTicks() {
@@ -178,7 +279,7 @@ func (p *Persistence) handleTransportConn(conn net.Conn) {
 
 	rd := bufio.NewReader(conn)
 	for {
-		msg, err := readTransportMessage(rd)
+		msg, err := p.readTransportMessage(rd)
 		if err != nil {
 			return
 		}
@@ -187,6 +288,34 @@ func (p *Persistence) handleTransportConn(conn net.Conn) {
 			return
 		}
 	}
+}
+
+func (p *Persistence) readTransportMessage(
+	r *bufio.Reader,
+) (raftpb.Message, error) {
+	data, err := readFrame(r)
+	if err != nil {
+		return raftpb.Message{}, err
+	}
+	var msg raftpb.Message
+	if err := msg.Unmarshal(data); err != nil {
+		return raftpb.Message{}, err
+	}
+	if msg.Type != raftpb.MsgSnap {
+		return msg, nil
+	}
+	ref, ok := decodeSnapshotRef(msg.Snapshot.Data)
+	if !ok {
+		return raftpb.Message{}, raft.ErrSnapshotTemporarilyUnavailable
+	}
+	size, err := readSnapshotSize(r)
+	if err != nil {
+		return raftpb.Message{}, err
+	}
+	if err := p.readSnapshotStream(r, ref, size); err != nil {
+		return raftpb.Message{}, err
+	}
+	return msg, nil
 }
 
 func (p *Persistence) serveReady() {
@@ -219,54 +348,6 @@ func (p *Persistence) stop(err error) {
 	})
 }
 
-func internalError(err error) error {
-	return (&ApplyResult{
-		Error: errors.Join(ErrUnexpectedApplyResult, err),
-	}).Error
-}
-
-func newRaftNodeConfig(
-	id uint64, storage raft.Storage, applied uint64,
-) *raft.Config {
-	lg := slog.Default()
-	raftLogger := &raft.DefaultLogger{
-		Logger: slog.NewLogLogger(
-			lg.With(
-				slog.String("component", "timebox-raft"),
-			).Handler(),
-			slog.LevelInfo,
-		),
-	}
-	return &raft.Config{
-		ID:              id,
-		ElectionTick:    electionTick,
-		HeartbeatTick:   heartbeatTick,
-		Storage:         storage,
-		Applied:         applied,
-		MaxSizePerMsg:   maxSizePerMsg,
-		MaxInflightMsgs: maxInflightMsg,
-		PreVote:         true,
-		CheckQuorum:     true,
-		Logger:          raftLogger,
-	}
-}
-
-func nodeID(id string) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(id))
-	v := h.Sum64()
-	if v == 0 {
-		return 1
-	}
-	return v
-}
-
-func newPeerQueue() *peerQueue {
-	return &peerQueue{
-		notify: make(chan struct{}, 1),
-	}
-}
-
 func (q *peerQueue) Put(msg peerMessage) {
 	n := &peerQueueNode{msg: msg}
 
@@ -278,6 +359,7 @@ func (q *peerQueue) Put(msg peerMessage) {
 		q.tail.next = n
 		q.tail = n
 	}
+	q.len++
 	q.mu.Unlock()
 	q.Signal()
 }
@@ -286,19 +368,34 @@ func (q *peerQueue) Ready() <-chan struct{} {
 	return q.notify
 }
 
-func (q *peerQueue) Drain(fn func(peerMessage) error) error {
+func (q *peerQueue) Len() int {
 	q.mu.Lock()
-	head := q.head
-	q.head = nil
-	q.tail = nil
-	q.mu.Unlock()
+	defer q.mu.Unlock()
+	return q.len
+}
 
-	for n := head; n != nil; n = n.next {
-		if err := fn(n.msg); err != nil {
-			return err
-		}
+func (q *peerQueue) Peek() (peerMessage, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.head == nil {
+		return peerMessage{}, false
 	}
-	return nil
+	return q.head.msg, true
+}
+
+func (q *peerQueue) Drop() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.head == nil {
+		return
+	}
+	q.head = q.head.next
+	q.len--
+	if q.head == nil {
+		q.tail = nil
+	}
 }
 
 func (q *peerQueue) Signal() {
@@ -306,4 +403,20 @@ func (q *peerQueue) Signal() {
 	case q.notify <- struct{}{}:
 	default:
 	}
+}
+
+func internalError(err error) error {
+	return (&ApplyResult{
+		Error: errors.Join(ErrUnexpectedApplyResult, err),
+	}).Error
+}
+
+func nodeID(id string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(id))
+	v := h.Sum64()
+	if v == 0 {
+		return 1
+	}
+	return v
 }

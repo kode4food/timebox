@@ -9,12 +9,15 @@ import (
 )
 
 type (
+	// SnapshotCommand carries one Timebox snapshot mutation through Raft
 	SnapshotCommand struct {
-		ID       timebox.AggregateID
-		Data     []byte
-		Sequence int64
+		ID         timebox.AggregateID
+		Data       []byte
+		Sequence   int64
+		TrimEvents bool
 	}
 
+	// AggregateMeta stores the derived aggregate state needed for reads
 	AggregateMeta struct {
 		CurrentSequence  int64
 		BaseSequence     int64
@@ -24,11 +27,13 @@ type (
 		Labels           map[string]string
 	}
 
+	// ApplyResult reports the local outcome of one applied Raft command
 	ApplyResult struct {
 		Append *timebox.AppendRequest
 		Error  error
 	}
 
+	// Command is the encoded form of one replicated Timebox mutation
 	Command []byte
 )
 
@@ -47,6 +52,7 @@ var (
 	ErrCommandTypeUnknown = errors.New("unknown command type")
 )
 
+// MakeAppendCommand encodes one append mutation into a Raft command
 func MakeAppendCommand(
 	proposalID uint64, req *timebox.AppendRequest,
 ) (Command, error) {
@@ -61,16 +67,19 @@ func MakeAppendCommand(
 	return timebox.BinEvent.AppendAll(c, req.Events)
 }
 
+// MakeSnapshotCommand encodes one snapshot mutation into a Raft command
 func MakeSnapshotCommand(proposalID uint64, sc *SnapshotCommand) Command {
 	c := make(Command, 0, cmdHeaderSize+64)
 	c = bin.AppendByte(c, CmdTypeSnapshot)
 	c = bin.AppendUint64(c, proposalID)
 	c = appendAggregateID(c, sc.ID)
 	c = bin.AppendInt64(c, sc.Sequence)
+	c = bin.AppendBool(c, sc.TrimEvents)
 	c = bin.AppendBytes(c, sc.Data)
 	return c
 }
 
+// Type returns the encoded command type
 func (c Command) Type() int {
 	if len(c) == 0 {
 		return -1
@@ -78,11 +87,13 @@ func (c Command) Type() int {
 	return int(c[0])
 }
 
+// ProposalID returns the encoded proposal ID
 func (c Command) ProposalID() (uint64, error) {
 	v, _, err := bin.ReadUint64(c[1:])
 	return v, err
 }
 
+// AppendRequest decodes an append request from the command payload
 func (c Command) AppendRequest() (*timebox.AppendRequest, error) {
 	if len(c) < cmdHeaderSize {
 		return nil, bin.ErrCorruptState
@@ -90,6 +101,7 @@ func (c Command) AppendRequest() (*timebox.AppendRequest, error) {
 	return decodeAppendRequest(c[cmdHeaderSize:])
 }
 
+// SnapshotRequest decodes a snapshot request from the command payload
 func (c Command) SnapshotRequest() (*SnapshotCommand, error) {
 	if len(c) < cmdHeaderSize {
 		return nil, bin.ErrCorruptState
@@ -141,11 +153,20 @@ func decodeSnapshotCommand(data []byte) (*SnapshotCommand, error) {
 	if err != nil {
 		return nil, err
 	}
+	trimEvents, data, err := bin.ReadBool(data)
+	if err != nil {
+		return nil, err
+	}
 	payload, _, err := bin.ReadBytes(data)
 	if err != nil {
 		return nil, err
 	}
-	return &SnapshotCommand{ID: id, Sequence: seq, Data: payload}, nil
+	return &SnapshotCommand{
+		ID:         id,
+		Sequence:   seq,
+		TrimEvents: trimEvents,
+		Data:       payload,
+	}, nil
 }
 
 func appendAggregateID(buf []byte, id timebox.AggregateID) []byte {

@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.etcd.io/bbolt"
 	"go.etcd.io/raft/v3"
 
 	"github.com/kode4food/timebox"
@@ -19,7 +18,7 @@ type (
 	Persistence struct {
 		Config
 
-		db  *bbolt.DB
+		db  *kvDB
 		fsm *fsm
 
 		node         raft.Node
@@ -39,15 +38,27 @@ type (
 		stopOnce  sync.Once
 		stopErr   atomic.Value
 
+		publishQ *publishQueue
+
 		pendingMu    sync.Mutex
 		pending      map[uint64]proposalState
 		nextProposal atomic.Uint64
 		appliedIndex atomic.Uint64
+
+		snapMu   sync.Mutex
+		snapOut  map[uint64]string
+		snapIn   map[uint64]string
+		nextSnap atomic.Uint64
 	}
 
-	ServerID      string
+	// ServerID identifies one Raft voter
+	ServerID string
+
+	// ServerAddress is the advertised Raft transport address for one node
 	ServerAddress string
-	State         string
+
+	// State is the current local Raft role
+	State string
 
 	peerInfo struct {
 		ID       ServerID
@@ -56,27 +67,21 @@ type (
 )
 
 const (
-	StateFollower  State = "follower"
+	// StateFollower marks a follower node
+	StateFollower State = "follower"
+
+	// StateCandidate marks a candidate or pre-candidate node
 	StateCandidate State = "candidate"
-	StateLeader    State = "leader"
+
+	// StateLeader marks the current leader node
+	StateLeader State = "leader"
 
 	projectionDirName = "projection"
-	projectionDBName  = "bolt.db"
+	projectionDBName  = "badger"
+	snapshotDirName   = "snapshots"
 )
 
 var _ timebox.Backend = (*Persistence)(nil)
-
-// NewStore opens a Timebox store backed by Raft quorum commits and local
-// durable state
-func NewStore(cfgs ...Config) (*timebox.Store, error) {
-	p, err := NewPersistence(cfgs...)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := timebox.Configure(DefaultConfig(), cfgs...)
-	return timebox.NewStore(p, cfg.Timebox)
-}
 
 // NewPersistence opens one Raft persistence node
 func NewPersistence(cfgs ...Config) (*Persistence, error) {
@@ -88,6 +93,23 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 		return nil, err
 	}
 	return openPersistence(cfg)
+}
+
+// NewStore creates a Store using the current Raft Persistence
+func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(p, cfg)
+}
+
+// Close stops raft and closes local durable state
+func (p *Persistence) Close() error {
+	var errs []error
+
+	p.stop(nil)
+	errs = append(errs, p.transport.Close())
+	p.bgWG.Wait()
+	errs = append(errs, p.raftLog.Close())
+	errs = append(errs, p.db.Close())
+	return errors.Join(errs...)
 }
 
 func openPersistence(cfg Config) (*Persistence, error) {
@@ -123,8 +145,13 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		stopCh:  make(chan struct{}),
 
 		pending: map[uint64]proposalState{},
+		snapOut: map[uint64]string{},
+		snapIn:  map[uint64]string{},
 	}
-	p.fsm = newFSM(db, cfg.Timebox.TrimEvents)
+	if cfg.Publisher != nil {
+		p.publishQ = newPublishQueue()
+	}
+	p.fsm = newFSM(db)
 	p.flushBatch = p.flushBatchNoPublish
 	log.snapshotFn = p.captureSnapshot
 
@@ -158,18 +185,6 @@ func openPersistence(cfg Config) (*Persistence, error) {
 
 	p.startLoops()
 	return p, nil
-}
-
-// Close stops raft and closes local durable state
-func (p *Persistence) Close() error {
-	var errs []error
-
-	p.stop(nil)
-	errs = append(errs, p.transport.Close())
-	p.bgWG.Wait()
-	errs = append(errs, p.raftLog.Close())
-	errs = append(errs, p.db.Close())
-	return errors.Join(errs...)
 }
 
 func bootstrapPeers(cfg Config, tr *raftTransport) []raft.Peer {

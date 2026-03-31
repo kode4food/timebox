@@ -395,7 +395,7 @@ func inlineSnapshotEvent(t *testing.T, delta int) *timebox.Event {
 }
 
 func (p *inlineSnapshotPersistence) LoadSnapshot(
-	timebox.AggregateID,
+	timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	return &timebox.SnapshotRecord{
 		Data:     append([]byte(nil), p.rec.Data...),
@@ -405,11 +405,11 @@ func (p *inlineSnapshotPersistence) LoadSnapshot(
 }
 
 func (p *inlineSnapshotPersistence) SaveSnapshot(
-	id timebox.AggregateID, data []byte, sequence int64,
+	req timebox.SnapshotRequest,
 ) error {
-	p.saveID = append(timebox.AggregateID(nil), id...)
-	p.saveData = append([]byte(nil), data...)
-	p.saveSequence = sequence
+	p.saveID = append(timebox.AggregateID(nil), req.ID...)
+	p.saveData = append([]byte(nil), req.Data...)
+	p.saveSequence = req.Sequence
 	p.saveCount++
 	return p.saveErr
 }

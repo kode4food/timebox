@@ -98,13 +98,15 @@ func TestNewStore(t *testing.T) {
 		DataDir: t.TempDir(),
 	})
 
-	store, err := raft.NewStore(cfg)
+	p, err := raft.NewPersistence(cfg)
 	if !assert.NoError(t, err) {
 		return
 	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
+	store, err := p.NewStore(timebox.Config{})
+	if !assert.NoError(t, err) {
+		return
+	}
+	t.Cleanup(func() { _ = store.Close() })
 
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()

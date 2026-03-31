@@ -19,6 +19,13 @@ func AppendByte(buf []byte, v byte) []byte {
 	return append(buf, v)
 }
 
+func AppendBool(buf []byte, v bool) []byte {
+	if v {
+		return append(buf, 1)
+	}
+	return append(buf, 0)
+}
+
 func AppendInt64(buf []byte, v int64) []byte {
 	return AppendUint64(buf, uint64(v))
 }
@@ -60,6 +67,14 @@ func ReadByte(data []byte) (byte, []byte, error) {
 		return 0, nil, ErrCorruptState
 	}
 	return data[0], data[1:], nil
+}
+
+func ReadBool(data []byte) (bool, []byte, error) {
+	v, data, err := ReadByte(data)
+	if err != nil {
+		return false, nil, err
+	}
+	return v != 0, data, nil
 }
 
 func ReadInt64(data []byte) (int64, []byte, error) {

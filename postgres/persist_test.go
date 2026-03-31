@@ -15,11 +15,16 @@ import (
 
 func TestEventRow(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, cfg postgres.Config) {
-		store, err := postgres.NewStore(cfg)
+		p, err := postgres.NewPersistence(cfg)
 		if !assert.NoError(t, err) {
 			return
 		}
-		defer func() { _ = store.Close() }()
+		defer func() { _ = p.Close() }()
+
+		store, err := p.NewStore(timebox.Config{})
+		if !assert.NoError(t, err) {
+			return
+		}
 
 		id := timebox.NewAggregateID("order", "row")
 		ev := testEvent(t, time.Unix(1_700_000_000, 123).UTC(), "a", "dev", 1)
@@ -64,7 +69,7 @@ func TestEventRow(t *testing.T) {
 }
 
 func TestNewStoreBadConfig(t *testing.T) {
-	_, err := postgres.NewStore(postgres.Config{MaxConns: -1})
+	_, err := postgres.NewPersistence(postgres.Config{MaxConns: -1})
 	assert.ErrorIs(t, err, postgres.ErrInvalidMaxConns)
 }
 
@@ -88,17 +93,33 @@ func TestClosedPersistence(t *testing.T) {
 		if !assert.NoError(t, err) {
 			return
 		}
+		store, err := p.NewStore(timebox.Config{})
+		if !assert.NoError(t, err) {
+			return
+		}
 		assert.NoError(t, p.Close())
 
 		id := timebox.NewAggregateID("order", "closed")
 
-		_, err = p.LoadEvents(id, 0)
+		_, err = p.LoadEvents(timebox.LoadEventsRequest{
+			Store:   store,
+			ID:      id,
+			FromSeq: 0,
+		})
 		assert.Error(t, err)
 
-		_, err = p.LoadSnapshot(id)
+		_, err = p.LoadSnapshot(timebox.LoadSnapshotRequest{
+			Store: store,
+			ID:    id,
+		})
 		assert.Error(t, err)
 
-		err = p.SaveSnapshot(id, []byte("{}"), 0)
+		err = p.SaveSnapshot(timebox.SnapshotRequest{
+			Store:    store,
+			ID:       id,
+			Data:     []byte("{}"),
+			Sequence: 0,
+		})
 		assert.Error(t, err)
 
 		_, err = p.ListAggregates(nil)

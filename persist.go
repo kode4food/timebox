@@ -20,22 +20,25 @@ type (
 	Persistence interface {
 		io.Closer
 
+		// NewStore creates a Store using this Persistence instance
+		NewStore(Config) (*Store, error)
+
 		// Ready reports when the persistence backend can serve requests
 		Ready() <-chan struct{}
 
 		// Append atomically appends events if the expected sequence still
-		// matches. It returns a VersionConflictError when the sequence
-		// check fails
+		// matches. It returns a VersionConflictError when the sequence check
+		// fails
 		Append(AppendRequest) error
 
 		// LoadEvents loads raw persisted events starting at fromSeq
-		LoadEvents(id AggregateID, fromSeq int64) (*EventsResult, error)
+		LoadEvents(LoadEventsRequest) (*EventsResult, error)
 
 		// LoadSnapshot loads the raw snapshot and any trailing raw events
-		LoadSnapshot(id AggregateID) (*SnapshotRecord, error)
+		LoadSnapshot(LoadSnapshotRequest) (*SnapshotRecord, error)
 
-		// SaveSnapshot stores raw snapshot data at the provided sequence
-		SaveSnapshot(id AggregateID, data []byte, sequence int64) error
+		// SaveSnapshot stores raw snapshot data using the supplied semantics
+		SaveSnapshot(SnapshotRequest) error
 	}
 
 	// Queries provides aggregate and index query operations
@@ -69,12 +72,20 @@ type (
 
 	// AppendRequest contains primitive inputs required for an atomic append
 	AppendRequest struct {
+		*Store
 		ID               AggregateID
 		ExpectedSequence int64
 		Status           *string
 		StatusAt         time.Time
 		Labels           map[string]string
 		Events           []*Event
+	}
+
+	// LoadEventsRequest contains primitive inputs required for an event load
+	LoadEventsRequest struct {
+		*Store
+		ID      AggregateID
+		FromSeq int64
 	}
 
 	// EventsResult contains raw persisted events and the sequence to assign to
@@ -84,11 +95,26 @@ type (
 		Events        []*Event
 	}
 
+	// LoadSnapshotRequest contains primitive inputs required for a snapshot
+	// load
+	LoadSnapshotRequest struct {
+		*Store
+		ID AggregateID
+	}
+
 	// SnapshotRecord contains raw snapshot data and any raw trailing events
 	SnapshotRecord struct {
 		Data     json.RawMessage
 		Sequence int64
 		Events   []*Event
+	}
+
+	// SnapshotRequest contains primitive inputs required for a snapshot save
+	SnapshotRequest struct {
+		*Store
+		ID       AggregateID
+		Data     []byte
+		Sequence int64
 	}
 
 	// Index stores optional projection metadata derived from an event

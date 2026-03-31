@@ -13,10 +13,16 @@ import (
 )
 
 func TestClosedMethods(t *testing.T) {
-	p := memory.NewPersistence(timebox.Config{})
+	p := memory.NewPersistence()
+	store, err := p.NewStore(timebox.Config{})
+	assert.NoError(t, err)
 	assert.NoError(t, p.Close())
 
-	_, err := p.LoadEvents(timebox.NewAggregateID("order", "1"), 0)
+	_, err = p.LoadEvents(timebox.LoadEventsRequest{
+		Store:   store,
+		ID:      timebox.NewAggregateID("order", "1"),
+		FromSeq: 0,
+	})
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
 	err = p.ConsumeArchive(context.Background(), func(
@@ -27,6 +33,7 @@ func TestClosedMethods(t *testing.T) {
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
 	err = p.Append(timebox.AppendRequest{
+		Store:            store,
 		ID:               timebox.NewAggregateID("order", "1"),
 		ExpectedSequence: 0,
 		Events:           testEvents("created"),

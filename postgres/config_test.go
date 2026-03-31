@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kode4food/timebox"
 	"github.com/kode4food/timebox/postgres"
 )
 
@@ -15,7 +14,6 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, postgres.DefaultURL, cfg.URL)
 	assert.Equal(t, postgres.DefaultPrefix, cfg.Prefix)
 	assert.EqualValues(t, postgres.DefaultMaxConns, cfg.MaxConns)
-	assert.Equal(t, timebox.DefaultConfig(), cfg.Timebox)
 }
 
 func TestConfigWith(t *testing.T) {
@@ -24,15 +22,11 @@ func TestConfigWith(t *testing.T) {
 		URL:      "postgres://example.com:5432/app?sslmode=disable",
 		Prefix:   "app",
 		MaxConns: 32,
-		Timebox: timebox.Config{
-			CacheSize: 1024,
-		},
 	})
 
 	assert.Equal(t, "postgres://example.com:5432/app?sslmode=disable", cfg.URL)
 	assert.Equal(t, "app", cfg.Prefix)
 	assert.EqualValues(t, 32, cfg.MaxConns)
-	assert.Equal(t, 1024, cfg.Timebox.CacheSize)
 }
 
 func TestConfigValidate(t *testing.T) {
@@ -65,18 +59,6 @@ func TestConfigValidate(t *testing.T) {
 				MaxConns: -1,
 			},
 			want: postgres.ErrInvalidMaxConns,
-		},
-		{
-			name: "invalid timebox",
-			cfg: postgres.Config{
-				URL:      "postgres://localhost:5432/app?sslmode=disable",
-				Prefix:   "test",
-				MaxConns: 96,
-				Timebox: timebox.Config{
-					MaxRetries: 0,
-				},
-			},
-			want: timebox.ErrInvalidMaxRetries,
 		},
 	}
 

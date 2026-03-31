@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -12,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/stretchr/testify/assert"
-	"go.etcd.io/bbolt"
 
 	"github.com/kode4food/timebox"
 	"github.com/kode4food/timebox/raft"
@@ -37,7 +38,11 @@ type (
 	}
 )
 
-const testEventType timebox.EventType = "event.test"
+const (
+	testEventType      timebox.EventType = "event.test"
+	testProjectionPath string            = "projection/badger"
+	testBucketPrefix   string            = "timebox/"
+)
 
 func newNode(t *testing.T, cfg nodeConfig) *node {
 	t.Helper()
@@ -53,19 +58,19 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 	}
 
 	tbCfg := testRaftConfig(nodeConfig{
-		id:         cfg.id,
-		addr:       addr,
-		dataDir:    dataDir,
-		trimEvents: cfg.trimEvents,
-		publisher:  cfg.publisher,
+		id:        cfg.id,
+		addr:      addr,
+		dataDir:   dataDir,
+		publisher: cfg.publisher,
 	})
+	storeCfg := testRaftStoreConfig(cfg)
 
 	persistence, err := raft.NewPersistence(tbCfg)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
 
-	store, err := timebox.NewStore(persistence, tbCfg.Timebox)
+	store, err := persistence.NewStore(storeCfg)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
@@ -74,6 +79,61 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 		id:          cfg.id,
 		addr:        addr,
 		persistence: persistence,
+		store:       store,
+	}
+	t.Cleanup(func() {
+		if n.store != nil {
+			_ = n.store.Close()
+		}
+	})
+	return n
+}
+
+func openTestBadger(path string) (*badger.DB, error) {
+	opts := badger.DefaultOptions(path).
+		WithValueDir(path).
+		WithLogger(nil)
+	return badger.Open(opts)
+}
+
+func newCluster(t *testing.T, n int) []*node {
+	t.Helper()
+
+	srvs, cfgs := serverCfgs(t, n)
+	return startNodes(t, cfgs, srvs)
+}
+
+func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
+	t.Helper()
+
+	dataDir := cfg.dataDir
+	if dataDir == "" {
+		dataDir = t.TempDir()
+	}
+
+	tbCfg := testRaftConfig(nodeConfig{
+		id:        cfg.id,
+		addr:      cfg.addr,
+		dataDir:   dataDir,
+		publisher: cfg.publisher,
+	})
+	storeCfg := testRaftStoreConfig(cfg)
+	tbCfg.Servers = srvs
+
+	p, err := raft.NewPersistence(tbCfg)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+
+	store, err := p.NewStore(storeCfg)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+
+	n := &node{
+		id:          cfg.id,
+		addr:        cfg.addr,
+		persistence: p,
 		store:       store,
 	}
 	t.Cleanup(func() {
@@ -97,9 +157,7 @@ func closeNode(t *testing.T, n *node) {
 func corruptMetaFile(t *testing.T, dataDir string) {
 	t.Helper()
 
-	db, err := bbolt.Open(
-		filepath.Join(dataDir, "projection", "bolt.db"), 0o600, nil,
-	)
+	db, err := openTestBadger(filepath.Join(dataDir, testProjectionPath))
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
@@ -107,13 +165,15 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 		_ = db.Close()
 	}()
 
-	err = db.Update(func(tx *bbolt.Tx) error {
-		c := tx.Bucket([]byte("timebox")).Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			if bytes.HasSuffix(k, []byte("/meta")) {
-				return tx.Bucket([]byte("timebox")).Put(
-					k, []byte{0xff},
-				)
+	err = db.Update(func(tx *badger.Txn) error {
+		it := tx.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+
+		pfx := []byte(testBucketPrefix)
+		for it.Seek(pfx); it.ValidForPrefix(pfx); it.Next() {
+			key := it.Item().KeyCopy(nil)
+			if bytes.HasSuffix(key, []byte("/meta")) {
+				return tx.Set(key, []byte{0xff})
 			}
 		}
 		return assert.AnError
@@ -128,9 +188,7 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 func decrementLastApplied(t *testing.T, dataDir string, by int64) {
 	t.Helper()
 
-	db, err := bbolt.Open(
-		filepath.Join(dataDir, "projection", "bolt.db"), 0o600, nil,
-	)
+	db, err := openTestBadger(filepath.Join(dataDir, testProjectionPath))
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
@@ -139,10 +197,19 @@ func decrementLastApplied(t *testing.T, dataDir string, by int64) {
 	}()
 
 	const minSafeIndex = int64(3) // indices 1-2 are conf-change/empty entries
-	err = db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("timebox"))
-		key := []byte("state/meta/last-applied-log")
-		raw := b.Get(key)
+	err = db.Update(func(tx *badger.Txn) error {
+		key := []byte(testBucketPrefix + "state/meta/last-applied-log")
+		item, err := tx.Get(key)
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		raw, err := item.ValueCopy(nil)
+		if err != nil {
+			return err
+		}
 		if len(raw) < 8 {
 			return nil
 		}
@@ -153,7 +220,7 @@ func decrementLastApplied(t *testing.T, dataDir string, by int64) {
 		}
 		var buf [8]byte
 		binary.BigEndian.PutUint64(buf[:], uint64(target))
-		return b.Put(key, buf[:])
+		return tx.Set(key, buf[:])
 	})
 	assert.NoError(t, err)
 }
@@ -161,9 +228,7 @@ func decrementLastApplied(t *testing.T, dataDir string, by int64) {
 func corruptLastApplied(t *testing.T, dataDir string) {
 	t.Helper()
 
-	db, err := bbolt.Open(
-		filepath.Join(dataDir, "projection", "bolt.db"), 0o600, nil,
-	)
+	db, err := openTestBadger(filepath.Join(dataDir, testProjectionPath))
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
@@ -171,9 +236,10 @@ func corruptLastApplied(t *testing.T, dataDir string) {
 		_ = db.Close()
 	}()
 
-	err = db.Update(func(tx *bbolt.Tx) error {
-		return tx.Bucket([]byte("timebox")).Put(
-			[]byte("state/meta/last-applied-log"), []byte{0xff},
+	err = db.Update(func(tx *badger.Txn) error {
+		return tx.Set(
+			[]byte(testBucketPrefix+"state/meta/last-applied-log"),
+			[]byte{0xff},
 		)
 	})
 	assert.NoError(t, err)
@@ -212,54 +278,6 @@ func appendRaftTailGarbage(t *testing.T, dataDir string, data []byte) {
 
 	_, err = f.Write(data)
 	assert.NoError(t, err)
-}
-
-func newCluster(t *testing.T, n int) []*node {
-	t.Helper()
-
-	srvs, cfgs := serverCfgs(t, n)
-	return startNodes(t, cfgs, srvs)
-}
-
-func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
-	t.Helper()
-
-	dataDir := cfg.dataDir
-	if dataDir == "" {
-		dataDir = t.TempDir()
-	}
-
-	tbCfg := testRaftConfig(nodeConfig{
-		id:         cfg.id,
-		addr:       cfg.addr,
-		dataDir:    dataDir,
-		trimEvents: cfg.trimEvents,
-		publisher:  cfg.publisher,
-	})
-	tbCfg.Servers = srvs
-
-	p, err := raft.NewPersistence(tbCfg)
-	if !assert.NoError(t, err) {
-		t.FailNow()
-	}
-
-	store, err := timebox.NewStore(p, tbCfg.Timebox)
-	if !assert.NoError(t, err) {
-		t.FailNow()
-	}
-
-	n := &node{
-		id:          cfg.id,
-		addr:        cfg.addr,
-		persistence: p,
-		store:       store,
-	}
-	t.Cleanup(func() {
-		if n.store != nil {
-			_ = n.store.Close()
-		}
-	})
-	return n
 }
 
 func serverCfgs(t *testing.T, n int) ([]raft.Server, []nodeConfig) {
@@ -397,20 +415,23 @@ func waitForWrite(t *testing.T, store *timebox.Store) {
 }
 
 func testRaftConfig(cfg nodeConfig) raft.Config {
+	return raft.Config{
+		LocalID:   cfg.id,
+		DataDir:   cfg.dataDir,
+		Address:   cfg.addr,
+		Publisher: cfg.publisher,
+	}
+}
+
+func testRaftStoreConfig(cfg nodeConfig) timebox.Config {
 	indexer := combinedIndexer
 	if cfg.indexer != nil {
 		indexer = cfg.indexer
 	}
 
-	return raft.Config{
-		LocalID: cfg.id,
-		DataDir: cfg.dataDir,
-		Address: cfg.addr,
-		Timebox: timebox.Config{
-			Indexer:    indexer,
-			TrimEvents: cfg.trimEvents,
-		},
-		Publisher: cfg.publisher,
+	return timebox.Config{
+		Indexer:    indexer,
+		TrimEvents: cfg.trimEvents,
 	}
 }
 
