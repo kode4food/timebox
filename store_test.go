@@ -242,6 +242,36 @@ func TestAppendConflictWithNoEvents(t *testing.T) {
 	assert.Equal(t, int64(0), conflict.NewEvents[0].Sequence)
 }
 
+func TestEmptyAppendSkipsIndexer(t *testing.T) {
+	calls := 0
+	server, store, err := newMemoryStore(timebox.Config{
+		Indexer: func([]*timebox.Event) []*timebox.Index {
+			calls++
+			return nil
+		},
+	})
+	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("order", "empty-skip")
+
+	assert.NoError(t, store.AppendEvents(id, 0, nil))
+	assert.Equal(t, 0, calls)
+
+	err = store.AppendEvents(id, 0, []*timebox.Event{{
+		Timestamp: time.Now(),
+		Type:      "event.test",
+		Data:      json.RawMessage(`{"value":1}`),
+	}})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, calls)
+
+	err = store.AppendEvents(id, 0, nil)
+	assert.Error(t, err)
+	assert.Equal(t, 1, calls)
+}
+
 func TestArchiveUnsupported(t *testing.T) {
 	store, err := timebox.NewStore(&fakePersistence{}, timebox.Config{})
 	assert.NoError(t, err)

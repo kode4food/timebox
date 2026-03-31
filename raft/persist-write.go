@@ -13,6 +13,9 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	); err != nil {
 		return err
 	}
+	if len(req.Events) == 0 && req.Status == nil && len(req.Labels) == 0 {
+		return nil
+	}
 	propID := p.newProposalID()
 	cmd, err := MakeAppendCommand(propID, &req)
 	if err != nil {

@@ -136,6 +136,47 @@ func TestClosedPersistence(t *testing.T) {
 	})
 }
 
+func TestEmptyAppendConflictCheck(t *testing.T) {
+	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
+		p, err := postgres.NewPersistence(cfg)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = p.Close() }()
+
+		store, err := p.NewStore(timebox.Config{})
+		if !assert.NoError(t, err) {
+			return
+		}
+
+		id := timebox.NewAggregateID("order", "noop-check")
+		ev := testEvent(
+			t,
+			time.Unix(1_700_000_000, 123).UTC(),
+			"active",
+			"dev",
+			1,
+		)
+		if !assert.NoError(t,
+			store.AppendEvents(id, 0, []*timebox.Event{ev}),
+		) {
+			return
+		}
+
+		assert.NoError(t, store.AppendEvents(id, 1, nil))
+
+		err = store.AppendEvents(id, 0, nil)
+		var conflict *timebox.VersionConflictError
+		if !assert.ErrorAs(t, err, &conflict) {
+			return
+		}
+		assert.Equal(t, int64(0), conflict.ExpectedSequence)
+		assert.Equal(t, int64(1), conflict.ActualSequence)
+		assert.Len(t, conflict.NewEvents, 1)
+		assert.Equal(t, int64(0), conflict.NewEvents[0].Sequence)
+	})
+}
+
 func TestNewPersistenceInvalidURL(t *testing.T) {
 	_, err := postgres.NewPersistence(postgres.Config{
 		URL:      "://",

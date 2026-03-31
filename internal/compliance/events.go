@@ -176,4 +176,35 @@ func runEvents(t *testing.T, p Profile) {
 			conflict.NewEvents[0].Type,
 		)
 	})
+
+	t.Run("EmptyAppendConflict", func(t *testing.T) {
+		store := openStore(t, p, StoreConfig{})
+		id := timebox.NewAggregateID("order", "empty-conflict")
+
+		err := store.AppendEvents(id, 0, []*timebox.Event{
+			testEvent(t,
+				time.Unix(1_700_000_007, 0).UTC(),
+				"event.first", 1, nil, nil,
+			),
+		})
+		assert.NoError(t, err)
+
+		err = store.AppendEvents(id, 0, nil)
+		assert.Error(t, err)
+
+		var conflict *timebox.VersionConflictError
+		if !assert.ErrorAs(t, err, &conflict) {
+			t.FailNow()
+		}
+		assert.Equal(t, int64(0), conflict.ExpectedSequence)
+		assert.Equal(t, int64(1), conflict.ActualSequence)
+		if !assert.Len(t, conflict.NewEvents, 1) {
+			t.FailNow()
+		}
+		assert.Equal(t, int64(0), conflict.NewEvents[0].Sequence)
+		assert.Equal(t,
+			timebox.EventType("event.first"),
+			conflict.NewEvents[0].Type,
+		)
+	})
 }

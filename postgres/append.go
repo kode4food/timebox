@@ -58,10 +58,34 @@ const (
 	`
 )
 
+const checkSequenceQuery = `
+	SELECT GREATEST(
+		COALESCE((
+			SELECT e.sequence + 1
+			FROM timebox_events e
+			WHERE e.store = $1
+			  AND e.aggregate_key = $2
+			ORDER BY e.sequence DESC
+			LIMIT 1
+		), 0),
+		COALESCE((
+			SELECT s.snapshot_seq
+			FROM timebox_snapshots s
+			WHERE s.store = $1
+			  AND s.aggregate_key = $2
+		), 0)
+	)
+`
+
 // Append appends events if the expected sequence matches
 func (p *Persistence) Append(req timebox.AppendRequest) error {
 	ctx := context.Background()
 	key, parts := aggregateKey(req.ID)
+	if len(req.Events) == 0 &&
+		req.Status == nil &&
+		len(req.Labels) == 0 {
+		return p.checkConflict(ctx, req.ID, key, req.ExpectedSequence)
+	}
 	evAts, evTypes, evData := encodeAppendEvents(req.Events)
 	lblKeys, lblVals := encodeLabels(req.Labels)
 	var err error
@@ -112,6 +136,33 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	return &timebox.VersionConflictError{
 		ExpectedSequence: req.ExpectedSequence,
 		ActualSequence:   actualSeq,
+		NewEvents:        evs,
+	}
+}
+
+func (p *Persistence) checkConflict(
+	ctx context.Context, id timebox.AggregateID, key string, expected int64,
+) error {
+	var actual int64
+	if err := p.pool.QueryRow(
+		ctx, checkSequenceQuery, p.Prefix, key,
+	).Scan(&actual); err != nil {
+		return err
+	}
+	if expected == actual {
+		return nil
+	}
+	var evs []*timebox.Event
+	if expected < actual {
+		var err error
+		evs, err = p.loadEvents(ctx, id, key, expected)
+		if err != nil {
+			return err
+		}
+	}
+	return &timebox.VersionConflictError{
+		ExpectedSequence: expected,
+		ActualSequence:   actual,
 		NewEvents:        evs,
 	}
 }

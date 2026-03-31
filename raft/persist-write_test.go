@@ -215,6 +215,34 @@ func TestAppendConflictAheadOfCurrent(t *testing.T) {
 	assert.Empty(t, conflict.NewEvents)
 }
 
+func TestEmptyAppendConflictCheck(t *testing.T) {
+	n := newNode(t, nodeConfig{
+		id: "node-1",
+	})
+	waitForWrite(t, n.store)
+
+	id := timebox.NewAggregateID("order", "noop-check")
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{
+		numberEvent(id, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	err = n.store.AppendEvents(id, 1, nil)
+	assert.NoError(t, err)
+
+	err = n.store.AppendEvents(id, 0, nil)
+	var conflict *timebox.VersionConflictError
+	if !assert.ErrorAs(t, err, &conflict) {
+		return
+	}
+	assert.Equal(t, int64(0), conflict.ExpectedSequence)
+	assert.Equal(t, int64(1), conflict.ActualSequence)
+	assert.Len(t, conflict.NewEvents, 1)
+	assert.Equal(t, int64(0), conflict.NewEvents[0].Sequence)
+}
+
 // TestConcurrentAppend verifies that when concurrent appends for the same
 // aggregate all pass the pre-check and reach the FSM, only one commits and
 // the rest receive a VersionConflictError

@@ -59,6 +59,35 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.Empty(t, vals)
 			})
 
+			t.Run("EmptyAppendSkipsIndexer", func(t *testing.T) {
+				calls := 0
+				store := openStore(t, p, StoreConfig{
+					TrimEvents: trimEvents,
+					Indexer: func([]*timebox.Event) []*timebox.Index {
+						calls++
+						return nil
+					},
+				})
+				id := timebox.NewAggregateID("order", "empty-skip")
+
+				assert.NoError(t, store.AppendEvents(id, 0, nil))
+				assert.Equal(t, 0, calls)
+
+				assert.NoError(t,
+					store.AppendEvents(id, 0, []*timebox.Event{
+						testEvent(t,
+							time.Unix(1_700_000_008, 0).UTC(),
+							"event.test", 1, nil, nil,
+						),
+					}),
+				)
+				assert.Equal(t, 1, calls)
+
+				err := store.AppendEvents(id, 0, nil)
+				assert.Error(t, err)
+				assert.Equal(t, 1, calls)
+			})
+
 			t.Run("Status", func(t *testing.T) {
 				store := openStore(t, p, StoreConfig{
 					Indexer:    newIndexer(t),

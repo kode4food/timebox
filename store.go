@@ -81,22 +81,23 @@ func (s *Store) Close() error {
 func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 	evs = sequenceEvents(id, atSeq, evs)
 
-	var idxs []*Index
-	if s.config.Indexer != nil {
-		idxs = s.config.Indexer(evs)
-	}
-
 	var status *string
 	var statusAt time.Time
 	lbls := map[string]string{}
-	for _, idx := range idxs {
-		if idx != nil && idx.Status != nil {
-			status = idx.Status
-		}
-		if idx != nil {
-			maps.Copy(lbls, idx.Labels)
+
+	if len(evs) > 0 && s.config.Indexer != nil {
+		idxs := s.config.Indexer(evs)
+
+		for _, idx := range idxs {
+			if idx != nil && idx.Status != nil {
+				status = idx.Status
+			}
+			if idx != nil {
+				maps.Copy(lbls, idx.Labels)
+			}
 		}
 	}
+
 	if status != nil {
 		statusAt = evs[len(evs)-1].Timestamp.UTC()
 	}
