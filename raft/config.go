@@ -17,9 +17,8 @@ type (
 		LocalID string
 		DataDir string
 
-		// RecentEntriesSize is the hot retained WAL suffix cache size in
-		// entries
-		RecentEntriesSize int
+		// LogTailSize is the hot retained WAL suffix cache size in entries
+		LogTailSize int
 
 		// Cluster identity
 		Address string
@@ -42,11 +41,11 @@ type (
 const DefaultApplyTimeout = 10 * time.Second
 
 const (
-	// DefaultRecentEntriesSize is the default hot retained WAL cache size
-	DefaultRecentEntriesSize = 20480
+	// DefaultLogTailSize is the default hot retained WAL cache size
+	DefaultLogTailSize = 20480
 
-	// MinRecentEntriesSize is the smallest allowed hot retained WAL cache size
-	MinRecentEntriesSize = 2048
+	// MinLogTailSize is the smallest allowed hot retained WAL cache size
+	MinLogTailSize = 2048
 )
 
 var (
@@ -72,7 +71,7 @@ var (
 // DefaultConfig returns the opinionated defaults for one Raft node
 func DefaultConfig() Config {
 	return Config{
-		RecentEntriesSize: DefaultRecentEntriesSize,
+		LogTailSize: DefaultLogTailSize,
 	}
 }
 
@@ -87,8 +86,8 @@ func (c Config) With(other Config) Config {
 	if other.DataDir != "" {
 		c.DataDir = other.DataDir
 	}
-	if other.RecentEntriesSize != 0 {
-		c.RecentEntriesSize = other.RecentEntriesSize
+	if other.LogTailSize != 0 {
+		c.LogTailSize = other.LogTailSize
 	}
 	if len(other.Servers) != 0 {
 		c.Servers = append([]Server(nil), other.Servers...)
@@ -108,10 +107,10 @@ func (c Config) Validate() error {
 		return ErrDataDirRequired
 	case c.Address == "":
 		return ErrAddressRequired
-	case c.RecentEntriesSize < MinRecentEntriesSize:
+	case c.LogTailSize < MinLogTailSize:
 		return fmt.Errorf(
-			"raft recent entries size must be at least %d entries",
-			MinRecentEntriesSize,
+			"raft log tail size must be at least %d entries",
+			MinLogTailSize,
 		)
 	}
 	if _, _, err := parseAddress(c.Address); err != nil {

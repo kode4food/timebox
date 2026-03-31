@@ -103,7 +103,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		prevSegs:      segFirsts(opened),
 		tailID:        tailID,
 		last:          last,
-		hot:           newTailCache(cfg.RecentEntriesSize),
+		hot:           newTailCache(cfg.LogTailSize),
 		compacted:     m.compacted,
 		compactedTerm: m.compactedTerm,
 		nextID:        nextLogID(logDir, opened),

@@ -2,7 +2,7 @@
 
 ![Build Status](https://github.com/kode4food/timebox/actions/workflows/build.yml/badge.svg) [![Code Coverage](https://qlty.sh/gh/kode4food/projects/timebox/coverage.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![Maintainability](https://qlty.sh/gh/kode4food/projects/timebox/maintainability.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![GitHub](https://img.shields.io/github/license/kode4food/timebox)](https://github.com/kode4food/timebox/blob/main/LICENSE.md)
 
-Timebox is a small, opinionated event sourcing library for Go with pluggable persistence backends including Redis/Valkey, PostgreSQL, and a Raft backend. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
+Timebox is a small, opinionated event sourcing library for Go with pluggable persistence backends including memory, Redis/Valkey, PostgreSQL, and Raft. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
 
 ## Backends
 
@@ -26,13 +26,24 @@ Timebox currently ships with:
 `timebox.Config` controls store behavior regardless of backend:
 
 - `TrimEvents`: whether saving a snapshot trims older stored events
+- `SnapshotRatio`: when an `Executor` should opportunistically refresh a snapshot while loading state
 - `MaxRetries`: optimistic concurrency retry limit
 - `CacheSize`: executor projection cache size
 - `Indexer`: optional function that derives status and label updates from an appended event batch
 
-Create a store either by using a backend helper such as `postgres.NewStore(cfg)` or by calling `timebox.NewStore(persistence, cfg)` directly.
+Create a store by opening backend persistence and then binding a store to it:
 
-Snapshotting is explicit: call `Executor.SaveSnapshot(id)` or `Store.PutSnapshot(id, value, sequence)`. Timebox does not schedule snapshots on its own.
+```go
+p, err := postgres.NewPersistence(postgres.Config{...})
+store, err := p.NewStore(timebox.Config{...})
+```
+
+You can also call `timebox.NewStore(p, cfg)` directly when you already have a backend value that satisfies `timebox.Backend`.
+
+Snapshotting is available in two ways:
+
+- explicit saves through `Executor.SaveSnapshot(id)` or `Store.PutSnapshot(id, value, sequence)`
+- opportunistic executor saves while loading aggregates when no snapshot exists yet or when trailing event data grows past `SnapshotRatio`
 
 ## Backend Config
 
@@ -43,7 +54,6 @@ Snapshotting is explicit: call `Executor.SaveSnapshot(id)` or `Store.PutSnapshot
 - `URL`: connection URL
 - `Prefix`: logical store namespace
 - `MaxConns`: pgx pool size cap
-- `Timebox`: embedded `timebox.Config`
 
 The Postgres backend stores:
 
@@ -60,17 +70,17 @@ The Postgres backend stores:
 - `Prefix`: logical store namespace
 - `Shard`: optional hash-tag value for cluster slot affinity
 - `DB`: logical database index
-- `Timebox`: embedded `timebox.Config`
 
 ### Raft
 
 `raft.Config` fields:
 
-- `Timebox`: embedded `timebox.Config` used to configure the store layer
 - `LocalID`: stable local Raft node ID
 - `Address`: node address used for Raft traffic
 - `DataDir`: durable local state directory
+- `LogTailSize`: hot retained WAL suffix cache size, default `20480`
 - `Servers`: bootstrap voter set
+- `Publisher`: optional callback for committed events after they are durably applied
 
 ## Indexing
 
