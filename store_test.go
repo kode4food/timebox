@@ -217,6 +217,31 @@ func TestAppendConflict(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestAppendConflictWithNoEvents(t *testing.T) {
+	server, store, err := newMemoryStore(timebox.Config{})
+	assert.NoError(t, err)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("order", "noop-conflict")
+	ev := &timebox.Event{
+		Timestamp: time.Now(),
+		Type:      "event.test",
+		Data:      json.RawMessage(`{"value":1}`),
+	}
+
+	err = store.AppendEvents(id, 0, []*timebox.Event{ev})
+	assert.NoError(t, err)
+
+	err = store.AppendEvents(id, 0, nil)
+	var conflict *timebox.VersionConflictError
+	assert.ErrorAs(t, err, &conflict)
+	assert.Equal(t, int64(0), conflict.ExpectedSequence)
+	assert.Equal(t, int64(1), conflict.ActualSequence)
+	assert.Len(t, conflict.NewEvents, 1)
+	assert.Equal(t, int64(0), conflict.NewEvents[0].Sequence)
+}
+
 func TestArchiveUnsupported(t *testing.T) {
 	store, err := timebox.NewStore(&fakePersistence{}, timebox.Config{})
 	assert.NoError(t, err)

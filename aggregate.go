@@ -94,12 +94,12 @@ func (a *Aggregator[T]) apply(ev *Event) {
 
 func (a *Aggregator[_]) flush(f Flusher) (int, error) {
 	count := len(a.enqueued)
-	if count == 0 {
-		return 0, nil
-	}
 	expectedSeq := a.nextSeq - int64(count)
 	if err := f(expectedSeq, a.enqueued); err != nil {
 		return count, err
+	}
+	if count == 0 {
+		return 0, nil
 	}
 	if len(a.flushed) == 0 {
 		a.flushed = a.enqueued

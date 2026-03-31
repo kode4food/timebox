@@ -390,6 +390,43 @@ func TestNoOpCommand(t *testing.T) {
 	assert.Equal(t, 0, state.Value)
 }
 
+func TestNoOpCommandRetriesOnConflict(t *testing.T) {
+	server, store, executor := setupTestExecutor(t)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("counter", "noop-conflict")
+
+	_, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 1)
+	})
+	assert.NoError(t, err)
+
+	injected := false
+	var seen []int
+	state, err := executor.Exec(id, func(
+		s *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		seen = append(seen, s.Value)
+		if !injected {
+			injected = true
+			err := store.AppendEvents(id, ag.NextSequence(), []*timebox.Event{{
+				Timestamp: time.Now(),
+				Type:      EventIncremented,
+				Data:      json.RawMessage(`1`),
+			}})
+			assert.NoError(t, err)
+		}
+		return nil
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1, 2}, seen)
+	assert.Equal(t, 2, state.Value)
+}
+
 func TestRaiseError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = server.Close() }()

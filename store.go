@@ -80,9 +80,6 @@ func (s *Store) Close() error {
 // sequence matches the current log sequence
 func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 	evs = sequenceEvents(id, atSeq, evs)
-	if len(evs) == 0 {
-		return nil
-	}
 
 	var idxs []*Index
 	if s.config.Indexer != nil {
