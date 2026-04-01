@@ -300,6 +300,46 @@ func TestSaveSnapshot(t *testing.T) {
 	assert.Equal(t, 2, state.Value)
 }
 
+func TestSaveSnapshotColdCache(t *testing.T) {
+	server, store, executor := setupTestExecutor(t)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("counter", "cold-snapshot")
+
+	_, err := executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 5)
+	})
+	assert.NoError(t, err)
+
+	err = executor.SaveSnapshot(id)
+	assert.NoError(t, err)
+
+	// Append events directly, bypassing the executor cache
+	err = store.AppendEvents(id, 1, []*timebox.Event{
+		{
+			Timestamp: time.Unix(1_700_000_030, 0).UTC(),
+			Type:      EventIncremented,
+			Data:      json.RawMessage(`3`),
+		},
+	})
+	assert.NoError(t, err)
+
+	// Fresh executor with cold cache must fast-forward through the new event
+	fresh := timebox.NewExecutor(store, newCounterState, appliers)
+	err = fresh.SaveSnapshot(id)
+	assert.NoError(t, err)
+
+	var state CounterState
+	snap, err := store.GetSnapshot(id, &state)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), snap.NextSequence)
+	assert.Equal(t, 8, state.Value)
+	assert.Empty(t, snap.AdditionalEvents)
+}
+
 func TestSaveSnapshotLoadError(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()

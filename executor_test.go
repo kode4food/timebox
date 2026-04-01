@@ -89,11 +89,7 @@ func TestConcurrentWrites(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	finalState, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		return nil
-	})
+	finalState, err := executor.Get(id)
 	assert.NoError(t, err)
 	assert.Equal(t, 10, finalState.Value)
 }
@@ -388,6 +384,29 @@ func TestNoOpCommand(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, state.Value)
+}
+
+func TestGet(t *testing.T) {
+	server, store, executor := setupTestExecutor(t)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("counter", "get")
+
+	state, err := executor.Get(id)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, state.Value)
+
+	_, err = executor.Exec(id, func(
+		_ *CounterState, ag *timebox.Aggregator[*CounterState],
+	) error {
+		return timebox.Raise(ag, EventIncremented, 7)
+	})
+	assert.NoError(t, err)
+
+	state, err = executor.Get(id)
+	assert.NoError(t, err)
+	assert.Equal(t, 7, state.Value)
 }
 
 func TestNoOpCommandRetriesOnConflict(t *testing.T) {

@@ -100,13 +100,24 @@ func (e *Executor[T]) Exec(id AggregateID, cmd Command[T]) (T, error) {
 	return zero, ErrMaxRetriesExceeded
 }
 
+// Get returns the current aggregate state
+func (e *Executor[T]) Get(id AggregateID) (T, error) {
+	return e.Exec(id, func(T, *Aggregator[T]) error {
+		return nil
+	})
+}
+
 // SaveSnapshot forces an immediate snapshot save for the given Aggregate
 func (e *Executor[T]) SaveSnapshot(id AggregateID) error {
-	proj, err := e.loadSnapshot(id)
+	var seq int64
+	state, err := e.Exec(id, func(_ T, ag *Aggregator[T]) error {
+		seq = ag.NextSequence()
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	return e.store.PutSnapshot(id, proj.state, proj.nextSeq)
+	return e.store.PutSnapshot(id, state, seq)
 }
 
 func (e *Executor[T]) handleVersionConflict(
