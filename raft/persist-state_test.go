@@ -1,6 +1,7 @@
 package raft_test
 
 import (
+	"encoding/json"
 	"net"
 	"sync"
 	"testing"
@@ -11,6 +12,12 @@ import (
 	"github.com/kode4food/timebox"
 	"github.com/kode4food/timebox/raft"
 )
+
+type counterState struct {
+	Value int `json:"value"`
+}
+
+const incrementedEvent timebox.EventType = "incremented"
 
 // TestSnapshotTransfer verifies that when a late-joining node needs entries
 // that have been compacted away, the leader sends a full DB snapshot and the
@@ -131,6 +138,93 @@ func TestFollowerStatus(t *testing.T) {
 		return
 	}
 	assert.Equal(t, "completed", status)
+}
+
+func TestFollowerExec(t *testing.T) {
+	nodes := newCluster(t, 3)
+	waitReadyAll(t, nodes)
+
+	var leader *node
+	var followers []*node
+	for _, n := range nodes {
+		if n.persistence.State() == raft.StateLeader {
+			leader = n
+			continue
+		}
+		followers = append(followers, n)
+	}
+	if !assert.NotNil(t, leader) || !assert.Len(t, followers, 2) {
+		return
+	}
+
+	id := timebox.NewAggregateID("cluster")
+	appliers := timebox.Appliers[*counterState]{
+		incrementedEvent: func(
+			state *counterState, ev *timebox.Event,
+		) *counterState {
+			var delta int
+			_ = json.Unmarshal(ev.Data, &delta)
+			return &counterState{Value: state.Value + delta}
+		},
+	}
+	newState := func() *counterState {
+		return &counterState{}
+	}
+
+	leaderExec := timebox.NewExecutor(leader.store, newState, appliers)
+	for _, n := range followers {
+		exec := timebox.NewExecutor(n.store, newState, appliers)
+		_, err := exec.Get(id)
+		if !assert.NoError(t, err) {
+			return
+		}
+	}
+
+	_, err := leaderExec.Exec(id, func(
+		_ *counterState, ag *timebox.Aggregator[*counterState],
+	) error {
+		return timebox.Raise(ag, incrementedEvent, 1)
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	type result struct {
+		state *counterState
+		err   error
+	}
+	resCh := make(chan result, len(followers))
+	start := make(chan struct{})
+
+	for _, n := range followers {
+		exec := timebox.NewExecutor(n.store, newState, appliers)
+		go func(exec *timebox.Executor[*counterState]) {
+			<-start
+			state, err := exec.Exec(id, func(
+				_ *counterState, ag *timebox.Aggregator[*counterState],
+			) error {
+				return timebox.Raise(ag, incrementedEvent, 1)
+			})
+			resCh <- result{state: state, err: err}
+		}(exec)
+	}
+	close(start)
+
+	for range followers {
+		res := <-resCh
+		assert.NoError(t, res.err)
+	}
+
+	assert.Eventually(t, func() bool {
+		for _, n := range nodes {
+			exec := timebox.NewExecutor(n.store, newState, appliers)
+			state, err := exec.Get(id)
+			if err != nil || state.Value != 3 {
+				return false
+			}
+		}
+		return true
+	}, 15*time.Second, 100*time.Millisecond)
 }
 
 func TestCommittedPublisher(t *testing.T) {

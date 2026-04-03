@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"bytes"
 	"context"
 	"time"
 
@@ -22,7 +23,7 @@ func (p *Persistence) propose(
 	default:
 	}
 
-	st := p.registerProposal(proposalID, events)
+	st := p.registerProposal(proposalID, data, events)
 	defer p.unregisterProposal(proposalID, st)
 
 	if err := p.node.Propose(ctx, data); err != nil {
@@ -47,10 +48,11 @@ func (p *Persistence) propose(
 }
 
 func (p *Persistence) registerProposal(
-	id uint64, events []*timebox.Event,
+	id uint64, data []byte, events []*timebox.Event,
 ) proposalState {
 	st := proposalState{
 		ch:     make(chan *ApplyResult, 1),
+		cmd:    append(Command(nil), data...),
 		events: append([]*timebox.Event(nil), events...),
 	}
 	p.pendingMu.Lock()
@@ -67,14 +69,18 @@ func (p *Persistence) unregisterProposal(id uint64, st proposalState) {
 	}
 }
 
-func (p *Persistence) resolveProposal(proposalID uint64, res *ApplyResult) {
+func (p *Persistence) resolveProposal(
+	proposalID uint64, cmd Command, res *ApplyResult,
+) {
 	if proposalID == 0 {
 		return
 	}
 	p.pendingMu.Lock()
 	st, ok := p.pending[proposalID]
-	if ok {
+	if ok && proposalMatches(st, cmd) {
 		delete(p.pending, proposalID)
+	} else {
+		ok = false
 	}
 	p.pendingMu.Unlock()
 	if ok {
@@ -82,14 +88,16 @@ func (p *Persistence) resolveProposal(proposalID uint64, res *ApplyResult) {
 	}
 }
 
-func (p *Persistence) proposalEvents(proposalID uint64) []*timebox.Event {
+func (p *Persistence) proposalEvents(
+	proposalID uint64, cmd Command,
+) []*timebox.Event {
 	if proposalID == 0 {
 		return nil
 	}
 	p.pendingMu.Lock()
 	defer p.pendingMu.Unlock()
 	st, ok := p.pending[proposalID]
-	if !ok || len(st.events) == 0 {
+	if !ok || !proposalMatches(st, cmd) || len(st.events) == 0 {
 		return nil
 	}
 	evs := st.events
@@ -128,4 +136,8 @@ func (p *Persistence) commandTimeout(
 
 func (p *Persistence) newProposalID() uint64 {
 	return p.nextProposal.Add(1)
+}
+
+func proposalMatches(st proposalState, cmd Command) bool {
+	return bytes.Equal(st.cmd, cmd)
 }

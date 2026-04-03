@@ -118,7 +118,7 @@ func (p *Persistence) flushBatchNoPublish(
 		return err
 	}
 	for i := range batch {
-		p.resolveProposal(propIDs[i], results[i])
+		p.resolveProposal(propIDs[i], batch[i].cmd, results[i])
 	}
 	p.appliedIndex.Store(batch[len(batch)-1].index)
 	return nil
@@ -137,11 +137,11 @@ func (p *Persistence) flushBatchPublish(
 	var published []*timebox.Event
 	for i := range batch {
 		res := results[i]
-		p.resolveProposal(propIDs[i], res)
+		p.resolveProposal(propIDs[i], batch[i].cmd, res)
 		if res.Error != nil {
 			continue
 		}
-		if evs := p.proposalEvents(propIDs[i]); len(evs) > 0 {
+		if evs := p.proposalEvents(propIDs[i], batch[i].cmd); len(evs) > 0 {
 			published = append(published, evs...)
 		} else if res.Append != nil {
 			published = append(published, res.Append.Events...)

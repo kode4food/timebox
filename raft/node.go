@@ -39,6 +39,7 @@ type (
 
 	proposalState struct {
 		ch     chan *ApplyResult
+		cmd    Command
 		events []*timebox.Event
 	}
 )
@@ -329,6 +330,11 @@ func (p *Persistence) serveReady() {
 					return
 				}
 				if err := p.handleReady(rd); err != nil {
+					slog.Error(
+						"Raft ready loop stopped",
+						slog.String("local_id", p.LocalID),
+						slog.Any("error", err),
+					)
 					p.stop(internalError(err))
 					return
 				}
