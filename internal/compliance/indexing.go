@@ -198,6 +198,55 @@ func runIndexing(t *testing.T, p Profile) {
 				}}, pausedIDs)
 			})
 
+			t.Run("StatusClear", func(t *testing.T) {
+				store := openStore(t, p, StoreConfig{
+					Indexer:    newIndexer(t),
+					TrimEvents: trimEvents,
+				})
+				id := timebox.NewAggregateID("order", "clear")
+				active := "active"
+				cleared := ""
+
+				assert.NoError(t,
+					store.AppendEvents(id, 0, []*timebox.Event{
+						testEvent(t,
+							time.Unix(1_700_000_201, 0).UTC(),
+							"event.test", 1, &active,
+							map[string]string{"env": "prod"},
+						),
+					}),
+				)
+				assert.NoError(t,
+					store.AppendEvents(id, 1, []*timebox.Event{
+						testEvent(t,
+							time.Unix(1_700_000_202, 0).UTC(),
+							"event.test", 2, nil,
+							map[string]string{"env": ""},
+						),
+						testEvent(t,
+							time.Unix(1_700_000_203, 0).UTC(),
+							"event.test", 3, &cleared, nil,
+						),
+					}),
+				)
+
+				status, err := store.GetAggregateStatus(id)
+				assert.NoError(t, err)
+				assert.Empty(t, status)
+
+				statuses, err := store.ListAggregatesByStatus(active)
+				assert.NoError(t, err)
+				assert.Empty(t, statuses)
+
+				ids, err := store.ListAggregatesByLabel("env", "prod")
+				assert.NoError(t, err)
+				assert.Empty(t, ids)
+
+				vals, err := store.ListLabelValues("env")
+				assert.NoError(t, err)
+				assert.Empty(t, vals)
+			})
+
 			t.Run("Labels", func(t *testing.T) {
 				store := openStore(t, p, StoreConfig{
 					Indexer:    newIndexer(t),

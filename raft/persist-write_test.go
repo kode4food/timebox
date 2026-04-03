@@ -67,67 +67,26 @@ func TestAppend(t *testing.T) {
 	assert.Equal(t, int64(1), conflict.NewEvents[0].Sequence)
 }
 
-func TestSnapshot(t *testing.T) {
-	n := newNode(t, nodeConfig{
-		id:         "node-1",
-		trimEvents: true,
-	})
+func TestAppendClosed(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
 	waitForWrite(t, n.store)
 
-	id := timebox.NewAggregateID("order", "snapshot")
+	p := n.persistence
+	closeNode(t, n)
 
-	var emptyState map[string]int
-	snap, err := n.store.GetSnapshot(id, &emptyState)
-	if !assert.NoError(t, err) {
-		return
-	}
-	assert.Nil(t, emptyState)
-	assert.Equal(t, int64(0), snap.NextSequence)
-
-	err = n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	snap, err = n.store.GetSnapshot(id, &emptyState)
-	if !assert.NoError(t, err) {
-		return
-	}
-	assert.Nil(t, emptyState)
-	assert.Equal(t, int64(0), snap.NextSequence)
-	assert.Len(t, snap.AdditionalEvents, 1)
-
-	err = n.store.PutSnapshot(id, map[string]int{"value": 1}, 1)
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	err = n.store.PutSnapshot(id, map[string]int{"value": 0}, 0)
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	err = n.store.AppendEvents(id, 1, []*timebox.Event{numberEvent(id, 2)})
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	var snapState map[string]int
-	snap, err = n.store.GetSnapshot(id, &snapState)
-	if !assert.NoError(t, err) {
-		return
-	}
-	assert.Equal(t, map[string]int{"value": 1}, snapState)
-	assert.Equal(t, int64(1), snap.NextSequence)
-	assert.Len(t, snap.AdditionalEvents, 1)
-	assert.Equal(t, int64(1), snap.AdditionalEvents[0].Sequence)
-
-	evs, err := n.store.GetEvents(id, 0)
-	if !assert.NoError(t, err) {
-		return
-	}
-	assert.Len(t, evs, 1)
-	assert.Equal(t, int64(1), evs[0].Sequence)
+	id := timebox.NewAggregateID("order", "append-closed")
+	err := p.Append(timebox.AppendRequest{
+		ID:               id,
+		ExpectedSequence: 0,
+		Events:           []*timebox.Event{numberEvent(id, 1)},
+	})
+	assert.Error(t, err)
 }
 
 func TestSnapshotFutureSeq(t *testing.T) {
@@ -161,86 +120,6 @@ func TestSnapshotFutureSeq(t *testing.T) {
 	assert.Equal(t, int64(5), snap.NextSequence)
 	assert.Len(t, snap.AdditionalEvents, 1)
 	assert.Equal(t, int64(5), snap.AdditionalEvents[0].Sequence)
-}
-
-func TestAppendClosed(t *testing.T) {
-	cfg := nodeConfig{
-		id:      "node-1",
-		addr:    freeAddr(t),
-		dataDir: t.TempDir(),
-	}
-
-	n := newNode(t, cfg)
-	waitForWrite(t, n.store)
-
-	p := n.persistence
-	closeNode(t, n)
-
-	id := timebox.NewAggregateID("order", "append-closed")
-	err := p.Append(timebox.AppendRequest{
-		ID:               id,
-		ExpectedSequence: 0,
-		Events:           []*timebox.Event{numberEvent(id, 1)},
-	})
-	assert.Error(t, err)
-}
-
-func TestAppendConflictAheadOfCurrent(t *testing.T) {
-	n := newNode(t, nodeConfig{
-		id: "node-1",
-	})
-	waitForWrite(t, n.store)
-
-	id := timebox.NewAggregateID("order", "ahead-conflict")
-	err := n.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	})
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	err = n.store.AppendEvents(id, 2, []*timebox.Event{
-		numberEvent(id, 2),
-	})
-	if !assert.Error(t, err) {
-		return
-	}
-
-	var conflict *timebox.VersionConflictError
-	if !assert.ErrorAs(t, err, &conflict) {
-		return
-	}
-	assert.Equal(t, int64(2), conflict.ExpectedSequence)
-	assert.Equal(t, int64(1), conflict.ActualSequence)
-	assert.Empty(t, conflict.NewEvents)
-}
-
-func TestEmptyAppendConflictCheck(t *testing.T) {
-	n := newNode(t, nodeConfig{
-		id: "node-1",
-	})
-	waitForWrite(t, n.store)
-
-	id := timebox.NewAggregateID("order", "noop-check")
-	err := n.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	})
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	err = n.store.AppendEvents(id, 1, nil)
-	assert.NoError(t, err)
-
-	err = n.store.AppendEvents(id, 0, nil)
-	var conflict *timebox.VersionConflictError
-	if !assert.ErrorAs(t, err, &conflict) {
-		return
-	}
-	assert.Equal(t, int64(0), conflict.ExpectedSequence)
-	assert.Equal(t, int64(1), conflict.ActualSequence)
-	assert.Len(t, conflict.NewEvents, 1)
-	assert.Equal(t, int64(0), conflict.NewEvents[0].Sequence)
 }
 
 // TestConcurrentAppend verifies that when concurrent appends for the same

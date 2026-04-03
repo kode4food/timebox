@@ -94,10 +94,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 
 	seq := max(a.baseSeq+int64(len(a.events)), a.snapshotSeq)
 	if req.ExpectedSequence != seq {
-		start := min(
-			max(req.ExpectedSequence-a.baseSeq, 0),
-			int64(len(a.events)),
-		)
+		start := firstEventIndex(a.events, req.ExpectedSequence)
 		return &timebox.VersionConflictError{
 			ExpectedSequence: req.ExpectedSequence,
 			ActualSequence:   seq,
@@ -140,9 +137,10 @@ func (p *Persistence) LoadEvents(
 	}
 
 	start := max(req.FromSeq, a.baseSeq)
+	idx := firstEventIndex(a.events, start)
 	return &timebox.EventsResult{
 		StartSequence: start,
-		Events:        a.events[start-a.baseSeq:],
+		Events:        a.events[idx:],
 	}, nil
 }
 
@@ -163,10 +161,11 @@ func (p *Persistence) LoadSnapshot(
 	}
 
 	start := max(a.snapshotSeq-a.baseSeq, 0)
+	idx := firstEventIndex(a.events, a.baseSeq+start)
 	return &timebox.SnapshotRecord{
 		Data:     a.snapshotData,
 		Sequence: a.snapshotSeq,
-		Events:   a.events[start:],
+		Events:   a.events[idx:],
 	}, nil
 }
 
@@ -266,6 +265,15 @@ func (p *Persistence) ListAggregatesByStatus(
 		return res[i].Timestamp.Before(res[j].Timestamp)
 	})
 	return res, nil
+}
+
+func firstEventIndex(evs []*timebox.Event, seq int64) int {
+	for i, ev := range evs {
+		if ev.Sequence >= seq {
+			return i
+		}
+	}
+	return len(evs)
 }
 
 // ListAggregatesByLabel lists aggregates for a label/value pair
