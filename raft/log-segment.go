@@ -46,7 +46,7 @@ func openLogSegs(
 	dir string, segs []logSeg, tailID, compacted uint64,
 ) ([]logSeg, uint64, uint64, *raftpb.HardState, error) {
 	if len(segs) == 0 {
-		return nil, 0, 0, nil, nil
+		return nil, compacted, 0, nil, nil
 	}
 	if tailID == 0 {
 		tailID = segs[len(segs)-1].id

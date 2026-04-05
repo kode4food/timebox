@@ -270,6 +270,9 @@ func (r *raftLog) ApplySnapshot(meta raftpb.SnapshotMetadata) error {
 	r.compacted = meta.Index
 	r.compactedTerm = meta.Term
 	r.cs = meta.ConfState
+	if r.hs.Commit < meta.Index {
+		r.hs.Commit = meta.Index
+	}
 
 	var removed []logSeg
 	for len(r.segs) > 0 && r.segs[0].last <= meta.Index {
@@ -283,7 +286,7 @@ func (r *raftLog) ApplySnapshot(meta raftpb.SnapshotMetadata) error {
 	}
 	r.hot.reset()
 
-	dirty := len(removed) > 0
+	dirty := true
 	if err := r.storeMetaLocked(r.hs, r.cs, dirty); err != nil {
 		return err
 	}
@@ -427,16 +430,22 @@ func (r *raftLog) syncLogLocked() error {
 }
 
 func (r *raftLog) warmHotTail() error {
-	if r.last == 0 {
+	r.mu.RLock()
+	last := r.last
+	compacted := r.compacted
+	segs := cloneSegs(r.segs)
+	r.mu.RUnlock()
+
+	if last == 0 || len(segs) == 0 || last <= compacted {
 		return nil
 	}
 
-	lo := r.compacted + 1
-	if r.last > uint64(len(r.hot.buf)) {
-		lo = max(lo, r.last-uint64(len(r.hot.buf))+1)
+	lo := compacted + 1
+	if last > uint64(len(r.hot.buf)) {
+		lo = max(lo, last-uint64(len(r.hot.buf))+1)
 	}
 	ents, err := loadEntries(
-		r.logDir, cloneSegs(r.segs), lo, r.last+1,
+		r.logDir, segs, lo, last+1,
 		^uint64(0),
 	)
 	if err != nil {

@@ -43,6 +43,33 @@ func TestSnapshotTransfer(t *testing.T) {
 	waitEvents(t, late.store, id, count)
 }
 
+func TestSnapshotTransferRestart(t *testing.T) {
+	const count = 16
+
+	orig := *raft.LogRotateBytesPtr
+	*raft.LogRotateBytesPtr = 1
+	defer func() { *raft.LogRotateBytesPtr = orig }()
+
+	srvs, cfgs := serverCfgs(t, 3)
+	nodes := startNodes(t, cfgs, srvs, 1, 2)
+	waitReadyAll(t, nodes)
+	leader := findLeader(t, nodes)
+
+	id := timebox.NewAggregateID("order", "snapshot-transfer-restart")
+	appendN(t, leader.store, id, count)
+	waitAllEvents(t, nodes, id, count)
+
+	late := newClusterNode(t, cfgs[0], srvs)
+	waitReady(t, late)
+	waitEvents(t, late.store, id, count)
+
+	closeNode(t, late)
+
+	late = newClusterNode(t, cfgs[0], srvs)
+	waitReady(t, late)
+	waitEvents(t, late.store, id, count)
+}
+
 func TestFollower(t *testing.T) {
 	nodes := newCluster(t, 3)
 	leader := findLeader(t, nodes)

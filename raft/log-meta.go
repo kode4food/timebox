@@ -93,6 +93,9 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		_ = db.Close()
 		return nil, false, bin.ErrCorruptState
 	}
+	if hs.Commit < m.compacted {
+		hs.Commit = m.compacted
+	}
 
 	lg := &raftLog{
 		logDir:        logDir,
@@ -115,6 +118,13 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 	if err := lg.warmHotTail(); err != nil {
 		_ = lg.Close()
 		return nil, false, err
+	}
+	if hs.Commit != m.hs.Commit {
+		lg.hs = hs
+		if err := lg.storeMetaLocked(hs, lg.cs, true); err != nil {
+			_ = lg.Close()
+			return nil, false, err
+		}
 	}
 
 	stateExists := last != 0 ||
