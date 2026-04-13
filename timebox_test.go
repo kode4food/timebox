@@ -22,29 +22,22 @@ const (
 	EventReset       timebox.EventType = "reset"
 )
 
-var appliers = timebox.Appliers[*CounterState]{
-	EventIncremented: func(
-		state *CounterState, ev *timebox.Event,
-	) *CounterState {
+var appliers = timebox.Appliers[CounterState]{
+	EventIncremented: func(st CounterState, ev *timebox.Event) CounterState {
 		var delta int
 		_ = json.Unmarshal(ev.Data, &delta)
-		res := *state
-		res.Value = state.Value + delta
-		return &res
+		st.Value = st.Value + delta
+		return st
 	},
-	EventDecremented: func(
-		state *CounterState, ev *timebox.Event,
-	) *CounterState {
+	EventDecremented: func(st CounterState, ev *timebox.Event) CounterState {
 		var delta int
 		_ = json.Unmarshal(ev.Data, &delta)
-		res := *state
-		res.Value = state.Value - delta
-		return &res
+		st.Value = st.Value - delta
+		return st
 	},
-	EventReset: func(state *CounterState, ev *timebox.Event) *CounterState {
-		res := *state
-		res.Value = 0
-		return &res
+	EventReset: func(st CounterState, ev *timebox.Event) CounterState {
+		st.Value = 0
+		return st
 	},
 }
 
@@ -99,11 +92,13 @@ func TestStoreIndexer(t *testing.T) {
 
 			id := timebox.NewAggregateID("counter", "indexed")
 
-			state, err := executor.Exec(id, func(
-				s *CounterState, ag *timebox.Aggregator[*CounterState],
-			) error {
-				return timebox.Raise(ag, EventIncremented, 2)
-			})
+			state, err := executor.Exec(id,
+				func(
+					st CounterState, ag *timebox.Aggregator[CounterState],
+				) error {
+					return timebox.Raise(ag, EventIncremented, 2)
+				},
+			)
 			assert.NoError(t, err)
 			assert.Equal(t, 2, state.Value)
 
@@ -114,13 +109,12 @@ func TestStoreIndexer(t *testing.T) {
 	}
 }
 
-func newCounterState() *CounterState {
-	return &CounterState{Value: 0}
+func newCounterState() CounterState {
+	return CounterState{Value: 0}
 }
 
 func setupTestExecutor(t *testing.T) (
-	io.Closer, *timebox.Store,
-	*timebox.Executor[*CounterState],
+	io.Closer, *timebox.Store, *timebox.Executor[CounterState],
 ) {
 	return setupTestExecutorWithConfig(t, nil)
 }
@@ -138,8 +132,7 @@ func newMemoryStore(cfg timebox.Config) (io.Closer, *timebox.Store, error) {
 func setupTestExecutorWithConfig(
 	t *testing.T, mutate func(*timebox.Config),
 ) (
-	io.Closer, *timebox.Store,
-	*timebox.Executor[*CounterState],
+	io.Closer, *timebox.Store, *timebox.Executor[CounterState],
 ) {
 	storeCfg := timebox.Config{}
 	if mutate != nil {

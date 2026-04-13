@@ -185,17 +185,18 @@ func TestFollowerExec(t *testing.T) {
 	}
 
 	id := timebox.NewAggregateID("cluster")
-	appliers := timebox.Appliers[*counterState]{
+	appliers := timebox.Appliers[counterState]{
 		incrementedEvent: func(
-			state *counterState, ev *timebox.Event,
-		) *counterState {
+			st counterState, ev *timebox.Event,
+		) counterState {
 			var delta int
 			_ = json.Unmarshal(ev.Data, &delta)
-			return &counterState{Value: state.Value + delta}
+			st.Value = st.Value + delta
+			return st
 		},
 	}
-	newState := func() *counterState {
-		return &counterState{}
+	newState := func() counterState {
+		return counterState{}
 	}
 
 	leaderExec := timebox.NewExecutor(leader.store, newState, appliers)
@@ -207,17 +208,17 @@ func TestFollowerExec(t *testing.T) {
 		}
 	}
 
-	_, err := leaderExec.Exec(id, func(
-		_ *counterState, ag *timebox.Aggregator[*counterState],
-	) error {
-		return timebox.Raise(ag, incrementedEvent, 1)
-	})
+	_, err := leaderExec.Exec(id,
+		func(_ counterState, ag *timebox.Aggregator[counterState]) error {
+			return timebox.Raise(ag, incrementedEvent, 1)
+		},
+	)
 	if !assert.NoError(t, err) {
 		return
 	}
 
 	type result struct {
-		state *counterState
+		state counterState
 		err   error
 	}
 	resCh := make(chan result, len(followers))
@@ -225,13 +226,15 @@ func TestFollowerExec(t *testing.T) {
 
 	for _, n := range followers {
 		exec := timebox.NewExecutor(n.store, newState, appliers)
-		go func(exec *timebox.Executor[*counterState]) {
+		go func(exec *timebox.Executor[counterState]) {
 			<-start
-			state, err := exec.Exec(id, func(
-				_ *counterState, ag *timebox.Aggregator[*counterState],
-			) error {
-				return timebox.Raise(ag, incrementedEvent, 1)
-			})
+			state, err := exec.Exec(id,
+				func(
+					_ counterState, ag *timebox.Aggregator[counterState],
+				) error {
+					return timebox.Raise(ag, incrementedEvent, 1)
+				},
+			)
 			resCh <- result{state: state, err: err}
 		}(exec)
 	}

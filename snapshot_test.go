@@ -18,27 +18,27 @@ func TestSequenceWithSnapshot(t *testing.T) {
 
 	id := timebox.NewAggregateID("counter", "snap-seq-test")
 
-	_, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		if err := timebox.Raise(ag, EventIncremented, 5); err != nil {
-			return err
-		}
-		return timebox.Raise(ag, EventIncremented, 5)
-	})
+	_, err := executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			if err := timebox.Raise(ag, EventIncremented, 5); err != nil {
+				return err
+			}
+			return timebox.Raise(ag, EventIncremented, 5)
+		},
+	)
 	assert.NoError(t, err)
 
 	err = executor.SaveSnapshot(id)
 	assert.NoError(t, err)
 
-	_, err = executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		if err := timebox.Raise(ag, EventIncremented, 3); err != nil {
-			return err
-		}
-		return timebox.Raise(ag, EventIncremented, 3)
-	})
+	_, err = executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			if err := timebox.Raise(ag, EventIncremented, 3); err != nil {
+				return err
+			}
+			return timebox.Raise(ag, EventIncremented, 3)
+		},
+	)
 	assert.NoError(t, err)
 
 	var state CounterState
@@ -64,16 +64,16 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 
 	id := timebox.NewAggregateID("counter", "trim-events")
 
-	_, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		for range 3 {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
+	_, err := executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			for range 3 {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+					return err
+				}
 			}
-		}
-		return nil
-	})
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 
 	err = executor.SaveSnapshot(id)
@@ -88,16 +88,16 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 	assert.Len(t, aggregates, 1)
 	assert.Equal(t, id, aggregates[0])
 
-	_, err = executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		for range 2 {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
+	_, err = executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			for range 2 {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+					return err
+				}
 			}
-		}
-		return nil
-	})
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 
 	events, err = store.GetEvents(id, 0)
@@ -116,16 +116,16 @@ func TestSnapshotLargeBatch(t *testing.T) {
 
 	numEvents := 300
 
-	state, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		for range numEvents {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
+	state, err := executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			for range numEvents {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+					return err
+				}
 			}
-		}
-		return nil
-	})
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, numEvents, state.Value)
 
@@ -145,16 +145,16 @@ func TestSnapshotLargeBatch(t *testing.T) {
 	err = executor.SaveSnapshot(id)
 	assert.NoError(t, err)
 
-	state, err = executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		for range 50 {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
-				return err
+	state, err = executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			for range 50 {
+				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+					return err
+				}
 			}
-		}
-		return nil
-	})
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, numEvents+50, state.Value)
 
@@ -186,12 +186,12 @@ func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
 	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	state, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		assert.Equal(t, 1, s.Value)
-		return nil
-	})
+	state, err := executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			assert.Equal(t, 1, st.Value)
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, state.Value)
 
@@ -215,11 +215,11 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snapshot-ratio")
-	_, err := setupExecutor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		return timebox.Raise(ag, EventIncremented, 10)
-	})
+	_, err := setupExecutor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 10)
+		},
+	)
 	assert.NoError(t, err)
 
 	err = setupExecutor.SaveSnapshot(id)
@@ -234,12 +234,12 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 	assert.NoError(t, err)
 
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
-	state, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		assert.Equal(t, 11, s.Value)
-		return nil
-	})
+	state, err := executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			assert.Equal(t, 11, st.Value)
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, 11, state.Value)
 
@@ -280,12 +280,12 @@ func TestSaveSnapshot(t *testing.T) {
 
 	id := timebox.NewAggregateID("save", "snapshot")
 
-	_, err := executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		assert.Equal(t, 0, s.Value)
-		return timebox.Raise(ag, EventIncremented, 2)
-	})
+	_, err := executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			assert.Equal(t, 0, st.Value)
+			return timebox.Raise(ag, EventIncremented, 2)
+		},
+	)
 	assert.NoError(t, err)
 
 	err = executor.SaveSnapshot(id)
@@ -307,11 +307,11 @@ func TestSaveSnapshotColdCache(t *testing.T) {
 
 	id := timebox.NewAggregateID("counter", "cold-snapshot")
 
-	_, err := executor.Exec(id, func(
-		_ *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		return timebox.Raise(ag, EventIncremented, 5)
-	})
+	_, err := executor.Exec(id,
+		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
+			return timebox.Raise(ag, EventIncremented, 5)
+		},
+	)
 	assert.NoError(t, err)
 
 	err = executor.SaveSnapshot(id)
@@ -393,12 +393,12 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 	executor := timebox.NewExecutor(store, newCounterState, appliers)
 	id := timebox.NewAggregateID("counter", "inline-save-error")
 
-	_, err = executor.Exec(id, func(
-		s *CounterState, ag *timebox.Aggregator[*CounterState],
-	) error {
-		assert.Equal(t, 2_000_010, s.Value)
-		return nil
-	})
+	_, err = executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			assert.Equal(t, 2_000_010, st.Value)
+			return nil
+		},
+	)
 	assert.ErrorIs(t, err, saveErr)
 	assert.Equal(t, 1, p.saveCount)
 	assert.Equal(t, id, p.saveID)

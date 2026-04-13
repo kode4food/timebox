@@ -14,9 +14,9 @@ import (
 type (
 	// Type aliases for convenience
 
-	OrderAggregator = timebox.Aggregator[*OrderState]
-	OrderAppliers   = timebox.Appliers[*OrderState]
-	OrderExecutor   = timebox.Executor[*OrderState]
+	OrderAggregator = timebox.Aggregator[OrderState]
+	OrderAppliers   = timebox.Appliers[OrderState]
+	OrderExecutor   = timebox.Executor[OrderState]
 
 	// Domain types
 
@@ -132,34 +132,34 @@ func setupExample() *orderExample {
 
 func (ex *orderExample) createOrder() {
 	fmt.Println("Creating order...")
-	state, err := ex.executor.Exec(ex.orderID, func(
-		s *OrderState, ag *OrderAggregator,
-	) error {
-		// Create order
-		if err := timebox.Raise(ag, OrderCreated, OrderCreatedData{
-			CustomerName:  "John Doe",
-			CustomerEmail: "john@example.com",
-		}); err != nil {
-			return err
-		}
+	state, err := ex.executor.Exec(ex.orderID,
+		func(s OrderState, ag *OrderAggregator) error {
+			// Create order
+			if err := timebox.Raise(ag, OrderCreated, OrderCreatedData{
+				CustomerName:  "John Doe",
+				CustomerEmail: "john@example.com",
+			}); err != nil {
+				return err
+			}
 
-		// Add items to order
-		if err := timebox.Raise(ag, OrderItemAdded, ItemAddedData{
-			ProductID: "LAPTOP-PRO",
-			Name:      "Professional Laptop",
-			Quantity:  1,
-			Price:     1299.99,
-		}); err != nil {
-			return err
-		}
+			// Add items to order
+			if err := timebox.Raise(ag, OrderItemAdded, ItemAddedData{
+				ProductID: "LAPTOP-PRO",
+				Name:      "Professional Laptop",
+				Quantity:  1,
+				Price:     1299.99,
+			}); err != nil {
+				return err
+			}
 
-		return timebox.Raise(ag, OrderItemAdded, ItemAddedData{
-			ProductID: "MOUSE-WIRELESS",
-			Name:      "Wireless Mouse",
-			Quantity:  2,
-			Price:     29.99,
-		})
-	})
+			return timebox.Raise(ag, OrderItemAdded, ItemAddedData{
+				ProductID: "MOUSE-WIRELESS",
+				Name:      "Wireless Mouse",
+				Quantity:  2,
+				Price:     29.99,
+			})
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func (ex *orderExample) createOrder() {
 func (ex *orderExample) addShippingAddress() {
 	fmt.Println("\nAdding shipping address...")
 	state, err := ex.executor.Exec(ex.orderID, func(
-		s *OrderState, ag *OrderAggregator,
+		s OrderState, ag *OrderAggregator,
 	) error {
 		return timebox.Raise(ag, OrderShippingChanged, AddressChangedData{
 			Address: Address{
@@ -200,7 +200,7 @@ func (ex *orderExample) addShippingAddress() {
 func (ex *orderExample) confirmOrder() {
 	fmt.Println("\nConfirming order...")
 	state, err := ex.executor.Exec(ex.orderID, func(
-		s *OrderState, ag *OrderAggregator,
+		s OrderState, ag *OrderAggregator,
 	) error {
 		return timebox.Raise(ag, OrderConfirmed, struct{}{})
 	})
@@ -214,7 +214,7 @@ func (ex *orderExample) confirmOrder() {
 func (ex *orderExample) shipOrder() {
 	fmt.Println("\nShipping order...")
 	state, err := ex.executor.Exec(ex.orderID, func(
-		s *OrderState, ag *OrderAggregator,
+		s OrderState, ag *OrderAggregator,
 	) error {
 		return timebox.Raise(ag, OrderShipped, struct{}{})
 	})
@@ -228,7 +228,7 @@ func (ex *orderExample) shipOrder() {
 func (ex *orderExample) deliverOrder() {
 	fmt.Println("\nDelivering order...")
 	state, err := ex.executor.Exec(ex.orderID, func(
-		s *OrderState, ag *OrderAggregator,
+		s OrderState, ag *OrderAggregator,
 	) error {
 		return timebox.Raise(ag, OrderDelivered, struct{}{})
 	})
@@ -239,8 +239,8 @@ func (ex *orderExample) deliverOrder() {
 	fmt.Printf("Order status: %s\n", state.Status)
 }
 
-func NewOrderState() *OrderState {
-	return &OrderState{
+func NewOrderState() OrderState {
+	return OrderState{
 		Items:  make(map[string]OrderItem),
 		Status: StatusDraft,
 		Total:  0,
@@ -262,75 +262,67 @@ func createExecutor(store *timebox.Store) *OrderExecutor {
 	})
 }
 
-func orderCreated(state *OrderState, ev *timebox.Event) *OrderState {
+func orderCreated(st OrderState, ev *timebox.Event) OrderState {
 	var data OrderCreatedData
 	_ = json.Unmarshal(ev.Data, &data)
-	res := *state
-	res.CustomerName = data.CustomerName
-	res.CustomerEmail = data.CustomerEmail
-	res.Status = StatusCreated
-	return &res
+	st.CustomerName = data.CustomerName
+	st.CustomerEmail = data.CustomerEmail
+	st.Status = StatusCreated
+	return st
 }
 
-func orderItemAdded(state *OrderState, ev *timebox.Event) *OrderState {
+func orderItemAdded(st OrderState, ev *timebox.Event) OrderState {
 	var data ItemAddedData
 	_ = json.Unmarshal(ev.Data, &data)
-	res := *state
-	res.Items = maps.Clone(state.Items)
-	res.Items[data.ProductID] = OrderItem{
+	st.Items = maps.Clone(st.Items)
+	st.Items[data.ProductID] = OrderItem{
 		ProductID: data.ProductID,
 		Name:      data.Name,
 		Quantity:  data.Quantity,
 		Price:     data.Price,
 	}
-	res.Total = calculateTotal(res.Items)
-	return &res
+	st.Total = calculateTotal(st.Items)
+	return st
 }
 
-func orderItemRemoved(state *OrderState, ev *timebox.Event) *OrderState {
+func orderItemRemoved(st OrderState, ev *timebox.Event) OrderState {
 	var data ItemRemovedData
 	_ = json.Unmarshal(ev.Data, &data)
-	res := *state
-	res.Items = maps.Clone(state.Items)
-	delete(res.Items, data.ProductID)
-	res.Total = calculateTotal(res.Items)
-	return &res
+	st.Items = maps.Clone(st.Items)
+	delete(st.Items, data.ProductID)
+	st.Total = calculateTotal(st.Items)
+	return st
 }
 
-func orderShippingChanged(state *OrderState, ev *timebox.Event) *OrderState {
+func orderShippingChanged(st OrderState, ev *timebox.Event) OrderState {
 	var data AddressChangedData
 	_ = json.Unmarshal(ev.Data, &data)
-	res := *state
 	addr := data.Address
-	res.ShippingAddress = &addr
-	return &res
+	st.ShippingAddress = &addr
+	return st
 }
 
-func orderBillingChanged(state *OrderState, ev *timebox.Event) *OrderState {
+func orderBillingChanged(st OrderState, ev *timebox.Event) OrderState {
 	var data AddressChangedData
 	_ = json.Unmarshal(ev.Data, &data)
-	res := *state
 	addr := data.Address
-	res.BillingAddress = &addr
-	return &res
+	st.BillingAddress = &addr
+	return st
 }
 
-func orderConfirmed(state *OrderState, _ *timebox.Event) *OrderState {
-	res := *state
-	res.Status = StatusConfirmed
-	return &res
+func orderConfirmed(st OrderState, _ *timebox.Event) OrderState {
+	st.Status = StatusConfirmed
+	return st
 }
 
-func orderShipped(state *OrderState, _ *timebox.Event) *OrderState {
-	res := *state
-	res.Status = StatusShipped
-	return &res
+func orderShipped(st OrderState, _ *timebox.Event) OrderState {
+	st.Status = StatusShipped
+	return st
 }
 
-func orderDelivered(state *OrderState, _ *timebox.Event) *OrderState {
-	res := *state
-	res.Status = StatusDelivered
-	return &res
+func orderDelivered(st OrderState, _ *timebox.Event) OrderState {
+	st.Status = StatusDelivered
+	return st
 }
 
 func calculateTotal(items map[string]OrderItem) float64 {
