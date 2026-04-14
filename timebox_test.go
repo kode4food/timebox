@@ -46,25 +46,25 @@ func TestGetEventValue(t *testing.T) {
 		Name string `json:"name"`
 	}
 
-	event := &timebox.Event{
+	ev := &timebox.Event{
 		Type: "event.cached",
 		Data: []byte(`{"name":"cached"}`),
 	}
 
-	data, err := timebox.GetEventValue[CachedData](event)
+	data, err := timebox.GetEventValue[CachedData](ev)
 	assert.NoError(t, err)
 	assert.Equal(t, "cached", data.Name)
 
-	values, err := timebox.GetEventValue[map[string]any](event)
+	values, err := timebox.GetEventValue[map[string]any](ev)
 	assert.NoError(t, err)
 	assert.Equal(t, "cached", values["name"])
 
-	event.Data = []byte("not json")
-	data, err = timebox.GetEventValue[CachedData](event)
+	ev.Data = []byte("not json")
+	data, err = timebox.GetEventValue[CachedData](ev)
 	assert.NoError(t, err)
 	assert.Equal(t, "cached", data.Name)
 
-	_, err = timebox.GetEventValue[map[string]any](event)
+	_, err = timebox.GetEventValue[map[string]any](ev)
 	assert.Error(t, err)
 }
 

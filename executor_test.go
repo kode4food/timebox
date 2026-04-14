@@ -175,18 +175,18 @@ func TestAppliesEvent(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	// Test with event types that have appliers
-	incrementedEvent := &timebox.Event{Type: EventIncremented}
-	assert.True(t, executor.AppliesEvent(incrementedEvent))
+	incremented := &timebox.Event{Type: EventIncremented}
+	assert.True(t, executor.AppliesEvent(incremented))
 
-	decrementedEvent := &timebox.Event{Type: EventDecremented}
-	assert.True(t, executor.AppliesEvent(decrementedEvent))
+	decremented := &timebox.Event{Type: EventDecremented}
+	assert.True(t, executor.AppliesEvent(decremented))
 
-	resetEvent := &timebox.Event{Type: EventReset}
-	assert.True(t, executor.AppliesEvent(resetEvent))
+	reset := &timebox.Event{Type: EventReset}
+	assert.True(t, executor.AppliesEvent(reset))
 
 	// Test with event type that does not have an applier
-	unknownEvent := &timebox.Event{Type: "unknown_event"}
-	assert.False(t, executor.AppliesEvent(unknownEvent))
+	unknown := &timebox.Event{Type: "unknown_event"}
+	assert.False(t, executor.AppliesEvent(unknown))
 }
 
 func TestConflictRetry(t *testing.T) {

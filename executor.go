@@ -153,20 +153,20 @@ func (e *Executor[T]) loadSnapshot(id AggregateID) (*projection[T], error) {
 func (e *Executor[T]) loadFromStore(
 	id AggregateID, entry *cacheEntry[*projection[T]],
 ) (*projection[T], error) {
-	state := e.construct()
+	st := e.construct()
 
-	snap, err := e.store.GetSnapshot(id, &state)
+	snap, err := e.store.GetSnapshot(id, &st)
 	if err != nil {
 		return nil, err
 	}
 
 	proj := &projection[T]{
-		state:   state,
+		state:   st,
 		nextSeq: snap.NextSequence,
 	}
 
 	if len(snap.AdditionalEvents) > 0 {
-		proj = e.applyEvents(state, snap.AdditionalEvents, snap.NextSequence)
+		proj = e.applyEvents(st, snap.AdditionalEvents, snap.NextSequence)
 	}
 
 	if e.shouldSnapshot(snap) {
