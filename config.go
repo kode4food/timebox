@@ -39,7 +39,7 @@ var (
 	// ErrInvalidCacheSize indicates CacheSize is below the allowed range
 	ErrInvalidCacheSize = errors.New("cache size must be > 0")
 
-	// ErrInvalidSnapshotRatio indicates SnapshotRatio is below the allowed range
+	// ErrInvalidSnapshotRatio indicates SnapshotRatio is below allowed range
 	ErrInvalidSnapshotRatio = errors.New("snapshot ratio must be >= 0")
 )
 

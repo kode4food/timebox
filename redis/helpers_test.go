@@ -15,7 +15,9 @@ import (
 
 var joinAggregateID, _ = id.MakeCodec(':')
 
-func newStore(cfg tbredis.Config, storeCfg timebox.Config) (*timebox.Store, error) {
+func newStore(
+	cfg tbredis.Config, storeCfg timebox.Config,
+) (*timebox.Store, error) {
 	p, err := tbredis.NewPersistence(cfg)
 	if err != nil {
 		return nil, err

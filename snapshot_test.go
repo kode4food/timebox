@@ -162,7 +162,9 @@ func TestSnapshotLargeBatch(t *testing.T) {
 	snap, err := store.GetSnapshot(id, &snapState)
 	assert.NoError(t, err)
 	assert.Equal(t, numEvents, snapState.Value)
-	assert.Equal(t, encodedSize(t, &CounterState{Value: numEvents}), snap.SnapshotSize)
+	assert.Equal(t,
+		encodedSize(t, &CounterState{Value: numEvents}), snap.SnapshotSize,
+	)
 	assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
 	assert.Len(t, snap.AdditionalEvents, 50)
 	for i := range 50 {

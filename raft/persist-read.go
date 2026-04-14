@@ -7,7 +7,7 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-// LoadEvents returns events for one aggregate starting at the requested sequence
+// LoadEvents loads events for one aggregate starting at the requested sequence
 func (p *Persistence) LoadEvents(
 	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
