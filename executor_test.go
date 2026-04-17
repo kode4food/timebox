@@ -169,6 +169,26 @@ func TestSequenceHandling(t *testing.T) {
 	assert.Equal(t, int64(4), partialEvents[2].Sequence)
 }
 
+func TestRaiseMarksCommittedEvents(t *testing.T) {
+	server, store, executor := setupTestExecutor(t)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	id := timebox.NewAggregateID("counter", "raised")
+
+	_, err := executor.Exec(id,
+		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
+			ag.OnSuccess(func(_ CounterState, evs []*timebox.Event) {
+				assert.Len(t, evs, 1)
+				assert.True(t, evs[0].Raised)
+			})
+			return timebox.Raise(ag, EventIncremented, 1)
+		},
+	)
+
+	assert.NoError(t, err)
+}
+
 func TestAppliesEvent(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = server.Close() }()

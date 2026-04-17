@@ -122,6 +122,7 @@ func (a *Aggregator[T]) raise(typ EventType, value any) error {
 		AggregateID: a.id,
 		Type:        typ,
 		Data:        data,
+		Raised:      true,
 		value:       value,
 	}
 	a.enqueued = append(a.enqueued, ev)

@@ -10,14 +10,16 @@ type (
 	// Event represents a single immutable event in the log, including its
 	// sequence, timestamp, and serialized payload
 	Event struct {
+		value any
+
 		Timestamp   time.Time       `json:"timestamp"`
-		Sequence    int64           `json:"sequence"`
 		Type        EventType       `json:"type"`
 		AggregateID AggregateID     `json:"aggregate_id"`
 		Data        json.RawMessage `json:"data"`
+		Sequence    int64           `json:"sequence"`
+		Raised      bool            `json:"-"`
 
-		mu    sync.RWMutex
-		value any
+		mu sync.RWMutex
 	}
 
 	// EventType is the string identifier associated with an Event

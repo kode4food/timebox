@@ -68,6 +68,25 @@ func TestGetEventValue(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestEventRaisedNotSerialized(t *testing.T) {
+	ev := &timebox.Event{
+		Type:   "event.raised",
+		Data:   []byte(`{"value":1}`),
+		Raised: true,
+	}
+
+	data, err := json.Marshal(ev)
+	assert.NoError(t, err)
+
+	var decoded map[string]any
+	err = json.Unmarshal(data, &decoded)
+	assert.NoError(t, err)
+	_, ok := decoded["Raised"]
+	assert.False(t, ok)
+	_, ok = decoded["raised"]
+	assert.False(t, ok)
+}
+
 func TestStoreIndexer(t *testing.T) {
 	for _, trimEvents := range []bool{false, true} {
 		mode := "untrimmed"

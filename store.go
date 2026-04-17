@@ -212,6 +212,7 @@ func sequenceEvents(id AggregateID, atSeq int64, evs []*Event) []*Event {
 			Type:        ev.Type,
 			AggregateID: id,
 			Data:        ev.Data,
+			Raised:      ev.Raised,
 			value:       ev.value,
 		}
 	}
