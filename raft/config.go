@@ -121,8 +121,7 @@ func (c Config) Validate() error {
 			return err
 		}
 	}
-	if len(c.Servers) != 0 &&
-		!containsLocalServer(c.Servers, c.LocalID) {
+	if len(c.Servers) != 0 && !containsLocalServer(c.Servers, c.LocalID) {
 		return ErrBootstrapMissingLocalServer
 	}
 	return nil

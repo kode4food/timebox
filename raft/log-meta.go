@@ -127,19 +127,15 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		}
 	}
 
-	stateExists := last != 0 ||
-		m.compacted != 0 ||
-		!raft.IsEmptyHardState(m.hs) ||
-		!emptyConfState(m.cs)
+	stateExists := last != 0 || m.compacted != 0 ||
+		!raft.IsEmptyHardState(m.hs) || !emptyConfState(m.cs)
 	return lg, stateExists, nil
 }
 
 func (r *raftLog) storeMetaLocked(
 	hs raftpb.HardState, cs raftpb.ConfState, manifest bool,
 ) error {
-	if !manifest &&
-		termVoteEqual(r.hs, hs) &&
-		confStateEqual(r.cs, cs) {
+	if !manifest && termVoteEqual(r.hs, hs) && confStateEqual(r.cs, cs) {
 		return nil
 	}
 
@@ -329,9 +325,6 @@ func termVoteEqual(a, b raftpb.HardState) bool {
 }
 
 func emptyConfState(cs raftpb.ConfState) bool {
-	return len(cs.Voters) == 0 &&
-		len(cs.VotersOutgoing) == 0 &&
-		len(cs.Learners) == 0 &&
-		len(cs.LearnersNext) == 0 &&
-		!cs.AutoLeave
+	return len(cs.Voters) == 0 && len(cs.VotersOutgoing) == 0 &&
+		len(cs.Learners) == 0 && len(cs.LearnersNext) == 0 && !cs.AutoLeave
 }

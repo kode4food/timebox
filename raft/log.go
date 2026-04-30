@@ -286,8 +286,7 @@ func (r *raftLog) ApplySnapshot(meta raftpb.SnapshotMetadata) error {
 	}
 	r.hot.reset()
 
-	dirty := true
-	if err := r.storeMetaLocked(r.hs, r.cs, dirty); err != nil {
+	if err := r.storeMetaLocked(r.hs, r.cs, true); err != nil {
 		return err
 	}
 
@@ -383,8 +382,7 @@ func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if len(seg.pts) == 0 ||
-			(ent.Index-seg.first)%logPointSpan == 0 {
+		if len(seg.pts) == 0 || (ent.Index-seg.first)%logPointSpan == 0 {
 			pt := logPoint{idx: ent.Index, off: off}
 			idxBuf = appendIdxRecord(idxBuf, pt)
 			seg.pts = append(seg.pts, pt)

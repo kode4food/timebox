@@ -191,8 +191,7 @@ func (p *Persistence) markReady() {
 }
 
 func (p *Persistence) markReadyFollower() {
-	if !p.lastCommitAt.IsZero() &&
-		time.Since(p.lastCommitAt) < readySettle {
+	if !p.lastCommitAt.IsZero() && time.Since(p.lastCommitAt) < readySettle {
 		return
 	}
 	addr, _ := p.LeaderWithID()

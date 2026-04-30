@@ -132,8 +132,7 @@ func (r *raftLog) rotateLocked(commit uint64) (bool, error) {
 	}
 
 	seg := r.segs[len(r.segs)-1]
-	if seg.bytes < logRotateBytes || seg.last < seg.first ||
-		commit < seg.last {
+	if seg.bytes < logRotateBytes || seg.last < seg.first || commit < seg.last {
 		return false, nil
 	}
 	if err := r.closeTailLocked(); err != nil {
@@ -286,8 +285,7 @@ func scanSeg(
 				}
 				return logSeg{}, nil, bin.ErrCorruptState
 			}
-			if len(pts) == 0 ||
-				(ent.Index-first)%logPointSpan == 0 {
+			if len(pts) == 0 || (ent.Index-first)%logPointSpan == 0 {
 				pts = append(pts, logPoint{
 					idx: ent.Index,
 					off: off,
