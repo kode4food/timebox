@@ -63,6 +63,22 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
 				if res, err = f.applySnapshotTx(b, sc); err != nil {
 					return err
 				}
+			case CmdTypeArchive:
+				ac, err := de.cmd.ArchiveRequest()
+				if err != nil {
+					return err
+				}
+				if res, err = f.applyArchiveTx(b, de.index, ac); err != nil {
+					return err
+				}
+			case CmdTypeConsumeArchive:
+				ac, err := de.cmd.ConsumeArchiveRequest()
+				if err != nil {
+					return err
+				}
+				if res, err = f.applyConsumeArchiveTx(b, ac); err != nil {
+					return err
+				}
 			default:
 				return ErrCommandTypeUnknown
 			}
@@ -156,6 +172,49 @@ func (f *fsm) applySnapshotTx(
 		return nil, err
 	}
 
+	return &ApplyResult{}, nil
+}
+
+func (f *fsm) applyArchiveTx(
+	b *kvBucket, index uint64, cmd *ArchiveCommand,
+) (*ApplyResult, error) {
+	encodedID := encodeAggregateID(cmd.ID)
+	meta, ok, err := loadMetaTx(b, encodedID)
+	if err != nil || !ok {
+		return &ApplyResult{}, err
+	}
+
+	events, err := loadEventsTx(b, encodedID, meta.BaseSequence)
+	if err != nil {
+		return nil, err
+	}
+
+	streamID := archiveStreamID(index)
+	rec := &timebox.ArchiveRecord{
+		StreamID:    streamID,
+		AggregateID: cmd.ID,
+		SnapshotData: append(
+			[]byte(nil),
+			b.Get(aggregateSnapshotKey(encodedID))...,
+		),
+		SnapshotSequence: meta.SnapshotSequence,
+		Events:           events,
+	}
+	if err := putArchiveRecordTx(b, rec); err != nil {
+		return nil, err
+	}
+	if err := deleteAggregateTx(b, encodedID, meta); err != nil {
+		return nil, err
+	}
+	return &ApplyResult{}, nil
+}
+
+func (f *fsm) applyConsumeArchiveTx(
+	b *kvBucket, cmd *ConsumeArchiveCommand,
+) (*ApplyResult, error) {
+	if err := b.Delete(archiveRecordKey(cmd.StreamID)); err != nil {
+		return nil, err
+	}
 	return &ApplyResult{}, nil
 }
 

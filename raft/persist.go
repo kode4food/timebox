@@ -33,6 +33,7 @@ type (
 
 		bgWG      sync.WaitGroup
 		readyCh   chan struct{}
+		archiveCh chan struct{}
 		readyOnce sync.Once
 		stopCh    chan struct{}
 		stopOnce  sync.Once
@@ -82,6 +83,7 @@ const (
 )
 
 var _ timebox.Backend = (*Persistence)(nil)
+var _ timebox.Archiver = (*Persistence)(nil)
 
 // NewPersistence opens one Raft persistence node
 func NewPersistence(cfgs ...Config) (*Persistence, error) {
@@ -105,6 +107,7 @@ func (p *Persistence) Close() error {
 	var errs []error
 
 	p.stop(nil)
+	p.notifyArchive()
 	errs = append(errs, p.transport.Close())
 	p.bgWG.Wait()
 	errs = append(errs, p.raftLog.Close())
@@ -141,8 +144,9 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		peers:      buildPeerMap(cfg, tr),
 		peerQueues: map[uint64]*peerQueue{},
 
-		readyCh: make(chan struct{}),
-		stopCh:  make(chan struct{}),
+		readyCh:   make(chan struct{}),
+		archiveCh: make(chan struct{}, 1),
+		stopCh:    make(chan struct{}),
 
 		pending: map[uint64]proposalState{},
 		snapOut: map[uint64]string{},

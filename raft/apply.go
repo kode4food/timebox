@@ -119,6 +119,7 @@ func (p *Persistence) flushBatchNoPublish(
 	}
 	for i := range batch {
 		p.resolveProposal(propIDs[i], batch[i].cmd, results[i])
+		p.notifyAppliedArchive(batch[i].cmd, results[i])
 	}
 	p.appliedIndex.Store(batch[len(batch)-1].index)
 	return nil
@@ -138,6 +139,7 @@ func (p *Persistence) flushBatchPublish(
 	for i := range batch {
 		res := results[i]
 		p.resolveProposal(propIDs[i], batch[i].cmd, res)
+		p.notifyAppliedArchive(batch[i].cmd, res)
 		if res.Error != nil {
 			continue
 		}
@@ -152,6 +154,16 @@ func (p *Persistence) flushBatchPublish(
 		p.publishQ.Put(published)
 	}
 	return nil
+}
+
+func (p *Persistence) notifyAppliedArchive(cmd Command, res *ApplyResult) {
+	if res.Error != nil {
+		return
+	}
+	switch cmd.Type() {
+	case CmdTypeArchive, CmdTypeConsumeArchive:
+		p.notifyArchive()
+	}
 }
 
 func (p *Persistence) applyConfChange(ent raftpb.Entry) error {

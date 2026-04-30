@@ -8,6 +8,6 @@
 // replicated state machine as accelerative state, not as the authoritative
 // source of truth
 //
-// Archive lifecycle support is not implemented by this backend. Store archive
-// calls therefore return timebox.ErrArchivingDisabled
+// Archive lifecycle support is replicated through Raft and stored in the local
+// materialized state
 package raft

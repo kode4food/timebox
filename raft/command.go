@@ -17,6 +17,16 @@ type (
 		TrimEvents bool
 	}
 
+	// ArchiveCommand carries one Timebox archive mutation through Raft
+	ArchiveCommand struct {
+		ID timebox.AggregateID
+	}
+
+	// ConsumeArchiveCommand carries one archive acknowledgement through Raft
+	ConsumeArchiveCommand struct {
+		StreamID string
+	}
+
 	// AggregateMeta stores the derived aggregate state needed for reads
 	AggregateMeta struct {
 		CurrentSequence  int64
@@ -38,8 +48,10 @@ type (
 )
 
 const (
-	CmdTypeAppend   = 0
-	CmdTypeSnapshot = 1
+	CmdTypeAppend         = 0
+	CmdTypeSnapshot       = 1
+	CmdTypeArchive        = 2
+	CmdTypeConsumeArchive = 3
 
 	cmdHeaderSize = 9 // 1 type byte + 8 proposalID bytes
 )
@@ -79,6 +91,24 @@ func MakeSnapshotCommand(proposalID uint64, sc *SnapshotCommand) Command {
 	return c
 }
 
+// MakeArchiveCommand encodes one archive mutation into a Raft command
+func MakeArchiveCommand(proposalID uint64, ac *ArchiveCommand) Command {
+	c := make(Command, 0, cmdHeaderSize+64)
+	c = bin.AppendByte(c, CmdTypeArchive)
+	c = bin.AppendUint64(c, proposalID)
+	return appendAggregateID(c, ac.ID)
+}
+
+// MakeConsumeArchiveCommand encodes one archive ack into a Raft command
+func MakeConsumeArchiveCommand(
+	proposalID uint64, ac *ConsumeArchiveCommand,
+) Command {
+	c := make(Command, 0, cmdHeaderSize+32)
+	c = bin.AppendByte(c, CmdTypeConsumeArchive)
+	c = bin.AppendUint64(c, proposalID)
+	return bin.AppendString(c, ac.StreamID)
+}
+
 // Type returns the encoded command type
 func (c Command) Type() int {
 	if len(c) == 0 {
@@ -107,6 +137,22 @@ func (c Command) SnapshotRequest() (*SnapshotCommand, error) {
 		return nil, bin.ErrCorruptState
 	}
 	return decodeSnapshotCommand(c[cmdHeaderSize:])
+}
+
+// ArchiveRequest decodes an archive request from the command payload
+func (c Command) ArchiveRequest() (*ArchiveCommand, error) {
+	if len(c) < cmdHeaderSize {
+		return nil, bin.ErrCorruptState
+	}
+	return decodeArchiveCommand(c[cmdHeaderSize:])
+}
+
+// ConsumeArchiveRequest decodes an archive ack from the command payload
+func (c Command) ConsumeArchiveRequest() (*ConsumeArchiveCommand, error) {
+	if len(c) < cmdHeaderSize {
+		return nil, bin.ErrCorruptState
+	}
+	return decodeConsumeArchiveCommand(c[cmdHeaderSize:])
 }
 
 func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
@@ -167,6 +213,22 @@ func decodeSnapshotCommand(data []byte) (*SnapshotCommand, error) {
 		TrimEvents: trimEvents,
 		Data:       payload,
 	}, nil
+}
+
+func decodeArchiveCommand(data []byte) (*ArchiveCommand, error) {
+	id, _, err := readAggregateID(data)
+	if err != nil {
+		return nil, err
+	}
+	return &ArchiveCommand{ID: id}, nil
+}
+
+func decodeConsumeArchiveCommand(data []byte) (*ConsumeArchiveCommand, error) {
+	streamID, _, err := bin.ReadString(data)
+	if err != nil {
+		return nil, err
+	}
+	return &ConsumeArchiveCommand{StreamID: streamID}, nil
 }
 
 func appendAggregateID(buf []byte, id timebox.AggregateID) []byte {

@@ -8,17 +8,18 @@ import (
 )
 
 const (
-	stateRootPrefix  = "state/"
-	stateMetaPrefix  = stateRootPrefix + "meta/"
-	aggRootPrefix    = stateRootPrefix + "agg/"
-	statusRootPrefix = stateRootPrefix + "idx/status/"
-	labelRootPrefix  = stateRootPrefix + "idx/label/"
-	labelValsPrefix  = stateRootPrefix + "idx/label-values/"
-	metaSuffix       = "/meta"
-	snapshotSuffix   = "/snapshot"
-	eventPrefix      = "/event/"
-	seqWidth         = 20
-	lastAppliedName  = "last-applied-log"
+	stateRootPrefix   = "state/"
+	stateMetaPrefix   = stateRootPrefix + "meta/"
+	aggRootPrefix     = stateRootPrefix + "agg/"
+	archiveRootPrefix = stateRootPrefix + "archive/"
+	statusRootPrefix  = stateRootPrefix + "idx/status/"
+	labelRootPrefix   = stateRootPrefix + "idx/label/"
+	labelValsPrefix   = stateRootPrefix + "idx/label-values/"
+	metaSuffix        = "/meta"
+	snapshotSuffix    = "/snapshot"
+	eventPrefix       = "/event/"
+	seqWidth          = 20
+	lastAppliedName   = "last-applied-log"
 )
 
 var bucketName = []byte("timebox")
@@ -27,6 +28,7 @@ var bucketName = []byte("timebox")
 //   - state/agg/<aggregate>/meta stores aggregate-local metadata
 //   - state/agg/<aggregate>/snapshot stores raw Timebox snapshot bytes
 //   - state/agg/<aggregate>/event/<seq> stores raw event payloads
+//   - state/archive/<stream> stores queued archive records
 //   - state/idx/status/<status>/<aggregate> stores indexed status timestamps
 //   - state/idx/label/<label>/<value>/<aggregate> stores label membership
 //   - state/idx/label-values/<label>/<value> stores distinct label values
@@ -57,6 +59,14 @@ func aggregateEventKeyFromPrefix(prefix []byte, seq int64) []byte {
 	copy(key, prefix)
 	writeSequence(key[len(prefix):], seq)
 	return key
+}
+
+func archivePrefix() []byte {
+	return []byte(archiveRootPrefix)
+}
+
+func archiveRecordKey(streamID string) []byte {
+	return []byte(archiveRootPrefix + streamID)
 }
 
 func statusIndexPrefix(status string) []byte {
