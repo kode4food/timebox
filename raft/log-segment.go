@@ -83,7 +83,7 @@ func openLogSegs(
 	return res, last, tailID, walHS, nil
 }
 
-func (r *raftLog) trimTailLocked(first uint64) error {
+func (r *raftLog) trimTail(first uint64) error {
 	if len(r.segs) == 0 {
 		return bin.ErrCorruptState
 	}
@@ -117,7 +117,7 @@ func (r *raftLog) trimTailLocked(first uint64) error {
 	if err := rewriteIdx(logIdxPath(r.logDir, seg.id), seg.pts); err != nil {
 		return err
 	}
-	if err := r.reopenTailIdxLocked(seg.id); err != nil {
+	if err := r.reopenTailIdx(seg.id); err != nil {
 		return err
 	}
 
@@ -126,7 +126,7 @@ func (r *raftLog) trimTailLocked(first uint64) error {
 	return nil
 }
 
-func (r *raftLog) rotateLocked(commit uint64) (bool, error) {
+func (r *raftLog) rotate(commit uint64) (bool, error) {
 	if len(r.segs) == 0 {
 		return false, nil
 	}
@@ -136,16 +136,16 @@ func (r *raftLog) rotateLocked(commit uint64) (bool, error) {
 		commit < seg.last {
 		return false, nil
 	}
-	if err := r.closeTailLocked(); err != nil {
+	if err := r.closeTail(); err != nil {
 		return false, err
 	}
-	if err := r.startTailLocked(seg.last + 1); err != nil {
+	if err := r.startTail(seg.last + 1); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func (r *raftLog) compactLocked(bound uint64) []logSeg {
+func (r *raftLog) compact(bound uint64) []logSeg {
 	if bound == 0 || len(r.segs) < 3 {
 		return nil
 	}
@@ -169,7 +169,7 @@ func (r *raftLog) compactLocked(bound uint64) []logSeg {
 	return removed
 }
 
-func (r *raftLog) startTailLocked(first uint64) error {
+func (r *raftLog) startTail(first uint64) error {
 	id := r.nextID
 	if id == 0 {
 		id = 1
@@ -226,7 +226,7 @@ func (r *raftLog) openTail() error {
 	return nil
 }
 
-func (r *raftLog) reopenTailIdxLocked(id uint64) error {
+func (r *raftLog) reopenTailIdx(id uint64) error {
 	if r.idxf != nil {
 		_ = r.idxf.Close()
 		r.idxf = nil
@@ -241,7 +241,7 @@ func (r *raftLog) reopenTailIdxLocked(id uint64) error {
 	return nil
 }
 
-func (r *raftLog) closeTailLocked() error {
+func (r *raftLog) closeTail() error {
 	var errs []error
 	if r.idxf != nil {
 		errs = append(errs, r.idxf.Sync(), r.idxf.Close())

@@ -89,12 +89,14 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 			hs.Vote = walHS.Vote
 		}
 	}
-	if hs.Commit > last {
-		_ = db.Close()
-		return nil, false, bin.ErrCorruptState
-	}
 	if hs.Commit < m.compacted {
 		hs.Commit = m.compacted
+	} else if hs.Commit > last {
+		if last <= m.compacted {
+			_ = db.Close()
+			return nil, false, bin.ErrCorruptState
+		}
+		hs.Commit = last
 	}
 
 	lg := &raftLog{
@@ -121,7 +123,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 	}
 	if hs.Commit != m.hs.Commit {
 		lg.hs = hs
-		if err := lg.storeMetaLocked(hs, lg.cs, true); err != nil {
+		if err := lg.storeMeta(hs, lg.cs, true); err != nil {
 			_ = lg.Close()
 			return nil, false, err
 		}
@@ -134,7 +136,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 	return lg, stateExists, nil
 }
 
-func (r *raftLog) storeMetaLocked(
+func (r *raftLog) storeMeta(
 	hs raftpb.HardState, cs raftpb.ConfState, manifest bool,
 ) error {
 	if !manifest &&

@@ -280,6 +280,24 @@ func appendRaftTailGarbage(t *testing.T, dataDir string, data []byte) {
 	assert.NoError(t, err)
 }
 
+func truncateRaftTail(t *testing.T, dataDir string) {
+	t.Helper()
+
+	files, err := filepath.Glob(
+		filepath.Join(dataDir, "log", "*.log"),
+	)
+	if !assert.NoError(t, err) || !assert.NotEmpty(t, files) {
+		t.FailNow()
+	}
+
+	path := files[len(files)-1]
+	info, err := os.Stat(path)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	assert.NoError(t, os.Truncate(path, info.Size()/2))
+}
+
 func serverCfgs(t *testing.T, n int) ([]raft.Server, []nodeConfig) {
 	t.Helper()
 

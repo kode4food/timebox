@@ -215,3 +215,47 @@ func TestRestartReplays(t *testing.T) {
 	}
 	assert.Len(t, evs, 8)
 }
+
+func TestRestartRepairsTruncatedTail(t *testing.T) {
+	const count = 64
+
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	id := timebox.NewAggregateID("order", "repair-truncated-tail")
+	appendN(t, n.store, id, count)
+
+	closeNode(t, n)
+	truncateRaftTail(t, cfg.dataDir)
+
+	n = newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	evs, err := n.store.GetEvents(id, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+	if !assert.NotEmpty(t, evs) || !assert.Less(t, len(evs), count) {
+		return
+	}
+
+	next := len(evs)
+	err = n.store.AppendEvents(id, int64(next), []*timebox.Event{
+		numberEvent(id, next+1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	evs, err = n.store.GetEvents(id, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Len(t, evs, next+1)
+}

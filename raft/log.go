@@ -51,7 +51,7 @@ func (r *raftLog) Close() error {
 	defer r.mu.Unlock()
 
 	var errs []error
-	errs = append(errs, r.closeTailLocked())
+	errs = append(errs, r.closeTail())
 	errs = append(errs, r.db.Close())
 	return errors.Join(errs...)
 }
@@ -192,21 +192,6 @@ func (r *raftLog) Snapshot() (raftpb.Snapshot, error) {
 		raft.ErrSnapshotTemporarilyUnavailable
 }
 
-func (r *raftLog) buildSnapshot(data []byte, applied uint64) raftpb.Snapshot {
-	term, _ := r.Term(applied)
-	r.mu.RLock()
-	cs := r.cs
-	r.mu.RUnlock()
-	return raftpb.Snapshot{
-		Data: data,
-		Metadata: raftpb.SnapshotMetadata{
-			Index:     applied,
-			Term:      term,
-			ConfState: cs,
-		},
-	}
-}
-
 func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -219,33 +204,33 @@ func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
 	var manifestDirty bool
 	if len(rd.Entries) != 0 {
 		var err error
-		manifestDirty, err = r.appendLocked(rd.Entries)
+		manifestDirty, err = r.append(rd.Entries)
 		if err != nil {
 			return err
 		}
 	}
 
 	if hs != r.hs {
-		if err := r.appendHardStateLocked(hs); err != nil {
+		if err := r.appendHardState(hs); err != nil {
 			return err
 		}
 	}
 
 	needSync := len(rd.Entries) != 0 || hs != r.hs
 	if needSync {
-		if err := r.syncLogLocked(); err != nil {
+		if err := r.syncLog(); err != nil {
 			return err
 		}
 	}
 
-	rotated, err := r.rotateLocked(hs.Commit)
+	rotated, err := r.rotate(hs.Commit)
 	if err != nil {
 		return err
 	}
-	removed := r.compactLocked(compactBound)
+	removed := r.compact(compactBound)
 
 	manifestDirty = manifestDirty || rotated || len(removed) > 0
-	if err := r.storeMetaLocked(
+	if err := r.storeMeta(
 		hs, r.cs, manifestDirty,
 	); err != nil {
 		return err
@@ -282,12 +267,11 @@ func (r *raftLog) ApplySnapshot(meta raftpb.SnapshotMetadata) error {
 
 	if len(r.segs) == 0 {
 		r.last = meta.Index
-		_ = r.closeTailLocked()
+		_ = r.closeTail()
 	}
 	r.hot.reset()
 
-	dirty := true
-	if err := r.storeMetaLocked(r.hs, r.cs, dirty); err != nil {
+	if err := r.storeMeta(r.hs, r.cs, true); err != nil {
 		return err
 	}
 
@@ -302,7 +286,7 @@ func (r *raftLog) SetConfState(cs raftpb.ConfState) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if err := r.storeMetaLocked(r.hs, cs, false); err != nil {
+	if err := r.storeMeta(r.hs, cs, false); err != nil {
 		return err
 	}
 	r.cs = cs
@@ -338,7 +322,22 @@ func (r *raftLog) ReplayCommitted(
 	return nil
 }
 
-func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
+func (r *raftLog) buildSnapshot(data []byte, applied uint64) raftpb.Snapshot {
+	term, _ := r.Term(applied)
+	r.mu.RLock()
+	cs := r.cs
+	r.mu.RUnlock()
+	return raftpb.Snapshot{
+		Data: data,
+		Metadata: raftpb.SnapshotMetadata{
+			Index:     applied,
+			Term:      term,
+			ConfState: cs,
+		},
+	}
+}
+
+func (r *raftLog) append(ents []raftpb.Entry) (bool, error) {
 	if len(ents) == 0 {
 		return false, nil
 	}
@@ -350,7 +349,7 @@ func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
 		if first != r.compacted+1 {
 			return false, bin.ErrCorruptState
 		}
-		if err := r.startTailLocked(first); err != nil {
+		if err := r.startTail(first); err != nil {
 			return false, err
 		}
 		manifest = true
@@ -360,7 +359,7 @@ func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
 		if first <= r.hs.Commit {
 			return false, bin.ErrCorruptState
 		}
-		if err := r.trimTailLocked(first); err != nil {
+		if err := r.trimTail(first); err != nil {
 			return false, err
 		}
 	}
@@ -407,7 +406,7 @@ func (r *raftLog) appendLocked(ents []raftpb.Entry) (bool, error) {
 	return manifest, nil
 }
 
-func (r *raftLog) appendHardStateLocked(hs raftpb.HardState) error {
+func (r *raftLog) appendHardState(hs raftpb.HardState) error {
 	if r.logf == nil {
 		return nil
 	}
@@ -422,7 +421,7 @@ func (r *raftLog) appendHardStateLocked(hs raftpb.HardState) error {
 	return nil
 }
 
-func (r *raftLog) syncLogLocked() error {
+func (r *raftLog) syncLog() error {
 	if r.logf == nil {
 		return nil
 	}
