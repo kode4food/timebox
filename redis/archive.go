@@ -15,8 +15,8 @@ import (
 type archivePayload struct {
 	AggregateID      string   `json:"id"`
 	SnapshotData     string   `json:"snap"`
-	SnapshotSequence int64    `json:"seq"`
 	Events           []string `json:"events"`
+	SnapshotSequence int64    `json:"seq"`
 }
 
 // DefaultMinIdle is the idle duration before pending archive work is reclaimed

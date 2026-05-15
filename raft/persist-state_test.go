@@ -1,7 +1,9 @@
 package raft_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -165,6 +167,76 @@ func TestFollowerStatus(t *testing.T) {
 		return
 	}
 	assert.Equal(t, "completed", status)
+}
+
+func TestArchiveReplicates(t *testing.T) {
+	nodes := newCluster(t, 3)
+	leader := findLeader(t, nodes)
+	follower := firstFollower(nodes, leader)
+	if !assert.NotNil(t, follower) {
+		return
+	}
+
+	id := timebox.NewAggregateID("order", "archive-replicates")
+	err := follower.store.AppendEvents(id, 0, []*timebox.Event{
+		numberEvent(id, 1),
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+	err = follower.store.PutSnapshot(id, map[string]int{"value": 1}, 1)
+	if !assert.NoError(t, err) {
+		return
+	}
+	waitAllEvents(t, nodes, id, 1)
+
+	err = leader.store.Archive(id)
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Eventually(t, func() bool {
+		for _, n := range nodes {
+			evs, err := n.store.GetEvents(id, 0)
+			if err != nil || len(evs) != 0 {
+				return false
+			}
+		}
+		return true
+	}, 15*time.Second, 100*time.Millisecond)
+
+	var rec *timebox.ArchiveRecord
+	err = follower.store.ConsumeArchive(t.Context(), func(
+		_ context.Context, item *timebox.ArchiveRecord,
+	) error {
+		rec = item
+		return nil
+	})
+	if !assert.NoError(t, err) || !assert.NotNil(t, rec) {
+		return
+	}
+	assert.Equal(t, id, rec.AggregateID)
+	assert.Equal(t, int64(1), rec.SnapshotSequence)
+	if !assert.Len(t, rec.Events, 1) {
+		return
+	}
+	assert.Equal(t, int64(0), rec.Events[0].Sequence)
+
+	assert.Eventually(t, func() bool {
+		for _, n := range nodes {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+			err := n.store.ConsumeArchive(ctx, func(
+				_ context.Context, _ *timebox.ArchiveRecord,
+			) error {
+				return nil
+			})
+			cancel()
+			if !errors.Is(err, context.DeadlineExceeded) {
+				return false
+			}
+		}
+		return true
+	}, 15*time.Second, 100*time.Millisecond)
 }
 
 func TestFollowerExec(t *testing.T) {

@@ -17,12 +17,12 @@ type (
 	Persistence struct {
 		timebox.AlwaysReady
 
-		mu        sync.RWMutex
 		closed    bool
 		nextID    int64
 		aggs      map[string]*aggregate
 		archive   []*timebox.ArchiveRecord
 		archiveCh chan struct{}
+		mu        sync.RWMutex
 	}
 
 	aggregate struct {

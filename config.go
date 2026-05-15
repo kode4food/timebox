@@ -5,11 +5,11 @@ import "errors"
 type (
 	// Config configures Store behavior
 	Config struct {
-		TrimEvents    bool
+		Indexer       Indexer
 		SnapshotRatio float64
 		MaxRetries    int
 		CacheSize     int
-		Indexer       Indexer
+		TrimEvents    bool
 	}
 
 	// With is a generic overlay contract used by Configure

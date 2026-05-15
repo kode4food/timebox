@@ -17,12 +17,12 @@ import (
 
 type (
 	logSeg struct {
+		pts      []logPoint
 		id       uint64
 		first    uint64
 		last     uint64
 		lastTerm uint64
 		bytes    int64
-		pts      []logPoint
 	}
 
 	logPoint struct {

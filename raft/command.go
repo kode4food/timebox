@@ -29,12 +29,12 @@ type (
 
 	// AggregateMeta stores the derived aggregate state needed for reads
 	AggregateMeta struct {
+		Labels           map[string]string
+		Status           string
 		CurrentSequence  int64
 		BaseSequence     int64
 		SnapshotSequence int64
-		Status           string
 		StatusAt         int64
-		Labels           map[string]string
 	}
 
 	// ApplyResult reports the local outcome of one applied Raft command

@@ -26,18 +26,18 @@ type (
 	}
 
 	luaAppendCall struct {
-		spec luaAppendSpec
 		keys []string
 		args []any
+		spec luaAppendSpec
 	}
 
 	luaAppendInput struct {
-		id       timebox.AggregateID
-		atSeq    int64
-		status   *string
 		statusAt time.Time
+		status   *string
 		labels   map[string]string
+		id       timebox.AggregateID
 		events   [][]byte
+		atSeq    int64
 	}
 
 	luaAppendOp struct {

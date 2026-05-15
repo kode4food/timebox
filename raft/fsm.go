@@ -15,8 +15,8 @@ type (
 
 	// decodedEntry pairs a raft log index with its command bytes
 	decodedEntry struct {
-		index uint64
 		cmd   Command
+		index uint64
 	}
 )
 

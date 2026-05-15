@@ -11,6 +11,16 @@ import (
 	"github.com/kode4food/timebox"
 )
 
+type inlineSnapshotPersistence struct {
+	fakePersistence
+	saveErr      error
+	rec          *timebox.SnapshotRecord
+	saveData     []byte
+	saveID       timebox.AggregateID
+	saveSequence int64
+	saveCount    int
+}
+
 func TestSequenceWithSnapshot(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = server.Close() }()
@@ -410,16 +420,6 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 	err = json.Unmarshal(p.saveData, &saved)
 	assert.NoError(t, err)
 	assert.Equal(t, 2_000_010, saved.Value)
-}
-
-type inlineSnapshotPersistence struct {
-	fakePersistence
-	rec          *timebox.SnapshotRecord
-	saveErr      error
-	saveData     []byte
-	saveSequence int64
-	saveID       timebox.AggregateID
-	saveCount    int
 }
 
 func inlineSnapshotEvent(t *testing.T, delta int) *timebox.Event {

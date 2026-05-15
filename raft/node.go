@@ -18,18 +18,18 @@ import (
 
 type (
 	peerMessage struct {
-		to      uint64
 		data    []byte
-		snap    bool
+		to      uint64
 		snapRef uint64
+		snap    bool
 	}
 
 	peerQueue struct {
-		mu     sync.Mutex
 		head   *peerQueueNode
 		tail   *peerQueueNode
 		notify chan struct{}
 		len    int
+		mu     sync.Mutex
 	}
 
 	peerQueueNode struct {

@@ -98,7 +98,7 @@ Read paths exposed by the store:
 
 ## Archiving
 
-Archiving moves an aggregate's snapshot and event history into backend-specific archive storage and clears the live records. It is a one-way operation. The `memory` and `redis` backends support archiving, while `postgres` and `raft` do not.
+Archiving moves an aggregate's snapshot and event history into backend-specific archive storage and clears the live records. It is a one-way operation. The `memory`, `redis`, and `raft` backends support archiving, while `postgres` does not.
 
 Call `Store.Archive(id)`.
 

@@ -72,13 +72,13 @@ type (
 
 	// AppendRequest contains primitive inputs required for an atomic append
 	AppendRequest struct {
+		StatusAt time.Time
 		*Store
-		ID               AggregateID
-		ExpectedSequence int64
 		Status           *string
-		StatusAt         time.Time
 		Labels           map[string]string
+		ID               AggregateID
 		Events           []*Event
+		ExpectedSequence int64
 	}
 
 	// LoadEventsRequest contains primitive inputs required for an event load
@@ -91,8 +91,8 @@ type (
 	// EventsResult contains raw persisted events and the sequence to assign to
 	// the first event in the slice
 	EventsResult struct {
-		StartSequence int64
 		Events        []*Event
+		StartSequence int64
 	}
 
 	// LoadSnapshotRequest contains primitive inputs required for a snapshot
@@ -105,8 +105,8 @@ type (
 	// SnapshotRecord contains raw snapshot data and any raw trailing events
 	SnapshotRecord struct {
 		Data     json.RawMessage
-		Sequence int64
 		Events   []*Event
+		Sequence int64
 	}
 
 	// SnapshotRequest contains primitive inputs required for a snapshot save
@@ -133,8 +133,8 @@ type (
 
 	// StatusEntry holds an aggregate ID and the time it entered a status
 	StatusEntry struct {
-		ID        AggregateID
 		Timestamp time.Time
+		ID        AggregateID
 	}
 
 	// ArchiveRecord stores stream metadata and aggregate artifacts
@@ -142,8 +142,8 @@ type (
 		StreamID         string
 		AggregateID      AggregateID
 		SnapshotData     json.RawMessage
-		SnapshotSequence int64
 		Events           []*Event
+		SnapshotSequence int64
 	}
 
 	// ArchiveHandler handles a single archive record

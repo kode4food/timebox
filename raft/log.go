@@ -13,8 +13,6 @@ import (
 
 type (
 	raftLog struct {
-		mu sync.RWMutex
-
 		logDir   string
 		db       *kvDB
 		hs       raftpb.HardState
@@ -33,12 +31,14 @@ type (
 		nextID uint64
 		logf   *os.File
 		idxf   *os.File
+
+		mu sync.RWMutex
 	}
 
 	snapResult struct {
+		err     error
 		data    []byte
 		applied uint64
-		err     error
 	}
 )
 
@@ -186,7 +186,11 @@ func (r *raftLog) Snapshot() (raftpb.Snapshot, error) {
 	fn := r.snapshotFn
 	go func() {
 		data, applied, err := fn()
-		ch <- snapResult{data, applied, err}
+		ch <- snapResult{
+			err:     err,
+			data:    data,
+			applied: applied,
+		}
 	}()
 	return raftpb.Snapshot{},
 		raft.ErrSnapshotTemporarilyUnavailable

@@ -21,12 +21,12 @@ type (
 	}
 
 	raftMeta struct {
-		hs            raftpb.HardState
+		segs          []logSeg
 		cs            raftpb.ConfState
+		hs            raftpb.HardState
 		tailID        uint64
 		compacted     uint64
 		compactedTerm uint64
-		segs          []logSeg
 	}
 )
 

@@ -8,11 +8,11 @@ import (
 
 type (
 	publishQueue struct {
-		mu     sync.Mutex
 		head   *publishNode
 		tail   *publishNode
 		notify chan struct{}
 		n      int
+		mu     sync.Mutex
 	}
 
 	publishNode struct {

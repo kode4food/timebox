@@ -15,10 +15,10 @@ type (
 	raftTransport struct {
 		advertise ServerAddress
 		listener  *net.TCPListener
-		mu        sync.Mutex
 		peers     map[ServerAddress]*raftPeerConn
 		conns     map[net.Conn]struct{}
 		closed    bool
+		mu        sync.Mutex
 	}
 
 	raftPeerConn struct {
