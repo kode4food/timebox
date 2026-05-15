@@ -81,9 +81,7 @@ const checkSequenceQuery = `
 func (p *Persistence) Append(req timebox.AppendRequest) error {
 	ctx := context.Background()
 	key, parts := aggregateKey(req.ID)
-	if len(req.Events) == 0 &&
-		req.Status == nil &&
-		len(req.Labels) == 0 {
+	if len(req.Events) == 0 && req.Status == nil && len(req.Labels) == 0 {
 		return p.checkConflict(ctx, req.ID, key, req.ExpectedSequence)
 	}
 	evAts, evTypes, evData := encodeAppendEvents(req.Events)

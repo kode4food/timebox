@@ -34,8 +34,7 @@ func (p *Persistence) propose(
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-p.stopCh:
-		if err, ok := p.stopErr.Load().(error); ok &&
-			err != nil {
+		if err, ok := p.stopErr.Load().(error); ok && err != nil {
 			return nil, err
 		}
 		return nil, raft.ErrStopped

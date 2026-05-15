@@ -430,8 +430,7 @@ func TestLogJoinPublish(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(got["node-2"]) == count &&
-			len(got["node-3"]) == count
+		return len(got["node-2"]) == count && len(got["node-3"]) == count
 	}, 15*time.Second, 100*time.Millisecond)
 
 	late := newClusterNode(t, cfgs[0], srvs)

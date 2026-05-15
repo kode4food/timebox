@@ -12,6 +12,7 @@ import (
 
 func TestStore(t *testing.T) {
 	compliance.Run(t, compliance.Profile{
+		Archive: true,
 		NewStore: func(
 			t *testing.T, cfg compliance.StoreConfig,
 		) *timebox.Store {
