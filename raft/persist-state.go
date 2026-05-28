@@ -137,13 +137,24 @@ func (p *Persistence) applySnapshot(snap raftpb.Snapshot) error {
 	return p.raftLog.ApplySnapshot(snap.Metadata)
 }
 
-func (p *Persistence) restoreMaterializedState(log *raftLog) error {
+func (p *Persistence) restoreMaterializedState(
+	log *raftLog, fastForward bool,
+) error {
 	applied, err := loadLastApplied(p.db)
 	if err != nil {
 		return err
 	}
 	if applied > log.CommitIndex() {
 		return bin.ErrCorruptState
+	}
+	if compacted := log.Compacted(); applied < compacted {
+		if !fastForward {
+			return raft.ErrCompacted
+		}
+		if err := p.markAppliedEntry(compacted); err != nil {
+			return err
+		}
+		applied = compacted
 	}
 	return log.ReplayCommitted(applied, p.applyStartupEntries)
 }
@@ -248,7 +259,12 @@ func rebuildProjection(p *Persistence, dataDir string, log *raftLog) error {
 	}
 	p.db = db
 	p.fsm = newFSM(db)
-	return p.restoreMaterializedState(log)
+	return p.restoreMaterializedState(log, false)
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func encodeSnapshotRef(ref uint64) []byte {

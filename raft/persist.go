@@ -116,6 +116,9 @@ func (p *Persistence) Close() error {
 }
 
 func openPersistence(cfg Config) (*Persistence, error) {
+	projectionExists := pathExists(
+		kvPath(cfg.DataDir, projectionDirName, projectionDBName),
+	)
 	db, err := openProjectionDB(cfg.DataDir)
 	if err != nil {
 		return nil, err
@@ -159,7 +162,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	p.flushBatch = p.flushBatchNoPublish
 	log.snapshotFn = p.captureSnapshot
 
-	if err := p.restoreMaterializedState(log); err != nil {
+	if err := p.restoreMaterializedState(log, projectionExists); err != nil {
 		if err := rebuildProjection(p, cfg.DataDir, log); err != nil {
 			_ = tr.Close()
 			_ = log.Close()
