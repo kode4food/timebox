@@ -129,7 +129,7 @@ func runEvents(t *testing.T, p Profile) {
 			t.FailNow()
 		}
 
-		got, err := timebox.GetEventValue[indexData](evs[0])
+		got, err := evs[0].GetValue[indexData]()
 		assert.NoError(t, err)
 		assert.Equal(t, indexData{
 			Value:  7,

@@ -282,7 +282,7 @@ func TestFollowerExec(t *testing.T) {
 
 	_, err := leaderExec.Exec(id,
 		func(_ counterState, ag *timebox.Aggregator[counterState]) error {
-			return timebox.Raise(ag, incrementedEvent, 1)
+			return ag.Raise(incrementedEvent, 1)
 		},
 	)
 	if !assert.NoError(t, err) {
@@ -304,7 +304,7 @@ func TestFollowerExec(t *testing.T) {
 				func(
 					_ counterState, ag *timebox.Aggregator[counterState],
 				) error {
-					return timebox.Raise(ag, incrementedEvent, 1)
+					return ag.Raise(incrementedEvent, 1)
 				},
 			)
 			resCh <- result{state: state, err: err}

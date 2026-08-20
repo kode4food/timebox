@@ -24,7 +24,7 @@ func TestBasicIncrement(t *testing.T) {
 
 	state, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 5)
+			return ag.Raise(EventIncremented, 5)
 		},
 	)
 
@@ -41,7 +41,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 10)
+			return ag.Raise(EventIncremented, 10)
 		},
 	)
 	assert.NoError(t, err)
@@ -50,7 +50,7 @@ func TestMultipleOperations(t *testing.T) {
 	state, err = executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			assert.Equal(t, 10, st.Value) // Previous state is loaded
-			return timebox.Raise(ag, EventIncremented, 5)
+			return ag.Raise(EventIncremented, 5)
 		},
 	)
 	assert.NoError(t, err)
@@ -58,7 +58,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err = executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventDecremented, 3)
+			return ag.Raise(EventDecremented, 3)
 		},
 	)
 	assert.NoError(t, err)
@@ -66,7 +66,7 @@ func TestMultipleOperations(t *testing.T) {
 
 	state, err = executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventReset, struct{}{})
+			return ag.Raise(EventReset, struct{}{})
 		},
 	)
 	assert.NoError(t, err)
@@ -83,7 +83,7 @@ func TestConcurrentWrites(t *testing.T) {
 	for range 10 {
 		_, err := executor.Exec(id,
 			func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-				return timebox.Raise(ag, EventIncremented, 1)
+				return ag.Raise(EventIncremented, 1)
 			},
 		)
 		assert.NoError(t, err)
@@ -110,13 +110,13 @@ func TestSequenceHandling(t *testing.T) {
 				assert.Equal(t, int64(1), events[1].Sequence)
 				assert.Equal(t, int64(2), events[2].Sequence)
 			})
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			if err := ag.Raise(EventIncremented, 1); err != nil {
 				return err
 			}
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			if err := ag.Raise(EventIncremented, 1); err != nil {
 				return err
 			}
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			if err := ag.Raise(EventIncremented, 1); err != nil {
 				return err
 			}
 			return nil
@@ -141,10 +141,10 @@ func TestSequenceHandling(t *testing.T) {
 				assert.Equal(t, int64(3), events[0].Sequence)
 				assert.Equal(t, int64(4), events[1].Sequence)
 			})
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			if err := ag.Raise(EventIncremented, 1); err != nil {
 				return err
 			}
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			if err := ag.Raise(EventIncremented, 1); err != nil {
 				return err
 			}
 			return nil
@@ -182,7 +182,7 @@ func TestRaiseMarksCommittedEvents(t *testing.T) {
 				assert.Len(t, evs, 1)
 				assert.True(t, evs[0].Raised)
 			})
-			return timebox.Raise(ag, EventIncremented, 1)
+			return ag.Raise(EventIncremented, 1)
 		},
 	)
 
@@ -221,7 +221,7 @@ func TestConflictRetry(t *testing.T) {
 	injected := false
 	state, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			err := timebox.Raise(ag, EventIncremented, 1)
+			err := ag.Raise(EventIncremented, 1)
 			if err != nil {
 				return err
 			}
@@ -265,7 +265,7 @@ func TestMaxRetriesOverride(t *testing.T) {
 	injected := false
 	_, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			if err := ag.Raise(EventIncremented, 1); err != nil {
 				return err
 			}
 			if injected {
@@ -299,7 +299,7 @@ func TestMaxRetriesInherited(t *testing.T) {
 	injected := false
 	state, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+			if err := ag.Raise(EventIncremented, 1); err != nil {
 				return err
 			}
 			if injected {
@@ -335,7 +335,7 @@ func TestCacheEviction(t *testing.T) {
 
 	state, err := executor.Exec(id1,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 1)
+			return ag.Raise(EventIncremented, 1)
 		},
 	)
 	assert.NoError(t, err)
@@ -343,7 +343,7 @@ func TestCacheEviction(t *testing.T) {
 
 	state, err = executor.Exec(id2,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 2)
+			return ag.Raise(EventIncremented, 2)
 		},
 	)
 	assert.NoError(t, err)
@@ -419,7 +419,7 @@ func TestGet(t *testing.T) {
 
 	_, err = executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 7)
+			return ag.Raise(EventIncremented, 7)
 		},
 	)
 	assert.NoError(t, err)
@@ -438,7 +438,7 @@ func TestNoOpCommandRetriesOnConflict(t *testing.T) {
 
 	_, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 1)
+			return ag.Raise(EventIncremented, 1)
 		},
 	)
 	assert.NoError(t, err)
@@ -477,7 +477,7 @@ func TestRaiseError(t *testing.T) {
 	_, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
 			ch := make(chan int)
-			return timebox.Raise(ag, EventIncremented, ch)
+			return ag.Raise(EventIncremented, ch)
 		},
 	)
 
@@ -552,7 +552,7 @@ func TestOnSuccessCallbacks(t *testing.T) {
 					eventTypes = append(eventTypes, evs[0].Type)
 				}
 			})
-			return timebox.Raise(ag, EventIncremented, 1)
+			return ag.Raise(EventIncremented, 1)
 		},
 	)
 
@@ -619,7 +619,7 @@ func TestOnSuccessDefaultsOnly(t *testing.T) {
 
 	_, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 1)
+			return ag.Raise(EventIncremented, 1)
 		},
 	)
 

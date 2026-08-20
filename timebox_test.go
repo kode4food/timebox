@@ -41,7 +41,7 @@ var appliers = timebox.Appliers[CounterState]{
 	},
 }
 
-func TestGetEventValue(t *testing.T) {
+func TestEventGetValue(t *testing.T) {
 	type CachedData struct {
 		Name string `json:"name"`
 	}
@@ -51,20 +51,20 @@ func TestGetEventValue(t *testing.T) {
 		Data: []byte(`{"name":"cached"}`),
 	}
 
-	data, err := timebox.GetEventValue[CachedData](ev)
+	data, err := ev.GetValue[CachedData]()
 	assert.NoError(t, err)
 	assert.Equal(t, "cached", data.Name)
 
-	values, err := timebox.GetEventValue[map[string]any](ev)
+	values, err := ev.GetValue[map[string]any]()
 	assert.NoError(t, err)
 	assert.Equal(t, "cached", values["name"])
 
 	ev.Data = []byte("not json")
-	data, err = timebox.GetEventValue[CachedData](ev)
+	data, err = ev.GetValue[CachedData]()
 	assert.NoError(t, err)
 	assert.Equal(t, "cached", data.Name)
 
-	_, err = timebox.GetEventValue[map[string]any](ev)
+	_, err = ev.GetValue[map[string]any]()
 	assert.Error(t, err)
 }
 
@@ -115,7 +115,7 @@ func TestStoreIndexer(t *testing.T) {
 				func(
 					st CounterState, ag *timebox.Aggregator[CounterState],
 				) error {
-					return timebox.Raise(ag, EventIncremented, 2)
+					return ag.Raise(EventIncremented, 2)
 				},
 			)
 			assert.NoError(t, err)

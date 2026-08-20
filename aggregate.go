@@ -47,11 +47,6 @@ func NewAggregateID(parts ...ID) AggregateID {
 	return parts
 }
 
-// Raise marshals the value and enqueues a new event on the Aggregator
-func Raise[T, V any](ag *Aggregator[T], typ EventType, value V) error {
-	return ag.raise(typ, value)
-}
-
 func newAggregator[T any](
 	id AggregateID, appliers Appliers[T], initValue T, initSeq int64,
 ) *Aggregator[T] {
@@ -86,6 +81,28 @@ func (a *Aggregator[T]) OnSuccess(fn SuccessAction[T]) {
 	a.success = append(a.success, fn)
 }
 
+// Raise marshals the value and enqueues a new event on the Aggregator
+func (a *Aggregator[T]) Raise[V any](typ EventType, value V) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	ev := &Event{
+		Timestamp:   time.Now(),
+		Sequence:    a.nextSeq,
+		AggregateID: a.id,
+		Type:        typ,
+		Data:        data,
+		Raised:      true,
+		value:       value,
+	}
+	a.enqueued = append(a.enqueued, ev)
+	a.nextSeq++
+	a.apply(ev)
+	return nil
+}
+
 func (a *Aggregator[T]) apply(ev *Event) {
 	if apply, ok := a.appliers[ev.Type]; ok {
 		a.value = apply(a.value, ev)
@@ -108,27 +125,6 @@ func (a *Aggregator[_]) flush(f Flusher) (int, error) {
 	}
 	a.enqueued = []*Event{}
 	return count, nil
-}
-
-func (a *Aggregator[T]) raise(typ EventType, value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-
-	ev := &Event{
-		Timestamp:   time.Now(),
-		Sequence:    a.nextSeq,
-		AggregateID: a.id,
-		Type:        typ,
-		Data:        data,
-		Raised:      true,
-		value:       value,
-	}
-	a.enqueued = append(a.enqueued, ev)
-	a.nextSeq++
-	a.apply(ev)
-	return nil
 }
 
 func (a *Aggregator[T]) runOnSuccess(defaults []SuccessAction[T]) {

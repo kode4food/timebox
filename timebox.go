@@ -26,20 +26,20 @@ type (
 	EventType string
 )
 
-// GetEventValue unmarshals the event data into the requested type. It reuses
-// a cached value when the requested type matches, and otherwise unmarshals
+// GetValue unmarshals the event data into the requested type. It reuses a
+// cached value when the requested type matches, and otherwise unmarshals
 // without replacing the cached type. This is safe for concurrent access
-func GetEventValue[T any](e *Event) (T, error) {
+func (e *Event) GetValue[T any]() (T, error) {
 	e.mu.RLock()
 	if val, ok := e.value.(T); ok {
 		e.mu.RUnlock()
 		return val, nil
 	}
 	e.mu.RUnlock()
-	return resolveEventValue[T](e)
+	return e.resolveValue[T]()
 }
 
-func resolveEventValue[T any](e *Event) (T, error) {
+func (e *Event) resolveValue[T any]() (T, error) {
 	e.mu.Lock()
 	val, ok := e.value.(T)
 	e.mu.Unlock()

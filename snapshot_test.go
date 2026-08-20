@@ -30,10 +30,10 @@ func TestSequenceWithSnapshot(t *testing.T) {
 
 	_, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 5); err != nil {
+			if err := ag.Raise(EventIncremented, 5); err != nil {
 				return err
 			}
-			return timebox.Raise(ag, EventIncremented, 5)
+			return ag.Raise(EventIncremented, 5)
 		},
 	)
 	assert.NoError(t, err)
@@ -43,10 +43,10 @@ func TestSequenceWithSnapshot(t *testing.T) {
 
 	_, err = executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			if err := timebox.Raise(ag, EventIncremented, 3); err != nil {
+			if err := ag.Raise(EventIncremented, 3); err != nil {
 				return err
 			}
-			return timebox.Raise(ag, EventIncremented, 3)
+			return ag.Raise(EventIncremented, 3)
 		},
 	)
 	assert.NoError(t, err)
@@ -77,7 +77,7 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 	_, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			for range 3 {
-				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+				if err := ag.Raise(EventIncremented, 1); err != nil {
 					return err
 				}
 			}
@@ -101,7 +101,7 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 	_, err = executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			for range 2 {
-				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+				if err := ag.Raise(EventIncremented, 1); err != nil {
 					return err
 				}
 			}
@@ -129,7 +129,7 @@ func TestSnapshotLargeBatch(t *testing.T) {
 	state, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			for range numEvents {
-				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+				if err := ag.Raise(EventIncremented, 1); err != nil {
 					return err
 				}
 			}
@@ -158,7 +158,7 @@ func TestSnapshotLargeBatch(t *testing.T) {
 	state, err = executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			for range 50 {
-				if err := timebox.Raise(ag, EventIncremented, 1); err != nil {
+				if err := ag.Raise(EventIncremented, 1); err != nil {
 					return err
 				}
 			}
@@ -229,7 +229,7 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "snapshot-ratio")
 	_, err := setupExecutor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 10)
+			return ag.Raise(EventIncremented, 10)
 		},
 	)
 	assert.NoError(t, err)
@@ -295,7 +295,7 @@ func TestSaveSnapshot(t *testing.T) {
 	_, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			assert.Equal(t, 0, st.Value)
-			return timebox.Raise(ag, EventIncremented, 2)
+			return ag.Raise(EventIncremented, 2)
 		},
 	)
 	assert.NoError(t, err)
@@ -321,7 +321,7 @@ func TestSaveSnapshotColdCache(t *testing.T) {
 
 	_, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			return timebox.Raise(ag, EventIncremented, 5)
+			return ag.Raise(EventIncremented, 5)
 		},
 	)
 	assert.NoError(t, err)

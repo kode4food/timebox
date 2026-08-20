@@ -7,7 +7,7 @@ type Handler func(*Event) error
 // It reuses the Event's cached value when available
 func MakeHandler[T any](fn func(ev *Event, data T) error) Handler {
 	return func(ev *Event) error {
-		data, err := GetEventValue[T](ev)
+		data, err := ev.GetValue[T]()
 		if err != nil {
 			return err
 		}
@@ -19,7 +19,7 @@ func MakeHandler[T any](fn func(ev *Event, data T) error) Handler {
 // value and returns an Applier that works with Event
 func MakeApplier[T, Data any](fn func(T, *Event, Data) T) Applier[T] {
 	return func(val T, ev *Event) T {
-		data, err := GetEventValue[Data](ev)
+		data, err := ev.GetValue[Data]()
 		if err != nil {
 			return val
 		}
