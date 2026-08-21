@@ -7,28 +7,19 @@ import (
 
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+	"google.golang.org/protobuf/proto"
 
 	bin "github.com/kode4food/timebox/internal/binary"
 )
 
-type (
-	protoMarshaler interface {
-		Marshal() ([]byte, error)
-	}
-
-	protoUnmarshaler interface {
-		Unmarshal([]byte) error
-	}
-
-	raftMeta struct {
-		segs          []logSeg
-		cs            raftpb.ConfState
-		hs            raftpb.HardState
-		tailID        uint64
-		compacted     uint64
-		compactedTerm uint64
-	}
-)
+type raftMeta struct {
+	segs          []logSeg
+	cs            *raftpb.ConfState
+	hs            *raftpb.HardState
+	tailID        uint64
+	compacted     uint64
+	compactedTerm uint64
+}
 
 const (
 	walMetaDirName  = "meta"
@@ -77,26 +68,35 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		return nil, false, err
 	}
 
-	hs := m.hs
+	hs := proto.Clone(m.hs).(*raftpb.HardState)
+	commit := hs.GetCommit()
+	term := hs.GetTerm()
 	if walHS != nil {
-		if walHS.Commit > hs.Commit {
-			hs.Commit = walHS.Commit
+		walCommit := walHS.GetCommit()
+		walTerm := walHS.GetTerm()
+		walVote := walHS.GetVote()
+		if walCommit > commit {
+			commit = walCommit
+			hs.Commit = new(walCommit)
 		}
-		if walHS.Term > hs.Term {
-			hs.Term = walHS.Term
+		if walTerm > term {
+			term = walTerm
+			hs.Term = new(walTerm)
 		}
-		if walHS.Term == hs.Term && walHS.Vote != 0 {
-			hs.Vote = walHS.Vote
+		if walTerm == term && walVote != 0 {
+			hs.Vote = new(walVote)
 		}
 	}
-	if hs.Commit < m.compacted {
-		hs.Commit = m.compacted
-	} else if hs.Commit > last {
+	if commit < m.compacted {
+		commit = m.compacted
+		hs.Commit = new(m.compacted)
+	} else if commit > last {
 		if last <= m.compacted {
 			_ = db.Close()
 			return nil, false, bin.ErrCorruptState
 		}
-		hs.Commit = last
+		commit = last
+		hs.Commit = new(last)
 	}
 
 	lg := &raftLog{
@@ -121,7 +121,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		_ = lg.Close()
 		return nil, false, err
 	}
-	if hs.Commit != m.hs.Commit {
+	if commit != m.hs.GetCommit() {
 		lg.hs = hs
 		if err := lg.storeMeta(hs, lg.cs, true); err != nil {
 			_ = lg.Close()
@@ -135,7 +135,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 }
 
 func (r *raftLog) storeMeta(
-	hs raftpb.HardState, cs raftpb.ConfState, manifest bool,
+	hs *raftpb.HardState, cs *raftpb.ConfState, manifest bool,
 ) error {
 	if !manifest && termVoteEqual(r.hs, hs) && confStateEqual(r.cs, cs) {
 		return nil
@@ -145,18 +145,18 @@ func (r *raftLog) storeMeta(
 		mb := tx.Bucket(logMetaBucket)
 		if !termVoteEqual(r.hs, hs) {
 			if err := mb.Put(
-				currentTermKey, bin.AppendUint64(nil, hs.Term),
+				currentTermKey, bin.AppendUint64(nil, hs.GetTerm()),
 			); err != nil {
 				return err
 			}
 			if err := mb.Put(
-				votedForKey, bin.AppendUint64(nil, hs.Vote),
+				votedForKey, bin.AppendUint64(nil, hs.GetVote()),
 			); err != nil {
 				return err
 			}
 		}
 		if !confStateEqual(r.cs, cs) {
-			if err := putProto(mb, confStateKey, &cs); err != nil {
+			if err := putProto(mb, confStateKey, cs); err != nil {
 				return err
 			}
 		}
@@ -165,7 +165,7 @@ func (r *raftLog) storeMeta(
 		}
 
 		if err := mb.Put(
-			commitKey, bin.AppendUint64(nil, hs.Commit),
+			commitKey, bin.AppendUint64(nil, hs.GetCommit()),
 		); err != nil {
 			return err
 		}
@@ -205,13 +205,16 @@ func (r *raftLog) storeMeta(
 }
 
 func loadRaftMeta(db *kvDB) (raftMeta, error) {
-	var m raftMeta
+	m := raftMeta{
+		cs: new(raftpb.ConfState),
+		hs: new(raftpb.HardState),
+	}
 
 	err := db.View(func(tx *kvTx) error {
 		mb := tx.Bucket(logMetaBucket)
 		sb := tx.Bucket(logSegBucket)
 
-		if err := loadProto(mb, confStateKey, &m.cs); err != nil {
+		if err := loadProto(mb, confStateKey, m.cs); err != nil {
 			return err
 		}
 		if v := mb.Get(currentTermKey); len(v) != 0 {
@@ -222,7 +225,7 @@ func loadRaftMeta(db *kvDB) (raftMeta, error) {
 			if len(rest) != 0 {
 				return bin.ErrCorruptState
 			}
-			m.hs.Term = term
+			m.hs.Term = new(term)
 		}
 		if v := mb.Get(votedForKey); len(v) != 0 {
 			vote, rest, err := bin.ReadUint64(v)
@@ -232,7 +235,7 @@ func loadRaftMeta(db *kvDB) (raftMeta, error) {
 			if len(rest) != 0 {
 				return bin.ErrCorruptState
 			}
-			m.hs.Vote = vote
+			m.hs.Vote = new(vote)
 		}
 		if v := mb.Get(commitKey); len(v) != 0 {
 			commit, rest, err := bin.ReadUint64(v)
@@ -242,7 +245,7 @@ func loadRaftMeta(db *kvDB) (raftMeta, error) {
 			if len(rest) != 0 {
 				return bin.ErrCorruptState
 			}
-			m.hs.Commit = commit
+			m.hs.Commit = new(commit)
 		}
 		if v := mb.Get(tailSegKey); len(v) != 0 {
 			id, rest, err := bin.ReadUint64(v)
@@ -298,35 +301,40 @@ func loadRaftMeta(db *kvDB) (raftMeta, error) {
 	return m, err
 }
 
-func putProto(b *kvBucket, key []byte, m protoMarshaler) error {
-	data, err := m.Marshal()
+func putProto(b *kvBucket, key []byte, m proto.Message) error {
+	data, err := proto.Marshal(m)
 	if err != nil {
 		return err
 	}
 	return b.Put(key, data)
 }
 
-func loadProto(b *kvBucket, key []byte, m protoUnmarshaler) error {
+func loadProto(b *kvBucket, key []byte, m proto.Message) error {
 	data := b.Get(key)
 	if len(data) == 0 {
 		return nil
 	}
-	return m.Unmarshal(data)
+	return proto.Unmarshal(data, m)
 }
 
 func containsU64(s []uint64, v uint64) bool {
 	return slices.Contains(s, v)
 }
 
-func confStateEqual(a, b raftpb.ConfState) bool {
+func confStateEqual(a, b *raftpb.ConfState) bool {
 	return a.Equivalent(b) == nil
 }
 
-func termVoteEqual(a, b raftpb.HardState) bool {
-	return a.Term == b.Term && a.Vote == b.Vote
+func hardStateEqual(a, b *raftpb.HardState) bool {
+	return termVoteEqual(a, b) && a.GetCommit() == b.GetCommit()
 }
 
-func emptyConfState(cs raftpb.ConfState) bool {
+func termVoteEqual(a, b *raftpb.HardState) bool {
+	return a.GetTerm() == b.GetTerm() && a.GetVote() == b.GetVote()
+}
+
+func emptyConfState(cs *raftpb.ConfState) bool {
 	return len(cs.Voters) == 0 && len(cs.VotersOutgoing) == 0 &&
-		len(cs.Learners) == 0 && len(cs.LearnersNext) == 0 && !cs.AutoLeave
+		len(cs.Learners) == 0 && len(cs.LearnersNext) == 0 &&
+		!cs.GetAutoLeave()
 }

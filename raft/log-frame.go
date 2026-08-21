@@ -29,34 +29,35 @@ const (
 	idxRecordSize = 16
 )
 
-func appendFrame(dst []byte, ent raftpb.Entry) ([]byte, error) {
-	if len(ent.Data) > frameMaxBody {
+func appendFrame(dst []byte, ent *raftpb.Entry) ([]byte, error) {
+	data := ent.GetData()
+	if len(data) > frameMaxBody {
 		return dst, bin.ErrCorruptState
 	}
-	bodyLen := frameEntryMetaLen + len(ent.Data)
+	bodyLen := frameEntryMetaLen + len(data)
 	dst = slices.Grow(dst, frameHeaderSize+bodyLen+frameCRCLen)
 	dst = bin.AppendUint32(dst, uint32(bodyLen))
 	bodyStart := len(dst)
-	dst = bin.AppendByte(dst, byte(ent.Type))
-	dst = bin.AppendUint64(dst, ent.Index)
-	dst = bin.AppendUint64(dst, ent.Term)
-	dst = append(dst, ent.Data...)
+	dst = bin.AppendByte(dst, byte(ent.GetType()))
+	dst = bin.AppendUint64(dst, ent.GetIndex())
+	dst = bin.AppendUint64(dst, ent.GetTerm())
+	dst = append(dst, data...)
 	body := dst[bodyStart:]
 	sum := crc32.ChecksumIEEE(body)
 	dst = bin.AppendUint32(dst, sum)
 	return dst, nil
 }
 
-func appendHardStateFrame(dst []byte, hs raftpb.HardState) []byte {
+func appendHardStateFrame(dst []byte, hs *raftpb.HardState) []byte {
 	const bodyLen = frameHardStateLen
 
 	dst = slices.Grow(dst, frameHeaderSize+bodyLen+frameCRCLen)
 	dst = bin.AppendUint32(dst, bodyLen)
 	bodyStart := len(dst)
 	dst = bin.AppendByte(dst, frameTypeHardState)
-	dst = bin.AppendUint64(dst, hs.Commit)
-	dst = bin.AppendUint64(dst, hs.Term)
-	dst = bin.AppendUint64(dst, hs.Vote)
+	dst = bin.AppendUint64(dst, hs.GetCommit())
+	dst = bin.AppendUint64(dst, hs.GetTerm())
+	dst = bin.AppendUint64(dst, hs.GetVote())
 	body := dst[bodyStart:]
 	sum := crc32.ChecksumIEEE(body)
 	dst = bin.AppendUint32(dst, sum)
@@ -70,14 +71,14 @@ func appendIdxRecord(dst []byte, pt logPoint) []byte {
 	return dst
 }
 
-func readLogFrame(r *bufio.Reader) (raftpb.Entry, int64, error) {
+func readLogFrame(r *bufio.Reader) (*raftpb.Entry, int64, error) {
 	for {
 		ent, _, n, err := readWALFrame(r)
 		if err != nil {
-			return raftpb.Entry{}, 0, err
+			return nil, 0, err
 		}
 		if ent != nil {
-			return *ent, n, nil
+			return ent, n, nil
 		}
 	}
 }
@@ -151,9 +152,9 @@ func readWALFrame(r *bufio.Reader) (
 			return nil, nil, 0, bin.ErrCorruptState
 		}
 		return nil, &raftpb.HardState{
-			Commit: commit,
-			Term:   term,
-			Vote:   vote,
+			Commit: new(commit),
+			Term:   new(term),
+			Vote:   new(vote),
 		}, frameSize, nil
 	}
 
@@ -166,9 +167,9 @@ func readWALFrame(r *bufio.Reader) (
 		return nil, nil, 0, err
 	}
 	return &raftpb.Entry{
-		Type:  raftpb.EntryType(kind),
-		Index: index,
-		Term:  term,
+		Type:  new(raftpb.EntryType(kind)),
+		Index: new(index),
+		Term:  new(term),
 		Data:  append([]byte(nil), body...),
 	}, nil, frameSize, nil
 }

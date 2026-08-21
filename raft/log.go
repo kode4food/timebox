@@ -7,6 +7,7 @@ import (
 
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+	"google.golang.org/protobuf/proto"
 
 	bin "github.com/kode4food/timebox/internal/binary"
 )
@@ -15,8 +16,8 @@ type (
 	raftLog struct {
 		logDir   string
 		db       *kvDB
-		hs       raftpb.HardState
-		cs       raftpb.ConfState
+		hs       *raftpb.HardState
+		cs       *raftpb.ConfState
 		segs     []logSeg
 		prevSegs []uint64
 		tailID   uint64
@@ -56,13 +57,18 @@ func (r *raftLog) Close() error {
 	return errors.Join(errs...)
 }
 
-func (r *raftLog) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
+func (r *raftLog) InitialState() (
+	*raftpb.HardState, *raftpb.ConfState, error,
+) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.hs, r.cs, nil
+	return proto.Clone(r.hs).(*raftpb.HardState),
+		proto.Clone(r.cs).(*raftpb.ConfState), nil
 }
 
-func (r *raftLog) Entries(lo, hi, maxSize uint64) ([]raftpb.Entry, error) {
+func (r *raftLog) Entries(
+	lo, hi, maxSize uint64,
+) ([]*raftpb.Entry, error) {
 	r.mu.RLock()
 	last := r.last
 	compacted := r.compacted
@@ -152,10 +158,9 @@ func (r *raftLog) HotLen() int {
 	return r.hot.len()
 }
 
-func (r *raftLog) Snapshot() (raftpb.Snapshot, error) {
+func (r *raftLog) Snapshot() (*raftpb.Snapshot, error) {
 	if r.snapshotFn == nil {
-		return raftpb.Snapshot{},
-			raft.ErrSnapshotTemporarilyUnavailable
+		return nil, raft.ErrSnapshotTemporarilyUnavailable
 	}
 
 	r.mu.Lock()
@@ -169,12 +174,11 @@ func (r *raftLog) Snapshot() (raftpb.Snapshot, error) {
 			r.pendingSnap = nil
 			r.mu.Unlock()
 			if res.err != nil {
-				return raftpb.Snapshot{}, res.err
+				return nil, res.err
 			}
 			return r.buildSnapshot(res.data, res.applied), nil
 		default:
-			return raftpb.Snapshot{},
-				raft.ErrSnapshotTemporarilyUnavailable
+			return nil, raft.ErrSnapshotTemporarilyUnavailable
 		}
 	}
 
@@ -192,8 +196,7 @@ func (r *raftLog) Snapshot() (raftpb.Snapshot, error) {
 			applied: applied,
 		}
 	}()
-	return raftpb.Snapshot{},
-		raft.ErrSnapshotTemporarilyUnavailable
+	return nil, raft.ErrSnapshotTemporarilyUnavailable
 }
 
 func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
@@ -202,7 +205,7 @@ func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
 
 	hs := r.hs
 	if !raft.IsEmptyHardState(rd.HardState) {
-		hs = rd.HardState
+		hs = proto.Clone(rd.HardState).(*raftpb.HardState)
 	}
 
 	var manifestDirty bool
@@ -214,20 +217,20 @@ func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
 		}
 	}
 
-	if hs != r.hs {
+	if !hardStateEqual(hs, r.hs) {
 		if err := r.appendHardState(hs); err != nil {
 			return err
 		}
 	}
 
-	needSync := len(rd.Entries) != 0 || hs != r.hs
+	needSync := len(rd.Entries) != 0 || !hardStateEqual(hs, r.hs)
 	if needSync {
 		if err := r.syncLog(); err != nil {
 			return err
 		}
 	}
 
-	rotated, err := r.rotate(hs.Commit)
+	rotated, err := r.rotate(hs.GetCommit())
 	if err != nil {
 		return err
 	}
@@ -248,29 +251,30 @@ func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
 	return nil
 }
 
-func (r *raftLog) ApplySnapshot(meta raftpb.SnapshotMetadata) error {
+func (r *raftLog) ApplySnapshot(meta *raftpb.SnapshotMetadata) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if meta.Index <= r.compacted {
+	idx := meta.GetIndex()
+	if idx <= r.compacted {
 		return nil
 	}
 
-	r.compacted = meta.Index
-	r.compactedTerm = meta.Term
-	r.cs = meta.ConfState
-	if r.hs.Commit < meta.Index {
-		r.hs.Commit = meta.Index
+	r.compacted = idx
+	r.compactedTerm = meta.GetTerm()
+	r.cs = proto.Clone(meta.GetConfState()).(*raftpb.ConfState)
+	if r.hs.GetCommit() < idx {
+		r.hs.Commit = new(idx)
 	}
 
 	var removed []logSeg
-	for len(r.segs) > 0 && r.segs[0].last <= meta.Index {
+	for len(r.segs) > 0 && r.segs[0].last <= idx {
 		removed = append(removed, r.segs[0])
 		r.segs = r.segs[1:]
 	}
 
 	if len(r.segs) == 0 {
-		r.last = meta.Index
+		r.last = idx
 		_ = r.closeTail()
 	}
 	r.hot.reset()
@@ -286,25 +290,26 @@ func (r *raftLog) ApplySnapshot(meta raftpb.SnapshotMetadata) error {
 	return nil
 }
 
-func (r *raftLog) SetConfState(cs raftpb.ConfState) error {
+func (r *raftLog) SetConfState(cs *raftpb.ConfState) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if err := r.storeMeta(r.hs, cs, false); err != nil {
+	next := proto.Clone(cs).(*raftpb.ConfState)
+	if err := r.storeMeta(r.hs, next, false); err != nil {
 		return err
 	}
-	r.cs = cs
+	r.cs = next
 	return nil
 }
 
 func (r *raftLog) CommitIndex() uint64 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.hs.Commit
+	return r.hs.GetCommit()
 }
 
 func (r *raftLog) ReplayCommitted(
-	after uint64, fn func([]raftpb.Entry) error,
+	after uint64, fn func([]*raftpb.Entry) error,
 ) error {
 	commit := r.CommitIndex()
 	if after >= commit {
@@ -321,33 +326,35 @@ func (r *raftLog) ReplayCommitted(
 		if err := fn(ents); err != nil {
 			return err
 		}
-		lo = ents[len(ents)-1].Index + 1
+		lo = ents[len(ents)-1].GetIndex() + 1
 	}
 	return nil
 }
 
-func (r *raftLog) buildSnapshot(data []byte, applied uint64) raftpb.Snapshot {
+func (r *raftLog) buildSnapshot(
+	data []byte, applied uint64,
+) *raftpb.Snapshot {
 	term, _ := r.Term(applied)
 	r.mu.RLock()
-	cs := r.cs
+	cs := proto.Clone(r.cs).(*raftpb.ConfState)
 	r.mu.RUnlock()
-	return raftpb.Snapshot{
+	return &raftpb.Snapshot{
 		Data: data,
-		Metadata: raftpb.SnapshotMetadata{
-			Index:     applied,
-			Term:      term,
+		Metadata: &raftpb.SnapshotMetadata{
+			Index:     new(applied),
+			Term:      new(term),
 			ConfState: cs,
 		},
 	}
 }
 
-func (r *raftLog) append(ents []raftpb.Entry) (bool, error) {
+func (r *raftLog) append(ents []*raftpb.Entry) (bool, error) {
 	if len(ents) == 0 {
 		return false, nil
 	}
 
 	var manifest bool
-	first := ents[0].Index
+	first := ents[0].GetIndex()
 	switch {
 	case len(r.segs) == 0:
 		if first != r.compacted+1 {
@@ -360,7 +367,7 @@ func (r *raftLog) append(ents []raftpb.Entry) (bool, error) {
 	case first > r.last+1:
 		return false, bin.ErrCorruptState
 	case first <= r.last:
-		if first <= r.hs.Commit {
+		if first <= r.hs.GetCommit() {
 			return false, bin.ErrCorruptState
 		}
 		if err := r.trimTail(first); err != nil {
@@ -377,7 +384,8 @@ func (r *raftLog) append(ents []raftpb.Entry) (bool, error) {
 	var idxBuf []byte
 
 	for _, ent := range ents {
-		if ent.Index != r.last+1 {
+		idx := ent.GetIndex()
+		if idx != r.last+1 {
 			return false, bin.ErrCorruptState
 		}
 		off := seg.bytes + int64(len(logBuf))
@@ -386,14 +394,15 @@ func (r *raftLog) append(ents []raftpb.Entry) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if len(seg.pts) == 0 || (ent.Index-seg.first)%logPointSpan == 0 {
-			pt := logPoint{idx: ent.Index, off: off}
+		if len(seg.pts) == 0 ||
+			(idx-seg.first)%logPointSpan == 0 {
+			pt := logPoint{idx: idx, off: off}
 			idxBuf = appendIdxRecord(idxBuf, pt)
 			seg.pts = append(seg.pts, pt)
 		}
-		seg.last = ent.Index
-		seg.lastTerm = ent.Term
-		r.last = ent.Index
+		seg.last = idx
+		seg.lastTerm = ent.GetTerm()
+		r.last = idx
 		r.hot.put(ent)
 	}
 
@@ -409,7 +418,7 @@ func (r *raftLog) append(ents []raftpb.Entry) (bool, error) {
 	return manifest, nil
 }
 
-func (r *raftLog) appendHardState(hs raftpb.HardState) error {
+func (r *raftLog) appendHardState(hs *raftpb.HardState) error {
 	if r.logf == nil {
 		return nil
 	}

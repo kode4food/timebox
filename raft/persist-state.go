@@ -96,11 +96,13 @@ func (p *Persistence) captureSnapshot() ([]byte, uint64, error) {
 	return encodeSnapshotRef(ref), applied, nil
 }
 
-func (p *Persistence) applySnapshot(snap raftpb.Snapshot) error {
+func (p *Persistence) applySnapshot(snap *raftpb.Snapshot) error {
 	_ = p.db.Close()
 
+	data := snap.GetData()
+	meta := snap.GetMetadata()
 	path := filepath.Join(p.DataDir, projectionDirName, projectionDBName)
-	if ref, ok := decodeSnapshotRef(snap.Data); ok {
+	if ref, ok := decodeSnapshotRef(data); ok {
 		src, ok := p.takeIncomingSnapshot(ref)
 		if !ok {
 			return raft.ErrSnapshotTemporarilyUnavailable
@@ -123,18 +125,18 @@ func (p *Persistence) applySnapshot(snap raftpb.Snapshot) error {
 		}
 		p.db = db
 		p.fsm = newFSM(db)
-		p.appliedIndex.Store(snap.Metadata.Index)
-		return p.raftLog.ApplySnapshot(snap.Metadata)
+		p.appliedIndex.Store(meta.GetIndex())
+		return p.raftLog.ApplySnapshot(meta)
 	}
 
-	db, err := replaceKVDBFrom(path, bytes.NewReader(snap.Data))
+	db, err := replaceKVDBFrom(path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
 	p.db = db
 	p.fsm = newFSM(db)
-	p.appliedIndex.Store(snap.Metadata.Index)
-	return p.raftLog.ApplySnapshot(snap.Metadata)
+	p.appliedIndex.Store(meta.GetIndex())
+	return p.raftLog.ApplySnapshot(meta)
 }
 
 func (p *Persistence) restoreMaterializedState(

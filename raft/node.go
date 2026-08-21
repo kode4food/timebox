@@ -12,6 +12,7 @@ import (
 
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/kode4food/timebox"
 )
@@ -138,37 +139,40 @@ func (p *Persistence) servePeerSends() {
 	}
 }
 
-func (p *Persistence) queueMessages(msgs []raftpb.Message) error {
+func (p *Persistence) queueMessages(msgs []*raftpb.Message) error {
 	for _, msg := range msgs {
-		if msg.To == 0 {
+		to := msg.GetTo()
+		if to == 0 {
 			continue
 		}
 
-		q := p.peerQueues[msg.To]
+		typ := msg.GetType()
+		q := p.peerQueues[to]
 		if q == nil {
-			if msg.Type == raftpb.MsgSnap {
-				p.node.ReportSnapshot(msg.To, raft.SnapshotFailure)
+			if typ == raftpb.MsgSnap {
+				p.node.ReportSnapshot(to, raft.SnapshotFailure)
 			}
-			p.node.ReportUnreachable(msg.To)
+			p.node.ReportUnreachable(to)
 			continue
 		}
 
-		data, err := msg.Marshal()
+		data, err := proto.Marshal(msg)
 		if err != nil {
 			return err
 		}
 		var snapRef uint64
-		if msg.Type == raftpb.MsgSnap {
+		snap := typ == raftpb.MsgSnap
+		if snap {
 			var ok bool
-			snapRef, ok = decodeSnapshotRef(msg.Snapshot.Data)
+			snapRef, ok = decodeSnapshotRef(msg.GetSnapshot().GetData())
 			if !ok {
 				return raft.ErrSnapshotTemporarilyUnavailable
 			}
 		}
 		q.Put(peerMessage{
-			to:      msg.To,
+			to:      to,
 			data:    data,
-			snap:    msg.Type == raftpb.MsgSnap,
+			snap:    snap,
 			snapRef: snapRef,
 		})
 	}
@@ -293,28 +297,28 @@ func (p *Persistence) handleTransportConn(conn net.Conn) {
 
 func (p *Persistence) readTransportMessage(
 	r *bufio.Reader,
-) (raftpb.Message, error) {
+) (*raftpb.Message, error) {
 	data, err := readFrame(r)
 	if err != nil {
-		return raftpb.Message{}, err
+		return nil, err
 	}
-	var msg raftpb.Message
-	if err := msg.Unmarshal(data); err != nil {
-		return raftpb.Message{}, err
+	msg := new(raftpb.Message)
+	if err := proto.Unmarshal(data, msg); err != nil {
+		return nil, err
 	}
-	if msg.Type != raftpb.MsgSnap {
+	if msg.GetType() != raftpb.MsgSnap {
 		return msg, nil
 	}
-	ref, ok := decodeSnapshotRef(msg.Snapshot.Data)
+	ref, ok := decodeSnapshotRef(msg.GetSnapshot().GetData())
 	if !ok {
-		return raftpb.Message{}, raft.ErrSnapshotTemporarilyUnavailable
+		return nil, raft.ErrSnapshotTemporarilyUnavailable
 	}
 	size, err := readSnapshotSize(r)
 	if err != nil {
-		return raftpb.Message{}, err
+		return nil, err
 	}
 	if err := p.readSnapshotStream(r, ref, size); err != nil {
-		return raftpb.Message{}, err
+		return nil, err
 	}
 	return msg, nil
 }

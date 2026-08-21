@@ -1,9 +1,12 @@
 package raft
 
-import "go.etcd.io/raft/v3/raftpb"
+import (
+	"go.etcd.io/raft/v3/raftpb"
+	"google.golang.org/protobuf/proto"
+)
 
 type tailCache struct {
-	buf   []raftpb.Entry
+	buf   []*raftpb.Entry
 	head  int
 	n     int
 	first uint64
@@ -11,11 +14,11 @@ type tailCache struct {
 
 func newTailCache(n int) tailCache {
 	return tailCache{
-		buf: make([]raftpb.Entry, n),
+		buf: make([]*raftpb.Entry, n),
 	}
 }
 
-func (c *tailCache) entries(lo, hi, maxSize uint64) ([]raftpb.Entry, bool) {
+func (c *tailCache) entries(lo, hi, maxSize uint64) ([]*raftpb.Entry, bool) {
 	if !c.has(lo) {
 		return nil, false
 	}
@@ -24,16 +27,16 @@ func (c *tailCache) entries(lo, hi, maxSize uint64) ([]raftpb.Entry, bool) {
 		return nil, false
 	}
 
-	ents := make([]raftpb.Entry, 0, int(hi-lo))
+	ents := make([]*raftpb.Entry, 0, int(hi-lo))
 	var total uint64
 	pos := (c.head + int(lo-c.first)) % len(c.buf)
 	for idx := lo; idx < hi; idx++ {
 		ent := c.buf[pos]
-		if len(ents) != 0 && total+uint64(ent.Size()) > maxSize {
+		if len(ents) != 0 && total+uint64(proto.Size(ent)) > maxSize {
 			break
 		}
-		ents = append(ents, cloneEntry(ent))
-		total += uint64(ent.Size())
+		ents = append(ents, ent)
+		total += uint64(proto.Size(ent))
 		pos++
 		if pos == len(c.buf) {
 			pos = 0
@@ -46,34 +49,35 @@ func (c *tailCache) term(idx uint64) (uint64, bool) {
 	if !c.has(idx) {
 		return 0, false
 	}
-	return c.at(idx).Term, true
+	return c.at(idx).GetTerm(), true
 }
 
-func (c *tailCache) put(ent raftpb.Entry) {
+func (c *tailCache) put(ent *raftpb.Entry) {
 	if len(c.buf) == 0 {
 		return
 	}
+	idx := ent.GetIndex()
 	if c.n == 0 {
-		c.first = ent.Index
+		c.first = idx
 		c.n = 1
-		c.buf[0] = cloneEntry(ent)
+		c.buf[0] = ent
 		return
 	}
 
 	last := c.first + uint64(c.n) - 1
-	if ent.Index != last+1 {
+	if idx != last+1 {
 		c.reset()
 		c.put(ent)
 		return
 	}
 	if c.n == len(c.buf) {
-		c.buf[c.head] = cloneEntry(ent)
+		c.buf[c.head] = ent
 		c.head = (c.head + 1) % len(c.buf)
 		c.first++
 		return
 	}
 	pos := (c.head + c.n) % len(c.buf)
-	c.buf[pos] = cloneEntry(ent)
+	c.buf[pos] = ent
 	c.n++
 }
 
@@ -111,13 +115,7 @@ func (c *tailCache) has(idx uint64) bool {
 	return idx >= c.first && idx <= last
 }
 
-func (c *tailCache) at(idx uint64) raftpb.Entry {
+func (c *tailCache) at(idx uint64) *raftpb.Entry {
 	pos := (c.head + int(idx-c.first)) % len(c.buf)
 	return c.buf[pos]
-}
-
-func cloneEntry(ent raftpb.Entry) raftpb.Entry {
-	cp := ent
-	cp.Data = append([]byte(nil), ent.Data...)
-	return cp
 }

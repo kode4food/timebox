@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"go.etcd.io/raft/v3/raftpb"
+	"google.golang.org/protobuf/proto"
 
 	bin "github.com/kode4food/timebox/internal/binary"
 )
@@ -279,20 +280,21 @@ func scanSeg(
 				off += n
 				continue
 			}
-			if ent.Index != want {
+			idx := ent.GetIndex()
+			if idx != want {
 				if allowTrunc {
 					goto repair
 				}
 				return logSeg{}, nil, bin.ErrCorruptState
 			}
-			if len(pts) == 0 || (ent.Index-first)%logPointSpan == 0 {
+			if len(pts) == 0 || (idx-first)%logPointSpan == 0 {
 				pts = append(pts, logPoint{
-					idx: ent.Index,
+					idx: idx,
 					off: off,
 				})
 			}
-			last = ent.Index
-			lastTerm = ent.Term
+			last = idx
+			lastTerm = ent.GetTerm()
 			want++
 			off += n
 		case errors.Is(err, io.EOF):
@@ -326,8 +328,8 @@ done:
 
 func loadEntries(
 	dir string, segs []logSeg, lo, hi, maxSize uint64,
-) ([]raftpb.Entry, error) {
-	var ents []raftpb.Entry
+) ([]*raftpb.Entry, error) {
+	var ents []*raftpb.Entry
 	var total uint64
 	var limited bool
 	for idx := lo; idx < hi && !limited; {
@@ -352,7 +354,8 @@ func loadEntries(
 }
 
 func readSegEntries(
-	dir string, seg logSeg, lo, hi, maxSize, total uint64, ents *[]raftpb.Entry,
+	dir string, seg logSeg, lo, hi, maxSize, total uint64,
+	ents *[]*raftpb.Entry,
 ) (uint64, uint64, bool, error) {
 	if seg.last < seg.first {
 		return lo, total, false, nil
@@ -380,16 +383,19 @@ func readSegEntries(
 			return want, total, false, err
 		}
 		off += n
+		idx := ent.GetIndex()
 		switch {
-		case ent.Index < want:
+		case idx < want:
 			continue
-		case ent.Index != want:
+		case idx != want:
 			return want, total, false, bin.ErrCorruptState
-		case len(*ents) != 0 && total+uint64(ent.Size()) > maxSize:
+		}
+		size := uint64(proto.Size(ent))
+		if len(*ents) != 0 && total+size > maxSize {
 			return want, total, true, nil
 		}
-		*ents = append(*ents, cloneEntry(ent))
-		total += uint64(ent.Size())
+		*ents = append(*ents, ent)
+		total += size
 		want++
 	}
 	if want < min(hi, seg.last+1) {
@@ -421,11 +427,12 @@ func readSegTerm(dir string, seg logSeg, idx uint64) (uint64, error) {
 			return 0, err
 		}
 		off += n
+		entIdx := ent.GetIndex()
 		switch {
-		case ent.Index < idx:
+		case entIdx < idx:
 			continue
-		case ent.Index == idx:
-			return ent.Term, nil
+		case entIdx == idx:
+			return ent.GetTerm(), nil
 		default:
 			return 0, bin.ErrCorruptState
 		}
@@ -456,10 +463,11 @@ func segOffset(dir string, seg logSeg, idx uint64) (int64, error) {
 		if err != nil {
 			return 0, err
 		}
-		if ent.Index == idx {
+		entIdx := ent.GetIndex()
+		if entIdx == idx {
 			return off, nil
 		}
-		if ent.Index > idx {
+		if entIdx > idx {
 			return 0, bin.ErrCorruptState
 		}
 		off += n

@@ -5,6 +5,7 @@ import (
 
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/kode4food/timebox"
 )
@@ -36,18 +37,18 @@ func (p *Persistence) handleReady(rd raft.Ready) error {
 	return nil
 }
 
-func (p *Persistence) applyCommittedEntries(ents []raftpb.Entry) error {
+func (p *Persistence) applyCommittedEntries(ents []*raftpb.Entry) error {
 	return p.applyEntries(ents, p.applyConfChange)
 }
 
-func (p *Persistence) applyStartupEntries(ents []raftpb.Entry) error {
-	return p.applyEntries(ents, func(ent raftpb.Entry) error {
-		return p.markAppliedEntry(ent.Index)
+func (p *Persistence) applyStartupEntries(ents []*raftpb.Entry) error {
+	return p.applyEntries(ents, func(ent *raftpb.Entry) error {
+		return p.markAppliedEntry(ent.GetIndex())
 	})
 }
 
 func (p *Persistence) applyEntries(
-	ents []raftpb.Entry, confChange func(raftpb.Entry) error,
+	ents []*raftpb.Entry, confChange func(*raftpb.Entry) error,
 ) error {
 	if len(ents) == 0 {
 		return nil
@@ -66,7 +67,7 @@ func (p *Persistence) applyEntries(
 	}
 
 	for _, ent := range ents {
-		switch ent.Type {
+		switch ent.GetType() {
 		case raftpb.EntryConfChange,
 			raftpb.EntryConfChangeV2:
 			if err := flushAndReset(); err != nil {
@@ -76,22 +77,23 @@ func (p *Persistence) applyEntries(
 				return err
 			}
 		case raftpb.EntryNormal:
-			if len(ent.Data) == 0 {
+			data := ent.GetData()
+			if len(data) == 0 {
 				if err := flushAndReset(); err != nil {
 					return err
 				}
-				if err := p.markAppliedEntry(ent.Index); err != nil {
+				if err := p.markAppliedEntry(ent.GetIndex()); err != nil {
 					return err
 				}
 				continue
 			}
-			cmd := Command(ent.Data)
+			cmd := Command(data)
 			propID, err := cmd.ProposalID()
 			if err != nil {
 				return err
 			}
 			batch = append(batch, decodedEntry{
-				index: ent.Index,
+				index: ent.GetIndex(),
 				cmd:   cmd,
 			})
 			propIDs = append(propIDs, propID)
@@ -99,7 +101,7 @@ func (p *Persistence) applyEntries(
 			if err := flushAndReset(); err != nil {
 				return err
 			}
-			if err := p.markAppliedEntry(ent.Index); err != nil {
+			if err := p.markAppliedEntry(ent.GetIndex()); err != nil {
 				return err
 			}
 		}
@@ -166,19 +168,20 @@ func (p *Persistence) notifyAppliedArchive(cmd Command, res *ApplyResult) {
 	}
 }
 
-func (p *Persistence) applyConfChange(ent raftpb.Entry) error {
-	if len(ent.Data) == 0 {
-		return p.markAppliedEntry(ent.Index)
+func (p *Persistence) applyConfChange(ent *raftpb.Entry) error {
+	data := ent.GetData()
+	if len(data) == 0 {
+		return p.markAppliedEntry(ent.GetIndex())
 	}
 	var cc raftpb.ConfChange
-	if err := cc.Unmarshal(ent.Data); err != nil {
+	if err := proto.Unmarshal(data, &cc); err != nil {
 		return err
 	}
-	cs := p.node.ApplyConfChange(cc)
-	if err := p.raftLog.SetConfState(*cs); err != nil {
+	cs := p.node.ApplyConfChange(&cc)
+	if err := p.raftLog.SetConfState(cs); err != nil {
 		return err
 	}
-	return p.markAppliedEntry(ent.Index)
+	return p.markAppliedEntry(ent.GetIndex())
 }
 
 func (p *Persistence) markReady() {
