@@ -48,6 +48,8 @@ github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzh
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/kode4food/lru v0.0.0-20260718151352-0ac133042e5e h1:LgO+g9M05Cw6xQVJ2Lz1K4DmB7mG7F/DCteFigxXTus=
 github.com/kode4food/lru v0.0.0-20260718151352-0ac133042e5e/go.mod h1:sTzhcYU0AAXpB+uEWdUEukwNQAhc64BefD3eNmcw6Ug=
+github.com/kode4food/lru v0.0.0-20260821080133-ed8843c40532 h1:0qEXhj8IAvtLvhw5IWgpVbp5tGvg4XtME7rjiHIy05U=
+github.com/kode4food/lru v0.0.0-20260821080133-ed8843c40532/go.mod h1:bctf85LgCKfOzyOTvGqpU5TmQ7jxZ7cvb8/p0i2hxrI=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=

@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/kode4food/lru v0.0.0-20260718151352-0ac133042e5e
+	github.com/kode4food/lru v0.0.0-20260821080133-ed8843c40532
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/raft/v3 v3.6.0
