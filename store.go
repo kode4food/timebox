@@ -83,7 +83,7 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 
 	var status *string
 	var statusAt time.Time
-	lbls := map[string]string{}
+	tags := map[string]bool{}
 
 	if len(evs) > 0 && s.config.Indexer != nil {
 		idxs := s.config.Indexer(evs)
@@ -93,7 +93,7 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 				status = idx.Status
 			}
 			if idx != nil {
-				maps.Copy(lbls, idx.Labels)
+				maps.Copy(tags, idx.Tags)
 			}
 		}
 	}
@@ -108,7 +108,7 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 		ExpectedSequence: atSeq,
 		Status:           status,
 		StatusAt:         statusAt,
-		Labels:           lbls,
+		Tags:             tags,
 		Events:           evs,
 	})
 }

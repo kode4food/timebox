@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -49,11 +48,11 @@ func (p *Persistence) ListAggregatesByStatus(
 	return res, nil
 }
 
-func (p *Persistence) ListAggregatesByLabel(
-	label, value string,
+func (p *Persistence) ListAggregatesByTag(
+	tag string,
 ) ([]timebox.AggregateID, error) {
 	members, err := p.client.SMembers(
-		context.Background(), p.buildLabelIndexKey(label, value),
+		context.Background(), p.buildTagIndexKey(tag),
 	).Result()
 	if err != nil {
 		return nil, err
@@ -66,20 +65,6 @@ func (p *Persistence) ListAggregatesByLabel(
 	return ids, nil
 }
 
-func (p *Persistence) ListLabelValues(label string) ([]string, error) {
-	vals, err := p.client.SMembers(
-		context.Background(), p.buildLabelValuesKey(label),
-	).Result()
-	if err != nil {
-		return nil, err
-	}
-	for i, val := range vals {
-		vals[i] = unescapeKeyPart(val)
-	}
-	sort.Strings(vals)
-	return vals, nil
-}
-
 func (p *Persistence) buildStatusHashKey() string {
 	return fmt.Sprintf("%s:%s", p.prefix, statusSuffix)
 }
@@ -88,12 +73,6 @@ func (p *Persistence) buildStatusIndexKey(status string) string {
 	return fmt.Sprintf("%s:%s:%s", p.prefix, statusSuffix, status)
 }
 
-func (p *Persistence) buildLabelValuesKey(label string) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, labelSuffix, escapeKeyPart(label))
-}
-
-func (p *Persistence) buildLabelIndexKey(label, value string) string {
-	return fmt.Sprintf("%s:%s:%s:%s",
-		p.prefix, labelSuffix, escapeKeyPart(label), escapeKeyPart(value),
-	)
+func (p *Persistence) buildTagIndexKey(tag string) string {
+	return fmt.Sprintf("%s:%s:%s", p.prefix, tagSuffix, escapeKeyPart(tag))
 }

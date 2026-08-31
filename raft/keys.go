@@ -13,8 +13,7 @@ const (
 	aggRootPrefix     = stateRootPrefix + "agg/"
 	archiveRootPrefix = stateRootPrefix + "archive/"
 	statusRootPrefix  = stateRootPrefix + "idx/status/"
-	labelRootPrefix   = stateRootPrefix + "idx/label/"
-	labelValsPrefix   = stateRootPrefix + "idx/label-values/"
+	tagRootPrefix     = stateRootPrefix + "idx/tag/"
 	metaSuffix        = "/meta"
 	snapshotSuffix    = "/snapshot"
 	eventPrefix       = "/event/"
@@ -30,8 +29,7 @@ var bucketName = []byte("timebox")
 //   - state/agg/<aggregate>/event/<seq> stores raw event payloads
 //   - state/archive/<stream> stores queued archive records
 //   - state/idx/status/<status>/<aggregate> stores indexed status timestamps
-//   - state/idx/label/<label>/<value>/<aggregate> stores label membership
-//   - state/idx/label-values/<label>/<value> stores distinct label values
+//   - state/idx/tag/<tag>/<aggregate> stores tag membership
 //
 // Variable key parts are base64url encoded so iteration remains
 // lexicographically well-structured without introducing ambiguous separators
@@ -79,28 +77,12 @@ func statusIndexKey(status, encodedID string) []byte {
 	)
 }
 
-func labelIndexPrefix(label, value string) []byte {
-	return []byte(
-		labelRootPrefix + encodeKeyPart(label) + "/" + encodeKeyPart(value) +
-			"/",
-	)
+func tagIndexPrefix(tag string) []byte {
+	return []byte(tagRootPrefix + encodeKeyPart(tag) + "/")
 }
 
-func labelIndexKey(label, value, encodedID string) []byte {
-	return []byte(
-		labelRootPrefix + encodeKeyPart(label) + "/" + encodeKeyPart(value) +
-			"/" + encodedID,
-	)
-}
-
-func labelValuesPrefix(label string) []byte {
-	return []byte(labelValsPrefix + encodeKeyPart(label) + "/")
-}
-
-func labelValueKey(label, value string) []byte {
-	return []byte(
-		labelValsPrefix + encodeKeyPart(label) + "/" + encodeKeyPart(value),
-	)
+func tagIndexKey(tag, encodedID string) []byte {
+	return []byte(tagRootPrefix + encodeKeyPart(tag) + "/" + encodedID)
 }
 
 func lastAppliedKey() []byte {

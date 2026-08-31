@@ -128,11 +128,9 @@ func TestClosedPersistence(t *testing.T) {
 		_, err = p.ListAggregatesByStatus("x")
 		assert.Error(t, err)
 
-		_, err = p.ListAggregatesByLabel("k", "v")
+		_, err = p.ListAggregatesByTag("v")
 		assert.Error(t, err)
 
-		_, err = p.ListLabelValues("k")
-		assert.Error(t, err)
 	})
 }
 

@@ -27,13 +27,13 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
 	eventsKey := p.buildKey(id, eventsSuffix)
 	statusKey := p.buildStatusHashKey()
-	labelStateKey := p.buildLabelStateKey(id)
-	labelRootKey := p.buildLabelRootKey()
+	tagStateKey := p.buildTagStateKey(id)
+	tagRootKey := p.buildTagRootKey()
 	streamKey := p.archiveStreamKey()
 
 	keys := []string{
-		snapKey, snapSeqKey, eventsKey, streamKey, statusKey, labelStateKey,
-		labelRootKey,
+		snapKey, snapSeqKey, eventsKey, streamKey, statusKey, tagStateKey,
+		tagRootKey,
 	}
 	args := []any{joinAggregateID(id)}
 

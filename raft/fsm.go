@@ -262,64 +262,29 @@ func applyMutationsTx(
 			}
 		}
 	}
-	return applyLabelMutations(b, meta, encodedID, req.Labels)
+	return applyTagMutations(b, meta, encodedID, req.Tags)
 }
 
-func applyLabelMutations(
-	b *kvBucket, meta *AggregateMeta, encodedID string,
-	labels map[string]string,
+func applyTagMutations(
+	b *kvBucket, meta *AggregateMeta, encodedID string, tags map[string]bool,
 ) error {
-	for label, value := range labels {
-		oldValue := meta.Labels[label]
-		if oldValue == value {
+	for tag, add := range tags {
+		if meta.Tags[tag] == add {
 			continue
 		}
-
-		if oldValue != "" {
-			if err := b.Delete(
-				labelIndexKey(label, oldValue, encodedID),
-			); err != nil {
+		if !add {
+			if err := b.Delete(tagIndexKey(tag, encodedID)); err != nil {
 				return err
 			}
-			if err := updateLabelValueCount(
-				b, label, oldValue, -1,
-			); err != nil {
-				return err
-			}
-		}
-
-		if value == "" {
-			delete(meta.Labels, label)
+			delete(meta.Tags, tag)
 			continue
 		}
-
-		if err := b.Put(
-			labelIndexKey(label, value, encodedID), []byte{1},
-		); err != nil {
+		if err := b.Put(tagIndexKey(tag, encodedID), []byte{1}); err != nil {
 			return err
 		}
-		if err := updateLabelValueCount(b, label, value, 1); err != nil {
-			return err
-		}
-		meta.Labels[label] = value
+		meta.Tags[tag] = true
 	}
 	return nil
-}
-
-func updateLabelValueCount(
-	b *kvBucket, label, value string, delta int64,
-) error {
-	key := labelValueKey(label, value)
-	current, err := decodeOptionalInt64(b.Get(key))
-	if err != nil {
-		return err
-	}
-
-	next := current + delta
-	if next <= 0 {
-		return b.Delete(key)
-	}
-	return b.Put(key, bin.AppendInt64(nil, next))
 }
 
 func loadOrCreateMetaTx(b *kvBucket, encodedID string) (*AggregateMeta, error) {
@@ -330,7 +295,7 @@ func loadOrCreateMetaTx(b *kvBucket, encodedID string) (*AggregateMeta, error) {
 	if ok {
 		return meta, nil
 	}
-	return &AggregateMeta{Labels: map[string]string{}}, nil
+	return &AggregateMeta{Tags: map[string]bool{}}, nil
 }
 
 func loadMetaTx(b *kvBucket, encodedID string) (*AggregateMeta, bool, error) {

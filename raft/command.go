@@ -29,7 +29,7 @@ type (
 
 	// AggregateMeta stores the derived aggregate state needed for reads
 	AggregateMeta struct {
-		Labels           map[string]string
+		Tags             map[string]bool
 		Status           string
 		CurrentSequence  int64
 		BaseSequence     int64
@@ -75,7 +75,7 @@ func MakeAppendCommand(
 	c = bin.AppendInt64(c, req.ExpectedSequence)
 	c = bin.AppendOptString(c, req.Status)
 	c = bin.AppendInt64(c, req.StatusAt.UnixMilli())
-	c = appendStrMap(c, req.Labels)
+	c = appendBoolMap(c, req.Tags)
 	return timebox.BinEvent.AppendAll(c, req.Events)
 }
 
@@ -172,7 +172,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	labels, data, err := readStrMap(data)
+	tags, data, err := readBoolMap(data)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
 		ExpectedSequence: expectedSeq,
 		Status:           status,
 		StatusAt:         time.UnixMilli(statusAt).UTC(),
-		Labels:           labels,
+		Tags:             tags,
 		Events:           events,
 	}, nil
 }
@@ -239,11 +239,11 @@ func appendAggregateID(buf []byte, id timebox.AggregateID) []byte {
 	return buf
 }
 
-func appendStrMap(buf []byte, m map[string]string) []byte {
-	buf = bin.AppendUint32(buf, uint32(len(m)))
-	for k, v := range m {
-		buf = bin.AppendString(buf, k)
-		buf = bin.AppendString(buf, v)
+func appendBoolMap(buf []byte, values map[string]bool) []byte {
+	buf = bin.AppendUint32(buf, uint32(len(values)))
+	for key, value := range values {
+		buf = bin.AppendString(buf, key)
+		buf = bin.AppendBool(buf, value)
 	}
 	return buf
 }
@@ -265,25 +265,25 @@ func readAggregateID(data []byte) (timebox.AggregateID, []byte, error) {
 	return id, data, nil
 }
 
-func readStrMap(data []byte) (map[string]string, []byte, error) {
+func readBoolMap(data []byte) (map[string]bool, []byte, error) {
 	n, data, err := bin.ReadUint32(data)
 	if err != nil {
 		return nil, nil, err
 	}
-	m := make(map[string]string, n)
+	values := make(map[string]bool, n)
 	for range n {
-		var k, v string
-		k, data, err = bin.ReadString(data)
+		key, rest, err := bin.ReadString(data)
 		if err != nil {
 			return nil, nil, err
 		}
-		v, data, err = bin.ReadString(data)
+		value, rest, err := bin.ReadBool(rest)
 		if err != nil {
 			return nil, nil, err
 		}
-		m[k] = v
+		values[key] = value
+		data = rest
 	}
-	return m, data, nil
+	return values, data, nil
 }
 
 func marshalMeta(meta *AggregateMeta) []byte {
@@ -293,7 +293,7 @@ func marshalMeta(meta *AggregateMeta) []byte {
 	buf = bin.AppendInt64(buf, meta.SnapshotSequence)
 	buf = bin.AppendString(buf, meta.Status)
 	buf = bin.AppendInt64(buf, meta.StatusAt)
-	buf = appendStrMap(buf, meta.Labels)
+	buf = appendBoolMap(buf, meta.Tags)
 	return buf
 }
 
@@ -318,7 +318,7 @@ func unmarshalMeta(data []byte) (*AggregateMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	labels, _, err := readStrMap(data)
+	tags, _, err := readBoolMap(data)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +328,7 @@ func unmarshalMeta(data []byte) (*AggregateMeta, error) {
 		SnapshotSequence: snap,
 		Status:           status,
 		StatusAt:         statusAt,
-		Labels:           labels,
+		Tags:             tags,
 	}, nil
 }
 

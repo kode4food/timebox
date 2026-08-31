@@ -118,7 +118,7 @@ func runEvents(t *testing.T, p Profile) {
 		id := timebox.NewAggregateID("order", "value")
 		ev := testEvent(t,
 			time.Unix(1_700_000_022, 0).UTC(),
-			"event.value", 7, nil, map[string]string{"env": "dev"},
+			"event.value", 7, nil, map[string]bool{"dev": true},
 		)
 
 		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
@@ -132,8 +132,7 @@ func runEvents(t *testing.T, p Profile) {
 		got, err := evs[0].GetValue[indexData]()
 		assert.NoError(t, err)
 		assert.Equal(t, indexData{
-			Value:  7,
-			Labels: map[string]string{"env": "dev"},
+			Value: 7, Tags: map[string]bool{"dev": true},
 		}, got)
 	})
 

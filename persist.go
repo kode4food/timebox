@@ -52,12 +52,8 @@ type (
 		// ListAggregatesByStatus lists aggregates currently indexed by status
 		ListAggregatesByStatus(status string) ([]StatusEntry, error)
 
-		// ListAggregatesByLabel lists aggregates currently indexed by
-		// label/value
-		ListAggregatesByLabel(label, value string) ([]AggregateID, error)
-
-		// ListLabelValues lists the distinct indexed values for a label
-		ListLabelValues(label string) ([]string, error)
+		// ListAggregatesByTag lists aggregates currently indexed by tag
+		ListAggregatesByTag(tag string) ([]AggregateID, error)
 	}
 
 	// Archiver provides optional archive lifecycle support for Store
@@ -75,7 +71,7 @@ type (
 		StatusAt time.Time
 		*Store
 		Status           *string
-		Labels           map[string]string
+		Tags             map[string]bool
 		ID               AggregateID
 		Events           []*Event
 		ExpectedSequence int64
@@ -123,9 +119,8 @@ type (
 		// status change, and "" clears any prior status
 		Status *string `json:"status,omitempty"`
 
-		// Labels updates current label values for the aggregate. nil means no
-		// label changes, and empty values remove the label
-		Labels map[string]string `json:"labels,omitempty"`
+		// Tags updates aggregate tag membership. true adds and false removes
+		Tags map[string]bool `json:"tags,omitempty"`
 	}
 
 	// Indexer derives projection metadata for an event batch

@@ -27,17 +27,16 @@ CREATE INDEX IF NOT EXISTS timebox_statuses_idx
 	)
 `,
 		`
-CREATE TABLE IF NOT EXISTS timebox_labels (
+CREATE TABLE IF NOT EXISTS timebox_tags (
 	store TEXT NOT NULL,
 	aggregate_key TEXT NOT NULL,
-	label TEXT NOT NULL,
-	value TEXT NOT NULL,
-	PRIMARY KEY (store, aggregate_key, label)
+	tag TEXT NOT NULL,
+	PRIMARY KEY (store, aggregate_key, tag)
 )`,
 		`
-CREATE INDEX IF NOT EXISTS timebox_labels_value_idx
-	ON timebox_labels (
-		store, label, value, aggregate_key
+CREATE INDEX IF NOT EXISTS timebox_tags_lookup_idx
+	ON timebox_tags (
+		store, tag, aggregate_key
 	)
 `,
 		`

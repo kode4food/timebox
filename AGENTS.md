@@ -4,7 +4,7 @@
 
 Event-sourcing persistence library for Go. Module: `github.com/kode4food/timebox`.
 
-Timebox provides append-only aggregate event storage with optimistic concurrency, snapshots, status and label indexing, archiving, and pluggable memory, PostgreSQL, Redis, and Raft backends.
+Timebox provides append-only aggregate event storage with optimistic concurrency, snapshots, status and tag indexing, archiving, and pluggable memory, PostgreSQL, Redis, and Raft backends.
 
 ## Exact Scope
 

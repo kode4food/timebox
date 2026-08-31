@@ -34,7 +34,7 @@ func runArchive(t *testing.T, p Profile) {
 		ev := testEvent(t,
 			time.Unix(1_700_000_019, 0).UTC(),
 			"event.test", 1, &active,
-			map[string]string{"env": "prod"},
+			map[string]bool{"prod": true},
 		)
 
 		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
@@ -53,13 +53,9 @@ func runArchive(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Empty(t, statuses)
 
-		ids, err = store.ListAggregatesByLabel("env", "prod")
+		ids, err = store.ListAggregatesByTag("prod")
 		assert.NoError(t, err)
 		assert.Empty(t, ids)
-
-		vals, err := store.ListLabelValues("env")
-		assert.NoError(t, err)
-		assert.Empty(t, vals)
 
 		var rec *timebox.ArchiveRecord
 		err = store.ConsumeArchive(context.Background(), func(

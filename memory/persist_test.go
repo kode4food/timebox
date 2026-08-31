@@ -46,10 +46,7 @@ func TestClosedMethods(t *testing.T) {
 	_, err = p.ListAggregatesByStatus("active")
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = p.ListAggregatesByLabel("env", "prod")
-	assert.ErrorIs(t, err, memory.ErrClosed)
-
-	_, err = p.ListLabelValues("env")
+	_, err = p.ListAggregatesByTag("prod")
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
 	_, err = p.ListAggregates(nil)

@@ -45,7 +45,7 @@ func TestAppend(t *testing.T) {
 		Timestamp: secondTS,
 	}}, statuses)
 
-	ids, err := n.store.ListAggregatesByLabel("env", "prod")
+	ids, err := n.store.ListAggregatesByTag("prod")
 	if !assert.NoError(t, err) {
 		return
 	}

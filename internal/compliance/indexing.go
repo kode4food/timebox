@@ -50,13 +50,9 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Empty(t, statuses)
 
-				ids, err := store.ListAggregatesByLabel("env", "prod")
+				ids, err := store.ListAggregatesByTag("prod")
 				assert.NoError(t, err)
 				assert.Empty(t, ids)
-
-				vals, err := store.ListLabelValues("env")
-				assert.NoError(t, err)
-				assert.Empty(t, vals)
 			})
 
 			t.Run("EmptyAppendSkipsIndexer", func(t *testing.T) {
@@ -104,7 +100,7 @@ func runIndexing(t *testing.T, p Profile) {
 						testEvent(t,
 							time.Unix(1_700_000_000, 0).UTC(),
 							"event.test", 1, &active,
-							map[string]string{"env": "prod"},
+							map[string]bool{"prod": true},
 						),
 					}),
 				)
@@ -113,7 +109,7 @@ func runIndexing(t *testing.T, p Profile) {
 						testEvent(t,
 							time.Unix(1_700_000_300, 0).UTC(),
 							"event.test", 2, &active,
-							map[string]string{"env": "stage"},
+							map[string]bool{"stage": true},
 						),
 					}),
 				)
@@ -122,7 +118,7 @@ func runIndexing(t *testing.T, p Profile) {
 						testEvent(t,
 							time.Unix(1_700_000_600, 0).UTC(),
 							"event.test", 3, &paused,
-							map[string]string{"env": "dev"},
+							map[string]bool{"dev": true},
 						),
 					}),
 				)
@@ -212,7 +208,7 @@ func runIndexing(t *testing.T, p Profile) {
 						testEvent(t,
 							time.Unix(1_700_000_201, 0).UTC(),
 							"event.test", 1, &active,
-							map[string]string{"env": "prod"},
+							map[string]bool{"prod": true},
 						),
 					}),
 				)
@@ -221,7 +217,7 @@ func runIndexing(t *testing.T, p Profile) {
 						testEvent(t,
 							time.Unix(1_700_000_202, 0).UTC(),
 							"event.test", 2, nil,
-							map[string]string{"env": ""},
+							map[string]bool{"prod": false},
 						),
 						testEvent(t,
 							time.Unix(1_700_000_203, 0).UTC(),
@@ -238,22 +234,18 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Empty(t, statuses)
 
-				ids, err := store.ListAggregatesByLabel("env", "prod")
+				ids, err := store.ListAggregatesByTag("prod")
 				assert.NoError(t, err)
 				assert.Empty(t, ids)
-
-				vals, err := store.ListLabelValues("env")
-				assert.NoError(t, err)
-				assert.Empty(t, vals)
 			})
 
-			t.Run("Labels", func(t *testing.T) {
+			t.Run("Tags", func(t *testing.T) {
 				store := openStore(t, p, StoreConfig{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
-				first := timebox.NewAggregateID("order", "labels-1")
-				second := timebox.NewAggregateID("order", "labels-2")
+				first := timebox.NewAggregateID("order", "tags-1")
+				second := timebox.NewAggregateID("order", "tags-2")
 				active := "active"
 
 				assert.NoError(t,
@@ -261,9 +253,10 @@ func runIndexing(t *testing.T, p Profile) {
 						testEvent(t,
 							time.Unix(1_700_000_009, 0).UTC(),
 							"event.test", 1, &active,
-							map[string]string{
-								"env":    "prod",
-								"region": "eu",
+							map[string]bool{
+								"prod":   true,
+								"eu":     true,
+								"shared": true,
 							},
 						),
 					}),
@@ -273,52 +266,54 @@ func runIndexing(t *testing.T, p Profile) {
 						testEvent(t,
 							time.Unix(1_700_000_010, 0).UTC(),
 							"event.test", 2, &active,
-							map[string]string{"env": "stage"},
+							map[string]bool{"stage": true, "shared": true},
 						),
 					}),
 				)
 
-				ids, err := store.ListAggregatesByLabel("env", "prod")
+				ids, err := store.ListAggregatesByTag("prod")
 				assert.NoError(t, err)
 				assert.ElementsMatch(t, []timebox.AggregateID{first}, ids)
 
-				ids, err = store.ListAggregatesByLabel("region", "eu")
+				ids, err = store.ListAggregatesByTag("eu")
 				assert.NoError(t, err)
 				assert.ElementsMatch(t, []timebox.AggregateID{first}, ids)
 
-				vals, err := store.ListLabelValues("env")
+				ids, err = store.ListAggregatesByTag("shared")
 				assert.NoError(t, err)
-				assert.Equal(t, []string{"prod", "stage"}, vals)
+				assert.ElementsMatch(t,
+					[]timebox.AggregateID{first, second}, ids,
+				)
 
 				assert.NoError(t,
 					store.AppendEvents(first, 1, []*timebox.Event{
 						testEvent(t,
 							time.Unix(1_700_000_011, 0).UTC(),
 							"event.test", 3, &active,
-							map[string]string{"env": ""},
+							map[string]bool{"prod": false, "shared": false},
 						),
 					}),
 				)
 
-				ids, err = store.ListAggregatesByLabel("env", "prod")
+				ids, err = store.ListAggregatesByTag("prod")
 				assert.NoError(t, err)
 				assert.Empty(t, ids)
 
-				vals, err = store.ListLabelValues("env")
+				ids, err = store.ListAggregatesByTag("shared")
 				assert.NoError(t, err)
-				assert.Equal(t, []string{"stage"}, vals)
+				assert.ElementsMatch(t, []timebox.AggregateID{second}, ids)
 			})
 
-			t.Run("LabelsOnly", func(t *testing.T) {
+			t.Run("TagsOnly", func(t *testing.T) {
 				store := openStore(t, p, StoreConfig{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
-				id := timebox.NewAggregateID("order", "labels-only")
+				id := timebox.NewAggregateID("order", "tags-only")
 				ev := testEvent(t,
 					time.Unix(1_700_000_011, 0).UTC(),
 					"event.test", 1, nil,
-					map[string]string{"env": "prod"},
+					map[string]bool{"prod": true},
 				)
 
 				assert.NoError(t,
@@ -329,13 +324,9 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Equal(t, "", status)
 
-				ids, err := store.ListAggregatesByLabel("env", "prod")
+				ids, err := store.ListAggregatesByTag("prod")
 				assert.NoError(t, err)
 				assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
-
-				vals, err := store.ListLabelValues("env")
-				assert.NoError(t, err)
-				assert.Equal(t, []string{"prod"}, vals)
 			})
 
 			t.Run("BatchIndex", func(t *testing.T) {
@@ -351,17 +342,17 @@ func runIndexing(t *testing.T, p Profile) {
 					testEvent(t,
 						time.Unix(1_700_000_012, 0).UTC(),
 						"event.test", 1, &active,
-						map[string]string{"env": "prod"},
+						map[string]bool{"prod": true},
 					),
 					testEvent(t,
 						time.Unix(1_700_000_013, 0).UTC(),
 						"event.test", 2, nil,
-						map[string]string{"region": "eu"},
+						map[string]bool{"eu": true},
 					),
 					testEvent(t,
 						time.Unix(1_700_000_014, 0).UTC(),
 						"event.test", 3, &paused,
-						map[string]string{"env": "stage"},
+						map[string]bool{"prod": false, "stage": true},
 					),
 				}))
 
@@ -376,11 +367,11 @@ func runIndexing(t *testing.T, p Profile) {
 					Timestamp: time.Unix(1_700_000_014, 0).UTC(),
 				}}, statuses)
 
-				ids, err := store.ListAggregatesByLabel("env", "stage")
+				ids, err := store.ListAggregatesByTag("stage")
 				assert.NoError(t, err)
 				assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 
-				ids, err = store.ListAggregatesByLabel("region", "eu")
+				ids, err = store.ListAggregatesByTag("eu")
 				assert.NoError(t, err)
 				assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 			})

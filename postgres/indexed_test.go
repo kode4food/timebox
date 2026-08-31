@@ -12,7 +12,7 @@ import (
 	"github.com/kode4food/timebox/postgres"
 )
 
-func TestLabelRow(t *testing.T) {
+func TestTagRow(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, cfg postgres.Config) {
 		p, err := postgres.NewPersistence(cfg)
 		if !assert.NoError(t, err) {
@@ -41,17 +41,15 @@ func TestLabelRow(t *testing.T) {
 		}
 		defer pool.Close()
 
-		var label string
-		var value string
+		var tag string
 		err = pool.QueryRow(ctx, `
-			SELECT label, value
-			FROM timebox_labels
+			SELECT tag
+			FROM timebox_tags
 			WHERE store = $1
-		`, cfg.Prefix).Scan(&label, &value)
+		`, cfg.Prefix).Scan(&tag)
 		if !assert.NoError(t, err) {
 			return
 		}
-		assert.Equal(t, "env", label)
-		assert.Equal(t, "dev", value)
+		assert.Equal(t, "dev", tag)
 	})
 }

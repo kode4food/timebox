@@ -57,7 +57,7 @@ func runAggregates(t *testing.T, p Profile) {
 		ev := testEvent(t,
 			time.Unix(1_700_000_008, 0).UTC(),
 			"event.test", 1, &active,
-			map[string]string{"env": "dev"},
+			map[string]bool{"dev": true},
 		)
 
 		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
@@ -73,7 +73,7 @@ func runAggregates(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 
-		ids, err = store.ListAggregatesByLabel("env", "dev")
+		ids, err = store.ListAggregatesByTag("dev")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 	})

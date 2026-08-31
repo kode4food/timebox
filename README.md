@@ -18,7 +18,7 @@ Timebox currently ships with:
 - `Store`: event-store semantics over a `Persistence`
 - `Executor`: loads aggregate state, runs a command, persists raised events, and retries on optimistic conflicts
 - `Aggregator`: accumulates events and exposes the current aggregate view during a command
-- `Indexer`: optional append-time hook that derives status and label updates from an appended event batch
+- `Indexer`: optional append-time hook that derives status and tag updates from an appended event batch
 - `Snapshot`: cached aggregate state plus the sequence it represents
 
 ## Store Behavior
@@ -29,7 +29,7 @@ Timebox currently ships with:
 - `SnapshotRatio`: when an `Executor` should opportunistically refresh a snapshot while loading state
 - `MaxRetries`: optimistic concurrency retry limit
 - `CacheSize`: executor projection cache size
-- `Indexer`: optional function that derives status and label updates from an appended event batch
+- `Indexer`: optional function that derives status and tag updates from an appended event batch
 
 Create a store by opening backend persistence and then binding a store to it:
 
@@ -57,7 +57,7 @@ Snapshotting is available in two ways:
 
 The Postgres backend stores:
 
-- aggregate status and labels in `timebox_index`
+- aggregate status and tags in backend-specific indexes
 - snapshots in `timebox_snapshot`
 - events in `timebox_events`
 
@@ -87,14 +87,13 @@ The Postgres backend stores:
 `Config.Indexer` lets you derive indexed metadata from an appended event batch. `Index` currently supports:
 
 - `Status`: aggregate status plus the time it entered that status
-- `Labels`: current aggregate label values
+- `Tags`: aggregate tag additions and removals
 
 Read paths exposed by the store:
 
 - `Store.GetAggregateStatus(id)`
 - `Store.ListAggregatesByStatus(status)`
-- `Store.ListLabelValues(label)`
-- `Store.ListAggregatesByLabel(label, value)`
+- `Store.ListAggregatesByTag(tag)`
 
 ## Archiving
 

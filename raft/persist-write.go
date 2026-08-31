@@ -13,7 +13,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	); err != nil {
 		return err
 	}
-	if len(req.Events) == 0 && req.Status == nil && len(req.Labels) == 0 {
+	if len(req.Events) == 0 && req.Status == nil && len(req.Tags) == 0 {
 		return nil
 	}
 	propID := p.newProposalID()

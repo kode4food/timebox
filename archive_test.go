@@ -18,7 +18,7 @@ func TestArchiveToStream(t *testing.T) {
 			active := "active"
 			return []*timebox.Index{{
 				Status: &active,
-				Labels: map[string]string{"env": "prod"},
+				Tags:   map[string]bool{"prod": true},
 			}}
 		},
 	})
@@ -54,13 +54,9 @@ func TestArchiveToStream(t *testing.T) {
 	statuses, err := store.ListAggregatesByStatus("active")
 	assert.NoError(t, err)
 	assert.Empty(t, statuses)
-	labelIDs, err := store.ListAggregatesByLabel("env", "prod")
+	tagIDs, err := store.ListAggregatesByTag("prod")
 	assert.NoError(t, err)
-	assert.Empty(t, labelIDs)
-	labelVals, err := store.ListLabelValues("env")
-	assert.NoError(t, err)
-	assert.Empty(t, labelVals)
-
+	assert.Empty(t, tagIDs)
 	var handled *timebox.ArchiveRecord
 	err = store.ConsumeArchive(ctx, func(
 		_ context.Context, rec *timebox.ArchiveRecord,

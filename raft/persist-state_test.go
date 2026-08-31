@@ -635,17 +635,11 @@ func TestRestart(t *testing.T) {
 		Timestamp: secondTS,
 	}}, statuses)
 
-	ids, err := n.store.ListAggregatesByLabel("env", "stage")
+	ids, err := n.store.ListAggregatesByTag("stage")
 	if !assert.NoError(t, err) {
 		return
 	}
 	assert.Equal(t, []timebox.AggregateID{id}, ids)
-
-	vals, err := n.store.ListLabelValues("env")
-	if !assert.NoError(t, err) {
-		return
-	}
-	assert.Equal(t, []string{"stage"}, vals)
 }
 
 func TestRestartRetainedLog(t *testing.T) {

@@ -35,7 +35,7 @@ type (
 
 		status   string
 		statusAt time.Time
-		labels   map[string]string
+		tags     map[string]bool
 	}
 )
 
@@ -87,7 +87,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 		a = &aggregate{
 			id:     req.ID,
 			events: []*timebox.Event{},
-			labels: map[string]string{},
+			tags:   map[string]bool{},
 		}
 		p.aggs[key] = a
 	}
@@ -107,12 +107,12 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 		a.status = *req.Status
 		a.statusAt = req.StatusAt.UTC()
 	}
-	for k, v := range req.Labels {
-		if v == "" {
-			delete(a.labels, k)
+	for tag, add := range req.Tags {
+		if !add {
+			delete(a.tags, tag)
 			continue
 		}
-		a.labels[k] = v
+		a.tags[tag] = true
 	}
 	return nil
 }
@@ -184,7 +184,7 @@ func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 		a = &aggregate{
 			id:     req.ID,
 			events: []*timebox.Event{},
-			labels: map[string]string{},
+			tags:   map[string]bool{},
 		}
 		p.aggs[key] = a
 	}
@@ -276,9 +276,9 @@ func firstEventIndex(evs []*timebox.Event, seq int64) int {
 	return len(evs)
 }
 
-// ListAggregatesByLabel lists aggregates for a label/value pair
-func (p *Persistence) ListAggregatesByLabel(
-	label, value string,
+// ListAggregatesByTag lists aggregates for a tag
+func (p *Persistence) ListAggregatesByTag(
+	tag string,
 ) ([]timebox.AggregateID, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -289,34 +289,10 @@ func (p *Persistence) ListAggregatesByLabel(
 
 	var res []timebox.AggregateID
 	for _, a := range p.aggs {
-		if a.labels[label] == value {
+		if a.tags[tag] {
 			res = append(res, a.id)
 		}
 	}
-	return res, nil
-}
-
-// ListLabelValues lists values currently used for a label
-func (p *Persistence) ListLabelValues(label string) ([]string, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if err := p.checkClosed(); err != nil {
-		return nil, err
-	}
-
-	seen := map[string]struct{}{}
-	for _, a := range p.aggs {
-		if v := a.labels[label]; v != "" {
-			seen[v] = struct{}{}
-		}
-	}
-
-	res := make([]string, 0, len(seen))
-	for v := range seen {
-		res = append(res, v)
-	}
-	sort.Strings(res)
 	return res, nil
 }
 

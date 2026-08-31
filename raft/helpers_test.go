@@ -539,12 +539,11 @@ func combinedIndexer(evs []*timebox.Event) []*timebox.Index {
 		}
 
 		status := data["status"]
-		idxs = append(idxs, &timebox.Index{
-			Status: &status,
-			Labels: map[string]string{
-				"env": data["env"],
-			},
-		})
+		tags := map[string]bool{data["env"]: true}
+		if data["env"] != "prod" {
+			tags["prod"] = false
+		}
+		idxs = append(idxs, &timebox.Index{Status: &status, Tags: tags})
 	}
 	return idxs
 }

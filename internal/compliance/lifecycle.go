@@ -45,10 +45,7 @@ func runLifecycle(t *testing.T, p Profile) {
 		_, err = store.ListAggregatesByStatus("active")
 		assert.Error(t, err)
 
-		_, err = store.ListAggregatesByLabel("env", "prod")
-		assert.Error(t, err)
-
-		_, err = store.ListLabelValues("env")
+		_, err = store.ListAggregatesByTag("prod")
 		assert.Error(t, err)
 	})
 }

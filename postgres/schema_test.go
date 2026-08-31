@@ -55,7 +55,7 @@ func TestPersistenceSchema(t *testing.T) {
 				SELECT COUNT(*)
 				FROM information_schema.columns
 				WHERE table_name = 'timebox_statuses'
-				  AND column_name = 'labels'
+				  AND column_name = 'tags'
 			`).Scan(&colCount)
 		if !assert.NoError(t, err) {
 			return
@@ -65,15 +65,15 @@ func TestPersistenceSchema(t *testing.T) {
 		err = pool.QueryRow(ctx, `
 				SELECT COUNT(*)
 				FROM information_schema.columns
-				WHERE table_name = 'timebox_labels'
+				WHERE table_name = 'timebox_tags'
 				  AND column_name IN (
-				      'aggregate_key', 'label', 'value'
+				      'aggregate_key', 'tag'
 				  )
 			`).Scan(&colCount)
 		if !assert.NoError(t, err) {
 			return
 		}
-		assert.Equal(t, 3, colCount)
+		assert.Equal(t, 2, colCount)
 
 		var fkCount int
 		err = pool.QueryRow(ctx, `
@@ -83,7 +83,7 @@ func TestPersistenceSchema(t *testing.T) {
 			WHERE t.relname IN (
 				'timebox_events',
 				'timebox_snapshots',
-				'timebox_labels'
+				'timebox_tags'
 			) AND c.contype = 'f'
 		`).Scan(&fkCount)
 		if !assert.NoError(t, err) {
@@ -107,7 +107,7 @@ func TestPersistenceSchema(t *testing.T) {
 			SELECT COUNT(*)
 			FROM pg_indexes
 			WHERE schemaname = current_schema()
-			  AND indexname = 'timebox_labels_value_idx'
+			  AND indexname = 'timebox_tags_lookup_idx'
 		`).Scan(&idxCount)
 		if !assert.NoError(t, err) {
 			return

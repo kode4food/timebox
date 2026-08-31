@@ -109,8 +109,8 @@ const (
 		-- KEYS[3] = event list key
 		-- KEYS[4] = stream key
 		-- KEYS[5] = status hash key
-		-- KEYS[6] = label state hash key
-		-- KEYS[7] = label root key
+		-- KEYS[6] = aggregate tag set key
+		-- KEYS[7] = tag root key
 		-- ARGV[1] = aggregate id string
 		-- Returns: {1, streamId} on success, {0} if nothing to move
 
@@ -118,12 +118,12 @@ const (
 		local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
 		local allEvents = redis.call('LRANGE', KEYS[3], 0, -1)
 		local status = redis.call('HGET', KEYS[5], ARGV[1]) or ""
-		local labels = redis.call('HGETALL', KEYS[6])
+		local tags = redis.call('SMEMBERS', KEYS[6])
 
 		if snapData == ""
 			and #allEvents == 0
 			and status == ""
-			and #labels == 0
+			and #tags == 0
 		then
 			return {0}
 		end
@@ -140,15 +140,10 @@ const (
 			redis.call('ZREM', KEYS[5] .. ":" .. status, ARGV[1])
 			redis.call('HDEL', KEYS[5], ARGV[1])
 		end
-		for i = 1, #labels, 2 do
-			local label = labels[i]
-			local value = labels[i + 1]
-			local valuesKey = KEYS[7] .. ":" .. label
-			local memberKey = KEYS[7] .. ":" .. label .. ":" .. value
+		for i = 1, #tags do
+			local tag = tags[i]
+			local memberKey = KEYS[7] .. ":" .. tag
 			redis.call('SREM', memberKey, ARGV[1])
-			if redis.call('SCARD', memberKey) == 0 then
-				redis.call('SREM', valuesKey, value)
-			end
 		end
 		redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[6])
 		return {1, streamId}

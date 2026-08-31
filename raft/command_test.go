@@ -77,7 +77,7 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 		ExpectedSequence: 7,
 		Status:           &status,
 		StatusAt:         time.Now().UTC().Truncate(time.Millisecond),
-		Labels:           map[string]string{"env": "prod"},
+		Tags:             map[string]bool{"prod": true},
 		Events:           evs,
 	}
 	c, err := raft.MakeAppendCommand(99, req)
@@ -93,7 +93,7 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 	assert.Equal(t, req.ExpectedSequence, got.ExpectedSequence)
 	assert.Equal(t, req.Status, got.Status)
 	assert.Equal(t, req.StatusAt, got.StatusAt)
-	assert.Equal(t, req.Labels, got.Labels)
+	assert.Equal(t, req.Tags, got.Tags)
 	assert.Equal(t, req.Events, got.Events)
 }
 

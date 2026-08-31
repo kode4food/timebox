@@ -36,8 +36,8 @@ const (
 
 	idxPrefix    = "idx"
 	statusSuffix = idxPrefix + ":status"
-	labelsSuffix = idxPrefix + ":labels"
-	labelSuffix  = idxPrefix + ":label"
+	tagsSuffix   = idxPrefix + ":tags"
+	tagSuffix    = idxPrefix + ":tag"
 
 	defaultSnapshot   = "snapshot"
 	snapshotValSuffix = defaultSnapshot + ":val"
@@ -127,7 +127,7 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 		atSeq:    req.ExpectedSequence,
 		status:   req.Status,
 		statusAt: req.StatusAt,
-		labels:   req.Labels,
+		tags:     req.Tags,
 		events:   evs,
 	})
 
@@ -327,12 +327,12 @@ func (p *Persistence) buildKey(id timebox.AggregateID, suffix string) string {
 	return fmt.Sprintf("%s:%s:%s", p.prefix, joinAggregateID(id), suffix)
 }
 
-func (p *Persistence) buildLabelStateKey(id timebox.AggregateID) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, joinAggregateID(id), labelsSuffix)
+func (p *Persistence) buildTagStateKey(id timebox.AggregateID) string {
+	return fmt.Sprintf("%s:%s:%s", p.prefix, joinAggregateID(id), tagsSuffix)
 }
 
-func (p *Persistence) buildLabelRootKey() string {
-	return fmt.Sprintf("%s:%s", p.prefix, labelSuffix)
+func (p *Persistence) buildTagRootKey() string {
+	return fmt.Sprintf("%s:%s", p.prefix, tagSuffix)
 }
 
 func (p *Persistence) archiveStreamKey() string {
@@ -368,40 +368,6 @@ func escapeKeyPart(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, "%", `\%`)
 	return strings.ReplaceAll(s, ":", `%`)
-}
-
-func unescapeKeyPart(s string) string {
-	i := 0
-	for i < len(s) && s[i] != '\\' && s[i] != '%' {
-		i++
-	}
-	if i == len(s) {
-		return s
-	}
-
-	var b strings.Builder
-	b.Grow(len(s))
-	b.WriteString(s[:i])
-
-	for i < len(s) {
-		switch s[i] {
-		case '%':
-			b.WriteByte(':')
-			i++
-		case '\\':
-			i++
-			if i >= len(s) {
-				b.WriteByte('\\')
-				break
-			}
-			b.WriteByte(s[i])
-			i++
-		default:
-			b.WriteByte(s[i])
-			i++
-		}
-	}
-	return b.String()
 }
 
 func decodeEvents(items []any) ([]*timebox.Event, error) {

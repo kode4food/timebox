@@ -94,9 +94,7 @@ func statusEnvIndexer(t *testing.T) timebox.Indexer {
 			}
 			res = append(res, &timebox.Index{
 				Status: &data.Status,
-				Labels: map[string]string{
-					"env": data.Env,
-				},
+				Tags:   map[string]bool{data.Env: true},
 			})
 		}
 		return res

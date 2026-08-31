@@ -23,9 +23,9 @@ type (
 	}
 
 	indexData struct {
-		Value  int               `json:"value"`
-		Status *string           `json:"status,omitempty"`
-		Labels map[string]string `json:"labels,omitempty"`
+		Value  int             `json:"value"`
+		Status *string         `json:"status,omitempty"`
+		Tags   map[string]bool `json:"tags,omitempty"`
 	}
 )
 
@@ -50,14 +50,14 @@ func openStore(t *testing.T, p Profile, cfg StoreConfig) *timebox.Store {
 
 func testEvent(
 	t *testing.T, at time.Time, typ timebox.EventType, value int,
-	status *string, labels map[string]string,
+	status *string, tags map[string]bool,
 ) *timebox.Event {
 	t.Helper()
 
 	data, err := json.Marshal(indexData{
 		Value:  value,
 		Status: status,
-		Labels: labels,
+		Tags:   tags,
 	})
 	if !assert.NoError(t, err) {
 		t.FailNow()
@@ -84,7 +84,7 @@ func newIndexer(t *testing.T) timebox.Indexer {
 			}
 			res = append(res, &timebox.Index{
 				Status: data.Status,
-				Labels: data.Labels,
+				Tags:   data.Tags,
 			})
 		}
 		return res

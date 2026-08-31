@@ -373,11 +373,7 @@ func TestStoreCombinedIndexing(t *testing.T) {
 				assert.Len(t, statuses, 1)
 				assert.Equal(t, id, statuses[0].ID)
 
-				values, err := store.ListLabelValues("env")
-				assert.NoError(t, err)
-				assert.Equal(t, []string{"prod"}, values)
-
-				ids, err := store.ListAggregatesByLabel("env", "prod")
+				ids, err := store.ListAggregatesByTag("prod")
 				assert.NoError(t, err)
 				assert.Equal(t, []timebox.AggregateID{id}, ids)
 			})
@@ -436,7 +432,7 @@ func combinedIndexer(events []*timebox.Event) []*timebox.Index {
 
 		res = append(res, &timebox.Index{
 			Status: &status,
-			Labels: map[string]string{"env": data["env"]},
+			Tags:   map[string]bool{data["env"]: true},
 		})
 	}
 	return res
@@ -488,13 +484,9 @@ func (f *fakePersistence) ListAggregatesByStatus(
 	return nil, nil
 }
 
-func (f *fakePersistence) ListAggregatesByLabel(
-	string, string,
+func (f *fakePersistence) ListAggregatesByTag(
+	string,
 ) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
-func (f *fakePersistence) ListLabelValues(string) ([]string, error) {
 	return nil, nil
 }
 

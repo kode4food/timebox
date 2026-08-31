@@ -11,17 +11,17 @@ import (
 type appendFunctionSpec struct {
 	name   string
 	status bool
-	labels bool
+	tags   bool
 }
 
 var appendFunctions = []appendFunctionSpec{
 	{name: "timebox_append_plain"},
 	{name: "timebox_append_status", status: true},
-	{name: "timebox_append_labels", labels: true},
+	{name: "timebox_append_tags", tags: true},
 	{
-		name:   "timebox_append_status_labels",
+		name:   "timebox_append_status_tags",
 		status: true,
-		labels: true,
+		tags:   true,
 	},
 }
 
@@ -41,18 +41,18 @@ const (
 		)
 	`
 
-	appendLabelsQuery = `
+	appendTagsQuery = `
 		SELECT success, actual_sequence
-		FROM timebox_append_labels(
-			$1, $2, $3, $4, $5::text[], $6::text[],
+		FROM timebox_append_tags(
+			$1, $2, $3, $4, $5::text[], $6::boolean[],
 			$7::bigint[], $8::text[], $9::text[]
 		)
 	`
 
-	appendStatusLabelsQuery = `
+	appendStatusTagsQuery = `
 		SELECT success, actual_sequence
-		FROM timebox_append_status_labels(
-			$1, $2, $3, $4, $5, $6, $7::text[], $8::text[],
+		FROM timebox_append_status_tags(
+			$1, $2, $3, $4, $5, $6, $7::text[], $8::boolean[],
 			$9::bigint[], $10::text[], $11::text[]
 		)
 	`
@@ -81,11 +81,11 @@ const checkSequenceQuery = `
 func (p *Persistence) Append(req timebox.AppendRequest) error {
 	ctx := context.Background()
 	key, parts := aggregateKey(req.ID)
-	if len(req.Events) == 0 && req.Status == nil && len(req.Labels) == 0 {
+	if len(req.Events) == 0 && req.Status == nil && len(req.Tags) == 0 {
 		return p.checkConflict(ctx, req.ID, key, req.ExpectedSequence)
 	}
 	evAts, evTypes, evData := encodeAppendEvents(req.Events)
-	lblKeys, lblVals := encodeLabels(req.Labels)
+	tags, tagAdds := encodeTags(req.Tags)
 	var err error
 
 	var status any
@@ -99,10 +99,10 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	var actualSeq int64
 
 	switch {
-	case req.Status != nil && len(req.Labels) > 0:
-		err = p.pool.QueryRow(ctx, appendStatusLabelsQuery,
+	case req.Status != nil && len(req.Tags) > 0:
+		err = p.pool.QueryRow(ctx, appendStatusTagsQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
-			status, statusAt, lblKeys, lblVals,
+			status, statusAt, tags, tagAdds,
 			evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	case req.Status != nil:
@@ -110,10 +110,10 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 			p.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
-	case len(req.Labels) > 0:
-		err = p.pool.QueryRow(ctx, appendLabelsQuery,
+	case len(req.Tags) > 0:
+		err = p.pool.QueryRow(ctx, appendTagsQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
-			lblKeys, lblVals, evAts, evTypes, evData,
+			tags, tagAdds, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	default:
 		err = p.pool.QueryRow(ctx, appendPlainQuery,
@@ -177,10 +177,10 @@ func buildAppendFunctionSQL(spec appendFunctionSpec) string {
 			"p_status TEXT", "p_status_at BIGINT",
 		)
 	}
-	if spec.labels {
+	if spec.tags {
 		args = append(args,
-			"p_label_keys TEXT[]",
-			"p_label_values TEXT[]",
+			"p_tags TEXT[]",
+			"p_tag_adds BOOLEAN[]",
 		)
 	}
 	args = append(args,
@@ -228,29 +228,28 @@ func buildAppendFunctionSQL(spec appendFunctionSpec) string {
 WHERE store = p_store AND aggregate_key = p_aggregate_key;
 `)
 	}
-	if spec.labels {
+	if spec.tags {
 		update.WriteString(`
-	DELETE FROM timebox_labels li
+	DELETE FROM timebox_tags ti
 	USING unnest(
-		COALESCE(p_label_keys, ARRAY[]::TEXT[]),
-		COALESCE(p_label_values, ARRAY[]::TEXT[])
-	) AS lbl(label, value)
-	WHERE li.store = p_store
-	  AND li.aggregate_key = p_aggregate_key
-	  AND li.label = lbl.label
-	  AND lbl.value = '';
+		COALESCE(p_tags, ARRAY[]::TEXT[]),
+		COALESCE(p_tag_adds, ARRAY[]::BOOLEAN[])
+	) AS item(tag, enabled)
+	WHERE ti.store = p_store
+	  AND ti.aggregate_key = p_aggregate_key
+	  AND ti.tag = item.tag
+	  AND NOT item.enabled;
 
-	INSERT INTO timebox_labels (
-		store, aggregate_key, label, value
+	INSERT INTO timebox_tags (
+		store, aggregate_key, tag
 	)
-	SELECT p_store, p_aggregate_key, lbl.label, lbl.value
+	SELECT p_store, p_aggregate_key, item.tag
 	FROM unnest(
-		COALESCE(p_label_keys, ARRAY[]::TEXT[]),
-		COALESCE(p_label_values, ARRAY[]::TEXT[])
-	) AS lbl(label, value)
-	WHERE lbl.value <> ''
-	ON CONFLICT (store, aggregate_key, label) DO UPDATE
-	SET value = EXCLUDED.value;
+		COALESCE(p_tags, ARRAY[]::TEXT[]),
+		COALESCE(p_tag_adds, ARRAY[]::BOOLEAN[])
+	) AS item(tag, enabled)
+	WHERE item.enabled
+	ON CONFLICT (store, aggregate_key, tag) DO NOTHING;
 `)
 	}
 
@@ -337,12 +336,12 @@ func encodeAppendEvents(evs []*timebox.Event) ([]int64, []string, [][]byte) {
 	return ats, types, data
 }
 
-func encodeLabels(lbls map[string]string) ([]string, []string) {
-	keys := make([]string, 0, len(lbls))
-	vals := make([]string, 0, len(lbls))
-	for k, v := range lbls {
-		keys = append(keys, k)
-		vals = append(vals, v)
+func encodeTags(values map[string]bool) ([]string, []bool) {
+	tags := make([]string, 0, len(values))
+	adds := make([]bool, 0, len(values))
+	for tag, add := range values {
+		tags = append(tags, tag)
+		adds = append(adds, add)
 	}
-	return keys, vals
+	return tags, adds
 }

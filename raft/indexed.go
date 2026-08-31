@@ -67,9 +67,9 @@ func (p *Persistence) ListAggregatesByStatus(
 	return res, nil
 }
 
-// ListAggregatesByLabel lists aggregates currently indexed by label/value
-func (p *Persistence) ListAggregatesByLabel(
-	label, value string,
+// ListAggregatesByTag lists aggregates currently indexed by tag
+func (p *Persistence) ListAggregatesByTag(
+	tag string,
 ) ([]timebox.AggregateID, error) {
 	var ids []timebox.AggregateID
 
@@ -77,7 +77,7 @@ func (p *Persistence) ListAggregatesByLabel(
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
 		defer func() { _ = c.Close() }()
-		pfx := labelIndexPrefix(label, value)
+		pfx := tagIndexPrefix(tag)
 		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			parts := strings.Split(string(k), "/")
 			id, err := decodeAggregateID(parts[len(parts)-1])
@@ -93,32 +93,4 @@ func (p *Persistence) ListAggregatesByLabel(
 		return nil, err
 	}
 	return ids, nil
-}
-
-// ListLabelValues lists the current indexed values for one label
-func (p *Persistence) ListLabelValues(label string) ([]string, error) {
-	var vals []string
-
-	err := p.db.View(func(tx *kvTx) error {
-		b := tx.Bucket(bucketName)
-		c := b.Cursor()
-		defer func() { _ = c.Close() }()
-		pfx := labelValuesPrefix(label)
-		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
-			parts := strings.Split(string(k), "/")
-			value, err := decodeKeyPart(parts[len(parts)-1])
-			if err != nil {
-				return err
-			}
-			vals = append(vals, value)
-			k, _ = c.Next()
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	sort.Strings(vals)
-	return vals, nil
 }

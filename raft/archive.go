@@ -119,11 +119,8 @@ func deleteAggregateTx(
 			return err
 		}
 	}
-	for label, value := range meta.Labels {
-		if err := b.Delete(labelIndexKey(label, value, encodedID)); err != nil {
-			return err
-		}
-		if err := updateLabelValueCount(b, label, value, -1); err != nil {
+	for tag := range meta.Tags {
+		if err := b.Delete(tagIndexKey(tag, encodedID)); err != nil {
 			return err
 		}
 	}

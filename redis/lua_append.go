@@ -12,17 +12,17 @@ import (
 
 type (
 	luaAppendBuilder struct {
-		out           strings.Builder
-		spec          luaAppendSpec
-		labelStateKey int
-		labelRootKey  int
-		snapSeqKey    int
-		aggIDArg      int
-		statusArg     int
-		statusAtArg   int
-		labelCountArg int
-		firstLabelArg int
-		nextArg       int
+		out         strings.Builder
+		spec        luaAppendSpec
+		tagStateKey int
+		tagRootKey  int
+		snapSeqKey  int
+		aggIDArg    int
+		statusArg   int
+		statusAtArg int
+		tagCountArg int
+		firstTagArg int
+		nextArg     int
 	}
 
 	luaAppendCall struct {
@@ -34,22 +34,21 @@ type (
 	luaAppendInput struct {
 		statusAt time.Time
 		status   *string
-		labels   map[string]string
+		tags     map[string]bool
 		id       timebox.AggregateID
 		events   [][]byte
 		atSeq    int64
 	}
 
 	luaAppendOp struct {
-		label string
-		op    string
-		value string
+		tag string
+		add bool
 	}
 
 	luaAppendSpec struct {
 		trim   bool
 		status bool
-		labels bool
+		tags   bool
 	}
 )
 
@@ -89,37 +88,19 @@ const (
 		end
 		`
 
-	appendProjectLabelsLua = `
-		for i = 0, labelCount - 1 do
-			local argIdx = firstLabelArgIdx + (i * 3)
-			local label = ARGV[argIdx]
-			local op = ARGV[argIdx + 1]
-			local value = ARGV[argIdx + 2]
-			local oldValue = redis.call(
-				'HGET', KEYS[labelStateKeyIdx], label
-			) or ""
-			local valueKey = KEYS[labelRootKeyIdx] .. ":" .. label
-			if op == "set" and oldValue == value then
-				goto continue
-			end
-			if oldValue ~= "" then
-				local oldMemberKey = KEYS[labelRootKeyIdx]
-					.. ":" .. label .. ":" .. oldValue
-				redis.call('SREM', oldMemberKey, aggID)
-				if redis.call('SCARD', oldMemberKey) == 0 then
-					redis.call('SREM', valueKey, oldValue)
-				end
-			end
-			if op == "set" then
-				local newMemberKey = KEYS[labelRootKeyIdx]
-					.. ":" .. label .. ":" .. value
-				redis.call('SADD', valueKey, value)
-				redis.call('SADD', newMemberKey, aggID)
-				redis.call('HSET', KEYS[labelStateKeyIdx], label, value)
+	appendProjectTagsLua = `
+		for i = 0, tagCount - 1 do
+			local argIdx = firstTagArgIdx + (i * 2)
+			local tag = ARGV[argIdx]
+			local add = ARGV[argIdx + 1] == "1"
+			local memberKey = KEYS[tagRootKeyIdx] .. ":" .. tag
+			if add then
+				redis.call('SADD', KEYS[tagStateKeyIdx], tag)
+				redis.call('SADD', memberKey, aggID)
 			else
-				redis.call('HDEL', KEYS[labelStateKeyIdx], label)
+				redis.call('SREM', KEYS[tagStateKeyIdx], tag)
+				redis.call('SREM', memberKey, aggID)
 			end
-			::continue::
 		end
 		`
 
@@ -142,11 +123,11 @@ func makeLuaAppendScripts() map[luaAppendSpec]*redis.Script {
 	res := map[luaAppendSpec]*redis.Script{}
 	for _, trim := range []bool{false, true} {
 		for _, status := range []bool{false, true} {
-			for _, labels := range []bool{false, true} {
+			for _, tags := range []bool{false, true} {
 				spec := luaAppendSpec{
 					trim:   trim,
 					status: status,
-					labels: labels,
+					tags:   tags,
 				}
 				res[spec] = redis.NewScript(buildAppendLua(spec))
 			}
@@ -187,32 +168,32 @@ func (b *luaAppendBuilder) writePreamble() {
 }
 
 func (b *luaAppendBuilder) writeLocals() {
-	if b.spec.status || b.spec.labels {
+	if b.spec.status || b.spec.tags {
 		b.writef(`local aggID = ARGV[%d]`, b.aggIDArg)
 	}
 	if b.spec.status {
 		b.writef(`local newStatus = ARGV[%d]`, b.statusArg)
 		b.writef(`local newStatusAt = ARGV[%d]`, b.statusAtArg)
 	}
-	if b.spec.labels {
-		b.writef(`local labelStateKeyIdx = %d`, b.labelStateKey)
-		b.writef(`local labelRootKeyIdx = %d`, b.labelRootKey)
-		b.writef(`local labelCount = tonumber(ARGV[%d]) or 0`,
-			b.labelCountArg,
+	if b.spec.tags {
+		b.writef(`local tagStateKeyIdx = %d`, b.tagStateKey)
+		b.writef(`local tagRootKeyIdx = %d`, b.tagRootKey)
+		b.writef(`local tagCount = tonumber(ARGV[%d]) or 0`,
+			b.tagCountArg,
 		)
-		b.writef(`local firstLabelArgIdx = %d`, b.firstLabelArg)
+		b.writef(`local firstTagArgIdx = %d`, b.firstTagArg)
 	}
 	b.writef(`local eventStartIdx = %s`, b.eventStartExpr())
 }
 
 func (b *luaAppendBuilder) eventStartExpr() string {
-	if !b.spec.labels {
+	if !b.spec.tags {
 		return fmt.Sprintf(`%d`, b.nextArg)
 	}
 	return fmt.Sprintf(
-		`%d + (tonumber(ARGV[%d]) * 3)`,
-		b.firstLabelArg,
-		b.labelCountArg,
+		`%d + (tonumber(ARGV[%d]) * 2)`,
+		b.firstTagArg,
+		b.tagCountArg,
 	)
 }
 
@@ -222,8 +203,8 @@ func (b *luaAppendBuilder) writeBody() {
 	if b.spec.status {
 		b.write(appendProjectStatusLua)
 	}
-	if b.spec.labels {
-		b.write(appendProjectLabelsLua)
+	if b.spec.tags {
+		b.write(appendProjectTagsLua)
 	}
 	b.write(`return {1, offset + redis.call('LLEN', KEYS[1])}`)
 }
@@ -233,9 +214,9 @@ func (b *luaAppendBuilder) initKeyLayout() {
 	if b.spec.status {
 		keyIdx++
 	}
-	if b.spec.labels {
-		b.labelStateKey = keyIdx
-		b.labelRootKey = keyIdx + 1
+	if b.spec.tags {
+		b.tagStateKey = keyIdx
+		b.tagRootKey = keyIdx + 1
 		keyIdx += 2
 	}
 	if b.spec.trim {
@@ -244,7 +225,7 @@ func (b *luaAppendBuilder) initKeyLayout() {
 }
 
 func (b *luaAppendBuilder) initArgLayout() {
-	if b.spec.status || b.spec.labels {
+	if b.spec.status || b.spec.tags {
 		b.aggIDArg = b.nextArg
 		b.nextArg++
 	}
@@ -253,9 +234,9 @@ func (b *luaAppendBuilder) initArgLayout() {
 		b.statusAtArg = b.nextArg + 1
 		b.nextArg += 2
 	}
-	if b.spec.labels {
-		b.labelCountArg = b.nextArg
-		b.firstLabelArg = b.nextArg + 1
+	if b.spec.tags {
+		b.tagCountArg = b.nextArg
+		b.firstTagArg = b.nextArg + 1
 		b.nextArg++
 	}
 }
@@ -282,11 +263,11 @@ func buildAppendLua(spec luaAppendSpec) string {
 func buildLuaAppendCall(
 	store *timebox.Store, p *Persistence, in luaAppendInput,
 ) luaAppendCall {
-	ops := newLuaAppendOps(in.labels)
+	ops := newLuaAppendOps(in.tags)
 	spec := luaAppendSpec{
 		trim:   store.Config().TrimEvents,
 		status: in.status != nil,
-		labels: len(ops) > 0,
+		tags:   len(ops) > 0,
 	}
 	return luaAppendCall{
 		spec: spec,
@@ -302,9 +283,9 @@ func buildLuaAppendKeys(
 	if spec.status {
 		keys = append(keys, p.buildStatusHashKey())
 	}
-	if spec.labels {
-		keys = append(keys, p.buildLabelStateKey(id))
-		keys = append(keys, p.buildLabelRootKey())
+	if spec.tags {
+		keys = append(keys, p.buildTagStateKey(id))
+		keys = append(keys, p.buildTagRootKey())
 	}
 	if spec.trim {
 		keys = append(keys, p.buildKey(id, snapshotSeqSuffix))
@@ -316,7 +297,7 @@ func buildLuaAppendArgs(
 	joinedID string, in luaAppendInput, ops []luaAppendOp, spec luaAppendSpec,
 ) []any {
 	args := []any{in.atSeq, len(in.events)}
-	if spec.status || spec.labels {
+	if spec.status || spec.tags {
 		args = append(args, joinedID)
 	}
 	if spec.status {
@@ -326,10 +307,10 @@ func buildLuaAppendArgs(
 		}
 		args = append(args, status, in.statusAt.UnixMilli())
 	}
-	if spec.labels {
+	if spec.tags {
 		args = append(args, len(ops))
 		for _, op := range ops {
-			args = append(args, op.label, op.op, op.value)
+			args = append(args, op.tag, op.add)
 		}
 	}
 	for _, ev := range in.events {
@@ -338,17 +319,12 @@ func buildLuaAppendArgs(
 	return args
 }
 
-func newLuaAppendOps(lbls map[string]string) []luaAppendOp {
-	ops := make([]luaAppendOp, 0, len(lbls))
-	for label, value := range lbls {
-		op := "set"
-		if value == "" {
-			op = "remove"
-		}
+func newLuaAppendOps(tags map[string]bool) []luaAppendOp {
+	ops := make([]luaAppendOp, 0, len(tags))
+	for tag, add := range tags {
 		ops = append(ops, luaAppendOp{
-			op:    op,
-			label: escapeKeyPart(label),
-			value: escapeKeyPart(value),
+			tag: escapeKeyPart(tag),
+			add: add,
 		})
 	}
 	return ops

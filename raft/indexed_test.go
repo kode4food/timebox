@@ -50,15 +50,9 @@ func TestRestartIndexes(t *testing.T) {
 		Timestamp: base.Add(time.Minute),
 	}}, paused)
 
-	stage, err := n.store.ListAggregatesByLabel("env", "stage")
+	stage, err := n.store.ListAggregatesByTag("stage")
 	if !assert.NoError(t, err) {
 		return
 	}
 	assert.Equal(t, []timebox.AggregateID{second}, stage)
-
-	vals, err := n.store.ListLabelValues("env")
-	if !assert.NoError(t, err) {
-		return
-	}
-	assert.Equal(t, []string{"prod", "stage"}, vals)
 }
