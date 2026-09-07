@@ -73,6 +73,30 @@ func TestNewStoreBadConfig(t *testing.T) {
 	assert.ErrorIs(t, err, postgres.ErrInvalidMaxConns)
 }
 
+func TestAppendConflictOrder(t *testing.T) {
+	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
+		p, err := postgres.NewPersistence(cfg)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = p.Close() }()
+		first := timebox.NewAggregateID("order", "z")
+		second := timebox.NewAggregateID("order", "a")
+		reqs := []timebox.AppendRequest{
+			{ID: first, ExpectedSequence: 1},
+			{ID: second, ExpectedSequence: 1},
+		}
+		var conflict *timebox.VersionConflictError
+		if assert.ErrorAs(t, p.Append(reqs...), &conflict) {
+			assert.Equal(t, first, conflict.ID)
+		}
+		assert.Equal(t, first, reqs[0].ID)
+		ids, err := p.ListAggregates("")
+		assert.NoError(t, err)
+		assert.Empty(t, ids)
+	})
+}
+
 func TestNewPersistenceBadConfig(t *testing.T) {
 	_, err := postgres.NewPersistence(postgres.Config{MaxConns: -1})
 	assert.ErrorIs(t, err, postgres.ErrInvalidMaxConns)

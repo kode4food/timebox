@@ -32,7 +32,7 @@ id := timebox.NewAggregateID("order", "ORD-12345")
 catalog := timebox.NewAggregateType("catalog")
 ```
 
-Both components are always populated. `NewAggregateType` builds the ID of an aggregate that is the only one of its type, such as a cluster or catalog aggregate, filling `Key` with `timebox.SingletonKey` (`"_"`).
+Callers supply both components. `NewAggregateType` builds the ID of an aggregate that is the only one of its type, such as a cluster or catalog aggregate, filling `Key` with `timebox.SingletonKey` (`"_"`).
 
 Listing takes a type rather than an ID, since an aggregate ID always names one aggregate:
 
@@ -41,7 +41,7 @@ orders, err := store.ListAggregates("order") // every order
 all, err := store.ListAggregates("")         // every aggregate
 ```
 
-Events marshal their IDs to JSON as a two-element array, so `("order", "123")` encodes as `["order","123"]`. Decoding anything other than a type and a key, from JSON, storage rows, or storage keys, returns `ErrInvalidAggregateID`.
+Events marshal their IDs to JSON as a two-element array, so `("order", "123")` encodes as `["order","123"]`. Applications validate IDs at uncontrolled input boundaries, such as HTTP requests. Persistence codecs read IDs written by Timebox and do not enforce application input rules.
 
 ## Store Behavior
 

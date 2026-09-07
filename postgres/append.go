@@ -1,9 +1,13 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/kode4food/timebox"
 )
@@ -86,12 +90,46 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := p.lockAppends(ctx, tx, reqs); err != nil {
+		return err
+	}
 	for _, req := range reqs {
 		if err := p.appendOne(ctx, tx, req); err != nil {
 			return err
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// Lock in ID order, but append in request order to report the first conflict
+func (p *Persistence) lockAppends(
+	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
+) error {
+	ordered := slices.Clone(reqs)
+	slices.SortFunc(ordered, func(a, b timebox.AppendRequest) int {
+		if n := cmp.Compare(a.ID.Type, b.ID.Type); n != 0 {
+			return n
+		}
+		return cmp.Compare(a.ID.Key, b.ID.Key)
+	})
+	for _, req := range ordered {
+		key, parts := aggregateKey(req.ID)
+		writes := len(req.Events) > 0 || req.Status != nil || len(req.Tags) > 0
+		if req.ExpectedSequence == 0 && writes {
+			if err := p.insertAggregate(ctx, tx, key, parts); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(ctx, `
+			SELECT 1 FROM timebox_statuses
+			WHERE store = $1 AND aggregate_key = $2
+			FOR UPDATE
+		`, p.Prefix, key)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Persistence) appendOne(

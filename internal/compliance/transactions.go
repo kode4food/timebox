@@ -1,6 +1,8 @@
 package compliance
 
 import (
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +27,38 @@ var counterAppliers = timebox.Appliers[counter]{
 }
 
 func runTransactions(t *testing.T, p Profile) {
+	t.Run("Concurrent", func(t *testing.T) {
+		store := openStore(t, p, StoreConfig{})
+		exec := store.Executor(newCounter, counterAppliers)
+		ids := make([]timebox.AggregateID, 24)
+		for i := range ids {
+			ids[i] = timebox.NewAggregateID("tx", timebox.ID(strconv.Itoa(i)))
+		}
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				<-start
+				err := store.Transact(func(tx *timebox.Transaction) error {
+					for _, id := range ids {
+						if _, err := tx.Exec(exec, id, count(1)); err != nil {
+							return err
+						}
+					}
+					return nil
+				})
+				assert.NoError(t, err)
+			})
+		}
+		close(start)
+		wg.Wait()
+		for _, id := range ids {
+			st, err := exec.Get(id)
+			assert.NoError(t, err)
+			assert.Equal(t, 8, st.Value)
+		}
+	})
+
 	t.Run("Atomic", func(t *testing.T) {
 		store := openStore(t, p, StoreConfig{})
 		exec := store.Executor(newCounter, counterAppliers)
