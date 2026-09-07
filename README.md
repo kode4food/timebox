@@ -16,11 +16,28 @@ Timebox currently ships with:
 ## Core Concepts
 
 - `Store`: event-store semantics over a `Persistence`
+- `AggregateID`: an aggregate's type and key, as in `("order", "123")`
 - `Executor`: loads aggregate state, runs a command, persists raised events, and retries on optimistic conflicts
 - `Transaction`: groups commands over several aggregates into one atomic append
 - `Aggregator`: accumulates events and exposes the current aggregate view during a command
 - `Indexer`: optional append-time hook that derives status and tag updates from an appended event batch
 - `Snapshot`: cached aggregate state plus the sequence it represents
+
+## Aggregate IDs
+
+An `AggregateID` is a comparable struct of two parts, a `Type` and a `Key`, so it can be used as a map key directly and needs no canonicalization outside of the storage and wire boundaries:
+
+```go
+id := timebox.NewAggregateID("order", "ORD-12345")
+orders := timebox.NewAggregateType("order")
+```
+
+`NewAggregateType` builds an ID with an empty `Key`. It names the aggregate type itself, and serves two purposes:
+
+- as a prefix, it matches every aggregate of that type, which is what `Store.ListAggregates(prefix)` takes. The zero `AggregateID` matches everything.
+- as an identity, it names a singleton aggregate of that type, such as a cluster or catalog aggregate that has only one instance.
+
+`AggregateID.Parts()` returns the populated components, one for a type-only ID and two for a type and key. Events marshal their IDs to JSON as an array of those parts, so `("order", "123")` encodes as `["order","123"]` and a type-only ID encodes as `["order"]`. Decoding more than two parts, from JSON, storage keys, or the binary event format, returns `ErrInvalidAggregateID`.
 
 ## Store Behavior
 

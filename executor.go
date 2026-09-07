@@ -197,14 +197,8 @@ func (e *Executor[T]) updateCache(id AggregateID, proj *projection[T]) {
 }
 
 func cacheKey(id AggregateID) string {
-	n := len(id) * 4
-	for _, part := range id {
-		n += len(part)
-	}
-
-	buf := make([]byte, 0, n)
-	for _, part := range id {
-		buf = bin.AppendString(buf, string(part))
-	}
+	buf := make([]byte, 0, len(id.Type)+len(id.Key)+8)
+	buf = bin.AppendString(buf, string(id.Type))
+	buf = bin.AppendString(buf, string(id.Key))
 	return string(buf)
 }

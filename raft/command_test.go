@@ -69,7 +69,7 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 	id := timebox.NewAggregateID("ns", "id1")
 	evs := testEvents()
 	for i, ev := range evs {
-		ev.AggregateID = append(timebox.AggregateID(nil), id...)
+		ev.AggregateID = id
 		ev.Sequence = 7 + int64(i)
 	}
 	req := timebox.AppendRequest{
@@ -164,6 +164,15 @@ func TestCommandCorrupt(t *testing.T) {
 		c[9+3] = 1 // one request, truncated body
 		_, err := c.AppendRequests()
 		assert.True(t, errors.Is(err, bin.ErrCorruptState))
+	})
+
+	t.Run("append too many id parts", func(t *testing.T) {
+		c := make(raft.Command, 9) // header
+		c[0] = raft.CmdTypeAppend
+		c = append(c, bin.AppendUint32(nil, 1)...)
+		c = append(c, bin.AppendUint32(nil, 3)...)
+		_, err := c.AppendRequests()
+		assert.ErrorIs(t, err, timebox.ErrInvalidAggregateID)
 	})
 
 	t.Run("snapshot too short", func(t *testing.T) {

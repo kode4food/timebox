@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/kode4food/timebox"
-	"github.com/kode4food/timebox/internal/id"
 )
 
 type (
@@ -19,7 +18,7 @@ type (
 
 		closed    bool
 		nextID    int64
-		aggs      map[string]*aggregate
+		aggs      map[timebox.AggregateID]*aggregate
 		archive   []*timebox.ArchiveRecord
 		archiveCh chan struct{}
 		mu        sync.RWMutex
@@ -42,8 +41,6 @@ type (
 var (
 	// ErrClosed indicates the in-memory persistence has been closed
 	ErrClosed = errors.New("memory persistence is closed")
-
-	joinAggregateID, _ = id.MakeCodec('\x1f')
 )
 
 var _ timebox.Backend = (*Persistence)(nil)
@@ -51,7 +48,7 @@ var _ timebox.Backend = (*Persistence)(nil)
 // NewPersistence creates a new in-memory Persistence
 func NewPersistence() *Persistence {
 	return &Persistence{
-		aggs:      map[string]*aggregate{},
+		aggs:      map[timebox.AggregateID]*aggregate{},
 		archive:   []*timebox.ArchiveRecord{},
 		archiveCh: make(chan struct{}, 1),
 	}
@@ -102,7 +99,7 @@ func (p *Persistence) LoadEvents(
 		return nil, err
 	}
 
-	a, ok := p.aggs[keyFor(req.ID)]
+	a, ok := p.aggs[req.ID]
 	if !ok {
 		return &timebox.EventsResult{
 			StartSequence: req.FromSeq,
@@ -129,7 +126,7 @@ func (p *Persistence) LoadSnapshot(
 		return nil, err
 	}
 
-	a, ok := p.aggs[keyFor(req.ID)]
+	a, ok := p.aggs[req.ID]
 	if !ok {
 		return &timebox.SnapshotRecord{}, nil
 	}
@@ -198,7 +195,7 @@ func (p *Persistence) GetAggregateStatus(
 		return "", err
 	}
 
-	a, ok := p.aggs[keyFor(id)]
+	a, ok := p.aggs[id]
 	if !ok {
 		return "", nil
 	}
@@ -269,8 +266,7 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	if err := p.checkClosed(); err != nil {
 		return err
 	}
-	key := keyFor(id)
-	a, ok := p.aggs[key]
+	a, ok := p.aggs[id]
 	if !ok {
 		return nil
 	}
@@ -288,7 +284,7 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	}
 
 	p.archive = append(p.archive, rec)
-	delete(p.aggs, key)
+	delete(p.aggs, id)
 	p.notifyArchive()
 	return nil
 }
@@ -322,7 +318,7 @@ func (p *Persistence) ConsumeArchive(
 }
 
 func (p *Persistence) checkSequence(req timebox.AppendRequest) error {
-	a, ok := p.aggs[keyFor(req.ID)]
+	a, ok := p.aggs[req.ID]
 	if !ok {
 		if req.ExpectedSequence == 0 {
 			return nil
@@ -363,15 +359,14 @@ func (p *Persistence) applyAppend(req timebox.AppendRequest) {
 }
 
 func (p *Persistence) aggregate(id timebox.AggregateID) *aggregate {
-	key := keyFor(id)
-	a, ok := p.aggs[key]
+	a, ok := p.aggs[id]
 	if !ok {
 		a = &aggregate{
 			id:     id,
 			events: []*timebox.Event{},
 			tags:   map[string]bool{},
 		}
-		p.aggs[key] = a
+		p.aggs[id] = a
 	}
 	return a
 }
@@ -415,8 +410,4 @@ func (p *Persistence) checkClosed() error {
 		return ErrClosed
 	}
 	return nil
-}
-
-func keyFor(id timebox.AggregateID) string {
-	return joinAggregateID(id)
 }

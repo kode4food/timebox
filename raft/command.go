@@ -6,6 +6,7 @@ import (
 
 	"github.com/kode4food/timebox"
 	bin "github.com/kode4food/timebox/internal/binary"
+	"github.com/kode4food/timebox/internal/id"
 )
 
 type (
@@ -254,10 +255,11 @@ func decodeConsumeArchiveCommand(data []byte) (*ConsumeArchiveCommand, error) {
 	return &ConsumeArchiveCommand{StreamID: streamID}, nil
 }
 
-func appendAggregateID(buf []byte, id timebox.AggregateID) []byte {
-	buf = bin.AppendUint32(buf, uint32(len(id)))
-	for _, part := range id {
-		buf = bin.AppendString(buf, string(part))
+func appendAggregateID(buf []byte, aggID timebox.AggregateID) []byte {
+	parts := id.Parts[string](aggID)
+	buf = bin.AppendUint32(buf, uint32(len(parts)))
+	for _, part := range parts {
+		buf = bin.AppendString(buf, part)
 	}
 	return buf
 }
@@ -274,18 +276,25 @@ func appendBoolMap(buf []byte, values map[string]bool) []byte {
 func readAggregateID(data []byte) (timebox.AggregateID, []byte, error) {
 	n, data, err := bin.ReadUint32(data)
 	if err != nil {
-		return nil, nil, err
+		return timebox.AggregateID{}, nil, err
 	}
-	id := make(timebox.AggregateID, n)
-	for i := range id {
+	if n > 2 {
+		return timebox.AggregateID{}, nil, timebox.ErrInvalidAggregateID
+	}
+	parts := make([]timebox.ID, n)
+	for i := range parts {
 		var s string
 		s, data, err = bin.ReadString(data)
 		if err != nil {
-			return nil, nil, err
+			return timebox.AggregateID{}, nil, err
 		}
-		id[i] = timebox.ID(s)
+		parts[i] = timebox.ID(s)
 	}
-	return id, data, nil
+	aggID, err := timebox.AggregateIDFromParts(parts)
+	if err != nil {
+		return timebox.AggregateID{}, nil, err
+	}
+	return aggID, data, nil
 }
 
 func readBoolMap(data []byte) (map[string]bool, []byte, error) {

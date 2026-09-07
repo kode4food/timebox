@@ -448,7 +448,7 @@ func (p *inlineSnapshotPersistence) LoadSnapshot(
 func (p *inlineSnapshotPersistence) SaveSnapshot(
 	req timebox.SnapshotRequest,
 ) error {
-	p.saveID = append(timebox.AggregateID(nil), req.ID...)
+	p.saveID = req.ID
 	p.saveData = append([]byte(nil), req.Data...)
 	p.saveSequence = req.Sequence
 	p.saveCount++

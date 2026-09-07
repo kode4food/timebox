@@ -128,7 +128,7 @@ func TestNewStore(t *testing.T) {
 		numberEvent(third, 1),
 	}))
 
-	ids, err := store.ListAggregates(timebox.NewAggregateID("order"))
+	ids, err := store.ListAggregates(timebox.NewAggregateType("order"))
 	if !assert.NoError(t, err) {
 		return
 	}

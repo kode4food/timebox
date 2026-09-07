@@ -39,7 +39,7 @@ func runLifecycle(t *testing.T, p Profile) {
 		err = store.PutSnapshot(id, map[string]int{"value": 1}, 1)
 		assert.Error(t, err)
 
-		_, err = store.ListAggregates(nil)
+		_, err = store.ListAggregates(timebox.AggregateID{})
 		assert.Error(t, err)
 
 		_, err = store.ListAggregatesByStatus("active")

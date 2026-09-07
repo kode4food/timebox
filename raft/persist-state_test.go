@@ -256,7 +256,7 @@ func TestFollowerExec(t *testing.T) {
 		return
 	}
 
-	id := timebox.NewAggregateID("cluster")
+	id := timebox.NewAggregateType("cluster")
 	appliers := timebox.Appliers[counterState]{
 		incrementedEvent: func(
 			st counterState, ev *timebox.Event,

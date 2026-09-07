@@ -51,8 +51,12 @@ func (p *Persistence) ListAggregatesByStatus(
 		if err := rows.Scan(&parts, &ts); err != nil {
 			return nil, err
 		}
+		aggID, err := timebox.AggregateIDFromParts(parts)
+		if err != nil {
+			return nil, err
+		}
 		res = append(res, timebox.StatusEntry{
-			ID:        aggregateID(parts),
+			ID:        aggID,
 			Timestamp: time.UnixMilli(ts).UTC(),
 		})
 	}
@@ -83,7 +87,11 @@ func (p *Persistence) ListAggregatesByTag(
 		if err := rows.Scan(&parts); err != nil {
 			return nil, err
 		}
-		res = append(res, aggregateID(parts))
+		aggID, err := timebox.AggregateIDFromParts(parts)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, aggID)
 	}
 	return res, rows.Err()
 }

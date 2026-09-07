@@ -33,11 +33,12 @@ Rules:
 2. Keep exported signatures in the language of the receiving public package.
 3. Preserve the core append contract in every backend: `Append` takes any number of `AppendRequest` values and applies all of them or none, with aggregate-local optimistic concurrency, atomic event-batch append, aligned derived index updates, and a `VersionConflictError` naming the first failing request's aggregate.
 4. Treat snapshots as accelerative state, never as the authoritative event source.
-5. Add interfaces only for real lifecycle or substitution seams.
-6. Name packages and files by concern. Never create `util`, `helpers`, `common`, `models`, or `types` dumping grounds.
-7. Group files by concern. Size alone never justifies a split or move.
-8. Put reusable backend semantics in the root contract or compliance suite rather than duplicating them across backends.
-9. Move code only after confirming its owner and reducing caller concepts. Forwarding wrappers never justify a boundary.
+5. Keep `AggregateID` a comparable type and key pair. An empty key names the type, serving both as a prefix over that type and as a singleton aggregate's identity. Canonicalize IDs to strings or parts only at storage and wire boundaries.
+6. Add interfaces only for real lifecycle or substitution seams.
+7. Name packages and files by concern. Never create `util`, `helpers`, `common`, `models`, or `types` dumping grounds.
+8. Group files by concern. Size alone never justifies a split or move.
+9. Put reusable backend semantics in the root contract or compliance suite rather than duplicating them across backends.
+10. Move code only after confirming its owner and reducing caller concepts. Forwarding wrappers never justify a boundary.
 
 ## Args and Results
 

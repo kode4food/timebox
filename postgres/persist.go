@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/id"
 )
 
 type (
@@ -232,13 +233,14 @@ func (p *Persistence) SaveSnapshot(
 
 // ListAggregates lists aggregate IDs matching the given prefix
 func (p *Persistence) ListAggregates(
-	id timebox.AggregateID,
+	prefix timebox.AggregateID,
 ) ([]timebox.AggregateID, error) {
 	ctx := context.Background()
 
 	var rows pgx.Rows
 	var err error
-	if len(id) == 0 {
+	parts := id.Parts[string](prefix)
+	if len(parts) == 0 {
 		rows, err = p.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
@@ -251,7 +253,7 @@ func (p *Persistence) ListAggregates(
 			WHERE store = $1
 			  AND array_length(aggregate_parts, 1) >= $2
 			  AND aggregate_parts[1:$2] = $3::text[]
-		`, p.Prefix, len(id), stringParts(id))
+		`, p.Prefix, len(parts), parts)
 	}
 	if err != nil {
 		return nil, err
@@ -264,7 +266,11 @@ func (p *Persistence) ListAggregates(
 		if err := rows.Scan(&parts); err != nil {
 			return nil, err
 		}
-		res = append(res, aggregateID(parts))
+		aggID, err := timebox.AggregateIDFromParts(parts)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, aggID)
 	}
 	return res, rows.Err()
 }
@@ -349,8 +355,8 @@ func (p *Persistence) loadEvents(
 	return res, rows.Err()
 }
 
-func aggregateKey(id timebox.AggregateID) (string, []string) {
-	parts := stringParts(id)
+func aggregateKey(aggID timebox.AggregateID) (string, []string) {
+	parts := id.Parts[string](aggID)
 	if len(parts) == 0 {
 		return "", nil
 	}
@@ -362,20 +368,4 @@ func aggregateKey(id timebox.AggregateID) (string, []string) {
 		b.WriteByte(';')
 	}
 	return b.String(), parts
-}
-
-func stringParts(id timebox.AggregateID) []string {
-	res := make([]string, 0, len(id))
-	for _, part := range id {
-		res = append(res, string(part))
-	}
-	return res
-}
-
-func aggregateID(parts []string) timebox.AggregateID {
-	res := make(timebox.AggregateID, 0, len(parts))
-	for _, part := range parts {
-		res = append(res, timebox.ID(part))
-	}
-	return res
 }

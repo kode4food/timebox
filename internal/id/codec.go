@@ -19,16 +19,27 @@ func MakeCodec(sep byte) (Joiner, Parser) {
 	return makeJoiner(sep), makeParser(sep)
 }
 
+// Parts returns an AggregateID's parts as the string type storage wants
+func Parts[T ~string](aggID timebox.AggregateID) []T {
+	parts := aggID.Parts()
+	res := make([]T, len(parts))
+	for i, part := range parts {
+		res[i] = T(part)
+	}
+	return res
+}
+
 func makeJoiner(sep byte) Joiner {
 	return func(id timebox.AggregateID) string {
-		n := max(len(id)-1, 0)
-		for _, part := range id {
+		parts := id.Parts()
+		n := max(len(parts)-1, 0)
+		for _, part := range parts {
 			n += escapedLen(string(part), sep)
 		}
 
 		var b strings.Builder
 		b.Grow(n)
-		for i, part := range id {
+		for i, part := range parts {
 			if i > 0 {
 				b.WriteByte(sep)
 			}
@@ -40,42 +51,11 @@ func makeJoiner(sep byte) Joiner {
 
 func makeParser(sep byte) Parser {
 	return func(value string) timebox.AggregateID {
-		res := make(timebox.AggregateID, 0, countParts(value, sep))
-		part := make([]byte, 0, len(value))
-		esc := false
-		start := 0
-
-		for i := 0; i < len(value); i++ {
-			switch value[i] {
-			case '\\':
-				if !esc {
-					part = part[:0]
-					esc = true
-				}
-				part = append(part, value[start:i]...)
-				if i+1 < len(value) {
-					part = append(part, value[i+1])
-					i++
-				} else {
-					part = append(part, '\\')
-				}
-				start = i + 1
-			case sep:
-				if esc {
-					part = append(part, value[start:i]...)
-					res = append(res, timebox.ID(part))
-					esc = false
-				} else {
-					res = append(res, timebox.ID(strings.Clone(value[start:i])))
-				}
-				start = i + 1
-			}
+		typ, key, split := cutEscaped(value, sep)
+		if !split {
+			return timebox.NewAggregateType(timebox.ID(typ))
 		}
-		if esc {
-			part = append(part, value[start:]...)
-			return append(res, timebox.ID(part))
-		}
-		return append(res, timebox.ID(strings.Clone(value[start:])))
+		return timebox.NewAggregateID(timebox.ID(typ), timebox.ID(key))
 	}
 }
 
@@ -98,25 +78,42 @@ func appendEscaped(b *strings.Builder, value string, sep byte) {
 	b.WriteString(value[start:])
 }
 
-func countParts(value string, sep byte) int {
-	if value == "" {
-		return 1
-	}
-
-	res := 1
-	esc := false
+// cutEscaped splits value at its first unescaped sep, unescaping both sides.
+// Everything past that separator is the key, however many separators it
+// contains, so a joined AggregateID always parses back to at most two parts
+func cutEscaped(value string, sep byte) (string, string, bool) {
 	for i := 0; i < len(value); i++ {
-		c := value[i]
-		switch {
-		case esc:
-			esc = false
-		case c == '\\':
-			esc = true
-		case c == sep:
-			res++
+		switch value[i] {
+		case '\\':
+			i++
+		case sep:
+			return unescape(value[:i]), unescape(value[i+1:]), true
 		}
 	}
-	return res
+	return unescape(value), "", false
+}
+
+func unescape(value string) string {
+	if strings.IndexByte(value, '\\') < 0 {
+		return value
+	}
+
+	var b strings.Builder
+	b.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c != '\\' {
+			b.WriteByte(c)
+			continue
+		}
+		if i+1 < len(value) {
+			i++
+			b.WriteByte(value[i])
+			continue
+		}
+		b.WriteByte('\\')
+	}
+	return b.String()
 }
 
 func escapedLen(value string, sep byte) int {

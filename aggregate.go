@@ -2,6 +2,7 @@ package timebox
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -36,16 +37,34 @@ type (
 	// succeeds, as well as the Events persisted by that execution
 	SuccessAction[T any] func(T, []*Event)
 
-	// AggregateID identifies an aggregate as a set of parts ("order", "123")
-	AggregateID []ID
+	// AggregateID identifies an aggregate by type and key ("order", "123"). An
+	// empty Key names the type itself
+	AggregateID struct {
+		Type ID
+		Key  ID
+	}
 
 	// ID is a single component of an AggregateID
 	ID string
 )
 
-// NewAggregateID builds an AggregateID from its parts
-func NewAggregateID(parts ...ID) AggregateID {
-	return parts
+var (
+	// ErrInvalidAggregateID indicates an encoded AggregateID did not decode to
+	// a type and an optional key
+	ErrInvalidAggregateID = errors.New(
+		"aggregate id must have at most a type and a key",
+	)
+)
+
+// NewAggregateID builds an AggregateID from its type and key
+func NewAggregateID(typ, key ID) AggregateID {
+	return AggregateID{Type: typ, Key: key}
+}
+
+// NewAggregateType builds an AggregateID naming a type but no individual
+// aggregate, matching every aggregate of that type when used as a prefix
+func NewAggregateType(typ ID) AggregateID {
+	return AggregateID{Type: typ}
 }
 
 func newAggregator[T any](
@@ -60,7 +79,7 @@ func newAggregator[T any](
 	}
 }
 
-// ID returns the aggregate's identifier components
+// ID returns the aggregate's identifier
 func (a *Aggregator[_]) ID() AggregateID {
 	return a.id
 }
@@ -110,6 +129,81 @@ func (a *Aggregator[_]) Transaction() *Transaction {
 	return a.tx
 }
 
+// Parts returns the AggregateID's populated components, from its type to its
+// key. A zero AggregateID has no parts
+func (id AggregateID) Parts() []ID {
+	switch {
+	case id.Type == "":
+		return nil
+	case id.Key == "":
+		return []ID{id.Type}
+	default:
+		return []ID{id.Type, id.Key}
+	}
+}
+
+// String returns a human-readable AggregateID representation
+func (id AggregateID) String() string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, p := range id.Parts() {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Quote(string(p)))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// HasPrefix checks if the AggregateID starts with the provided prefix. A prefix
+// naming only a type matches every aggregate of that type, and the zero
+// AggregateID matches everything
+func (id AggregateID) HasPrefix(prefix AggregateID) bool {
+	switch {
+	case prefix.Type == "":
+		return true
+	case prefix.Type != id.Type:
+		return false
+	default:
+		return prefix.Key == "" || prefix.Key == id.Key
+	}
+}
+
+// MarshalJSON encodes the AggregateID as an array of its parts
+func (id AggregateID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.Parts())
+}
+
+// UnmarshalJSON decodes the AggregateID from an array of its parts
+func (id *AggregateID) UnmarshalJSON(data []byte) error {
+	var parts []ID
+	if err := json.Unmarshal(data, &parts); err != nil {
+		return err
+	}
+	res, err := AggregateIDFromParts(parts)
+	if err != nil {
+		return err
+	}
+	*id = res
+	return nil
+}
+
+// AggregateIDFromParts rebuilds an AggregateID from parts decoded out of
+// storage or off the wire
+func AggregateIDFromParts[T ~string](parts []T) (AggregateID, error) {
+	switch len(parts) {
+	case 0:
+		return AggregateID{}, nil
+	case 1:
+		return NewAggregateType(ID(parts[0])), nil
+	case 2:
+		return NewAggregateID(ID(parts[0]), ID(parts[1])), nil
+	default:
+		return AggregateID{}, ErrInvalidAggregateID
+	}
+}
+
 func (a *Aggregator[T]) apply(ev *Event) {
 	if apply, ok := a.appliers[ev.Type]; ok {
 		a.value = apply(a.value, ev)
@@ -149,46 +243,6 @@ func (a *Aggregator[T]) runOnSuccess(defaults []SuccessAction[T]) {
 			cb(val, evs)
 		}(fn)
 	}
-}
-
-// Equal compares two AggregateIDs for equality
-func (id AggregateID) Equal(other AggregateID) bool {
-	if len(id) != len(other) {
-		return false
-	}
-	for i, p := range id {
-		if other[i] != p {
-			return false
-		}
-	}
-	return true
-}
-
-// String returns a human-readable AggregateID representation
-func (id AggregateID) String() string {
-	var b strings.Builder
-	b.WriteByte('[')
-	for i, p := range id {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(strconv.Quote(string(p)))
-	}
-	b.WriteByte(']')
-	return b.String()
-}
-
-// HasPrefix checks if the AggregateID starts with the provided prefix
-func (id AggregateID) HasPrefix(prefix AggregateID) bool {
-	if len(prefix) > len(id) {
-		return false
-	}
-	for i, p := range prefix {
-		if id[i] != p {
-			return false
-		}
-	}
-	return true
 }
 
 func combineSuccess[T any](def, agg []SuccessAction[T]) []SuccessAction[T] {

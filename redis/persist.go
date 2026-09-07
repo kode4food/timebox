@@ -275,7 +275,7 @@ func (p *Persistence) ListAggregates(
 		p.listAggregateKey(snapshotSeqSuffix),
 	}
 
-	seen := map[string]timebox.AggregateID{}
+	seen := map[timebox.AggregateID]struct{}{}
 	for _, searchKey := range searchKeys {
 		keys, err := p.client.Keys(context.Background(), searchKey).Result()
 		if err != nil {
@@ -284,27 +284,14 @@ func (p *Persistence) ListAggregates(
 
 		for _, key := range keys {
 			aid := p.parseAggregateIDFromKey(key)
-			if len(id) > len(aid) {
-				continue
+			if aid.HasPrefix(id) {
+				seen[aid] = struct{}{}
 			}
-
-			match := true
-			for i, part := range id {
-				if aid[i] != part {
-					match = false
-					break
-				}
-			}
-			if !match {
-				continue
-			}
-
-			seen[joinAggregateID(aid)] = aid
 		}
 	}
 
 	ids := make([]timebox.AggregateID, 0, len(seen))
-	for _, aid := range seen {
+	for aid := range seen {
 		ids = append(ids, aid)
 	}
 	return ids, nil

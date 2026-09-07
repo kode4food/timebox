@@ -13,7 +13,7 @@ func runAggregates(t *testing.T, p Profile) {
 	t.Run("Empty", func(t *testing.T) {
 		store := openStore(t, p, StoreConfig{})
 
-		all, err := store.ListAggregates(nil)
+		all, err := store.ListAggregates(timebox.AggregateID{})
 		assert.NoError(t, err)
 		assert.Empty(t, all)
 	})
@@ -32,18 +32,18 @@ func runAggregates(t *testing.T, p Profile) {
 		assert.NoError(t, store.AppendEvents(second, 0, []*timebox.Event{ev}))
 		assert.NoError(t, store.AppendEvents(third, 0, []*timebox.Event{ev}))
 
-		all, err := store.ListAggregates(nil)
+		all, err := store.ListAggregates(timebox.AggregateID{})
 		assert.NoError(t, err)
 		assert.ElementsMatch(t,
 			[]timebox.AggregateID{first, second, third},
 			all,
 		)
 
-		orders, err := store.ListAggregates(timebox.NewAggregateID("order"))
+		orders, err := store.ListAggregates(timebox.NewAggregateType("order"))
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{first, second}, orders)
 
-		users, err := store.ListAggregates(timebox.NewAggregateID("user"))
+		users, err := store.ListAggregates(timebox.NewAggregateType("user"))
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{third}, users)
 	})
@@ -52,7 +52,7 @@ func runAggregates(t *testing.T, p Profile) {
 		store := openStore(t, p, StoreConfig{
 			Indexer: newIndexer(t),
 		})
-		id := timebox.NewAggregateID(`order:1`, `part\2`, `quoted["3"]`)
+		id := timebox.NewAggregateID(`order:1`, `part\2 quoted["3"]`)
 		active := "active"
 		ev := testEvent(t,
 			time.Unix(1_700_000_008, 0).UTC(),
@@ -69,7 +69,7 @@ func runAggregates(t *testing.T, p Profile) {
 		}
 		assert.Equal(t, id, evs[0].AggregateID)
 
-		ids, err := store.ListAggregates(timebox.NewAggregateID(`order:1`))
+		ids, err := store.ListAggregates(timebox.NewAggregateType(`order:1`))
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 
@@ -81,7 +81,7 @@ func runAggregates(t *testing.T, p Profile) {
 	t.Run("AggregateIDEscaping", func(t *testing.T) {
 		store := openStore(t, p, StoreConfig{})
 		redisEsc := timebox.NewAggregateID("order:1", "item")
-		redisRaw := timebox.NewAggregateID("order", "1", "item")
+		redisRaw := timebox.NewAggregateID("order", "1:item")
 		memEsc := timebox.NewAggregateID("mem\x1f1", "item")
 		memRaw := timebox.NewAggregateID("mem", "1\x1fitem")
 		at := time.Unix(1_700_000_009, 0).UTC()
@@ -127,19 +127,19 @@ func runAggregates(t *testing.T, p Profile) {
 		}
 		assert.Equal(t, memRaw, evs[0].AggregateID)
 
-		ids, err := store.ListAggregates(timebox.NewAggregateID("order:1"))
+		ids, err := store.ListAggregates(timebox.NewAggregateType("order:1"))
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{redisEsc}, ids)
 
-		ids, err = store.ListAggregates(timebox.NewAggregateID("order"))
+		ids, err = store.ListAggregates(timebox.NewAggregateType("order"))
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{redisRaw}, ids)
 
-		ids, err = store.ListAggregates(timebox.NewAggregateID("mem\x1f1"))
+		ids, err = store.ListAggregates(timebox.NewAggregateType("mem\x1f1"))
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{memEsc}, ids)
 
-		ids, err = store.ListAggregates(timebox.NewAggregateID("mem"))
+		ids, err = store.ListAggregates(timebox.NewAggregateType("mem"))
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{memRaw}, ids)
 	})

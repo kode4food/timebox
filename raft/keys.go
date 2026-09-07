@@ -90,14 +90,14 @@ func lastAppliedKey() []byte {
 }
 
 func encodeAggregateID(id timebox.AggregateID) string {
-	if len(id) == 0 {
+	if id.Type == "" {
 		return "_"
 	}
-	parts := make([]string, len(id))
-	for i, part := range id {
-		parts[i] = encodeKeyPart(string(part))
+	res := encodeKeyPart(string(id.Type))
+	if id.Key == "" {
+		return res
 	}
-	return strings.Join(parts, ".")
+	return res + "." + encodeKeyPart(string(id.Key))
 }
 
 func decodeAggregateID(value string) (timebox.AggregateID, error) {
@@ -105,16 +105,19 @@ func decodeAggregateID(value string) (timebox.AggregateID, error) {
 		return timebox.AggregateID{}, nil
 	}
 
-	rawParts := strings.Split(value, ".")
-	res := make(timebox.AggregateID, len(rawParts))
-	for i, part := range rawParts {
-		decoded, err := decodeKeyPart(part)
-		if err != nil {
-			return nil, err
-		}
-		res[i] = timebox.ID(decoded)
+	rawType, rawKey, split := strings.Cut(value, ".")
+	typ, err := decodeKeyPart(rawType)
+	if err != nil {
+		return timebox.AggregateID{}, err
 	}
-	return res, nil
+	if !split {
+		return timebox.NewAggregateType(timebox.ID(typ)), nil
+	}
+	key, err := decodeKeyPart(rawKey)
+	if err != nil {
+		return timebox.AggregateID{}, err
+	}
+	return timebox.NewAggregateID(timebox.ID(typ), timebox.ID(key)), nil
 }
 
 func encodeKeyPart(value string) string {

@@ -10,7 +10,7 @@ type (
 	// commits it as a single atomic append. It is not safe for concurrent use
 	Transaction struct {
 		store *Store
-		parts []*participant
+		parts map[AggregateID]*participant
 	}
 
 	// participant holds one aggregate's staged append intent along with the
@@ -20,7 +20,6 @@ type (
 		complete   func()
 		reset      func([]*Event)
 		request    AppendRequest
-		id         AggregateID
 		staged     bool
 	}
 )
@@ -42,7 +41,10 @@ var (
 // to MaxRetries. An error returned from fn discards the transaction
 func (s *Store) Transact(fn func(*Transaction) error) error {
 	for range s.config.MaxRetries {
-		t := &Transaction{store: s}
+		t := &Transaction{
+			store: s,
+			parts: map[AggregateID]*participant{},
+		}
 		if err := fn(t); err != nil {
 			return err
 		}
@@ -91,10 +93,7 @@ func (t *Transaction) Exec[T any](
 func (t *Transaction) join[T any](
 	e *Executor[T], id AggregateID,
 ) (*participant, *Aggregator[T], error) {
-	for _, p := range t.parts {
-		if !p.id.Equal(id) {
-			continue
-		}
+	if p, ok := t.parts[id]; ok {
 		ag, ok := p.aggregator.(*Aggregator[T])
 		if !ok {
 			return nil, nil, ErrAggregateTypeConflict
@@ -111,7 +110,6 @@ func (t *Transaction) join[T any](
 
 	p := &participant{
 		aggregator: ag,
-		id:         id,
 		complete:   func() { e.complete(id, ag) },
 		reset: func(evs []*Event) {
 			if len(evs) == 0 {
@@ -121,7 +119,7 @@ func (t *Transaction) join[T any](
 			e.updateCache(id, e.applyEvents(proj.state, evs, proj.nextSeq))
 		},
 	}
-	t.parts = append(t.parts, p)
+	t.parts[id] = p
 	return p, ag, nil
 }
 
@@ -141,8 +139,8 @@ func (t *Transaction) commit() error {
 // reset refreshes cached projections after a failed commit attempt. Only the
 // conflicting aggregate may adopt the conflict's events
 func (t *Transaction) reset(confErr *VersionConflictError) {
-	for _, p := range t.parts {
-		if p.id.Equal(confErr.ID) {
+	for id, p := range t.parts {
+		if id == confErr.ID {
 			p.reset(confErr.NewEvents)
 			continue
 		}

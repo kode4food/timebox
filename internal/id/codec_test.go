@@ -18,19 +18,23 @@ func TestCodec(t *testing.T) {
 	}{
 		{
 			name:  "escapes separator and slash",
-			aggID: timebox.NewAggregateID(`order:1`, `path\\part`, `%done`),
+			aggID: timebox.NewAggregateID(`order:1`, `path\\part:%done`),
 		},
 		{
 			name:  "simple segments",
-			aggID: timebox.NewAggregateID("order", "1", `path\\part`),
+			aggID: timebox.NewAggregateID("order", "1"),
+		},
+		{
+			name:  "type only",
+			aggID: timebox.NewAggregateType("order"),
 		},
 		{
 			name:  "empty parts",
-			aggID: timebox.NewAggregateID("", ""),
+			aggID: timebox.AggregateID{},
 		},
 		{
 			name:  "trailing slash",
-			aggID: timebox.NewAggregateID(`path\\`),
+			aggID: timebox.NewAggregateType(`path\\`),
 		},
 	}
 
@@ -40,7 +44,19 @@ func TestCodec(t *testing.T) {
 		})
 	}
 
-	left := timebox.NewAggregateID(`order:1`, `path\\part`, `%done`)
-	right := timebox.NewAggregateID("order", "1", `path\\part`)
+	left := timebox.NewAggregateID(`order:1`, `path\\part`)
+	right := timebox.NewAggregateID("order", `1:path\\part`)
 	assert.NotEqual(t, join(left), join(right))
+}
+
+func TestParts(t *testing.T) {
+	assert.Equal(t,
+		[]string{"order", "1"},
+		id.Parts[string](timebox.NewAggregateID("order", "1")),
+	)
+	assert.Equal(t,
+		[]string{"order"},
+		id.Parts[string](timebox.NewAggregateType("order")),
+	)
+	assert.Empty(t, id.Parts[string](timebox.AggregateID{}))
 }
