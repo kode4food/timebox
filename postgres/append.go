@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/check"
 )
 
 type appendFunctionSpec struct {
@@ -83,6 +84,10 @@ const checkSequenceQuery = `
 
 // Append appends every request's events if each expected sequence matches
 func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
+	if err := check.Distinct(reqs); err != nil {
+		return err
+	}
+
 	ctx := context.Background()
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -114,8 +119,7 @@ func (p *Persistence) lockAppends(
 	})
 	for _, req := range ordered {
 		key, parts := aggregateKey(req.ID)
-		writes := len(req.Events) > 0 || req.Status != nil || len(req.Tags) > 0
-		if req.ExpectedSequence == 0 && writes {
+		if req.ExpectedSequence == 0 && check.Mutates(req) {
 			if err := p.insertAggregate(ctx, tx, key, parts); err != nil {
 				return err
 			}
@@ -136,7 +140,7 @@ func (p *Persistence) appendOne(
 	ctx context.Context, q querier, req timebox.AppendRequest,
 ) error {
 	key, parts := aggregateKey(req.ID)
-	if len(req.Events) == 0 && req.Status == nil && len(req.Tags) == 0 {
+	if !check.Mutates(req) {
 		return p.checkConflict(ctx, q, req.ID, key, req.ExpectedSequence)
 	}
 	evAts, evTypes, evData := encodeAppendEvents(req.Events)

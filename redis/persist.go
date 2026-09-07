@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/check"
 )
 
 // Persistence implements timebox.Persistence using Redis/Valkey
@@ -117,14 +118,18 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 	if len(reqs) == 0 {
 		return nil
 	}
+	if err := check.Distinct(reqs); err != nil {
+		return err
+	}
 
-	calls := make([]luaAppendCall, len(reqs))
-	for i, req := range reqs {
+	var keys []string
+	args := []any{len(reqs)}
+	for _, req := range reqs {
 		evs, err := timebox.EncodeJSONEvents(req.Events)
 		if err != nil {
 			return err
 		}
-		calls[i] = buildLuaAppendCall(req.Store, p, luaAppendInput{
+		keys, args = p.appendLuaCall(keys, args, req.Store, luaAppendInput{
 			id:       req.ID,
 			atSeq:    req.ExpectedSequence,
 			status:   req.Status,
@@ -134,7 +139,6 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 		})
 	}
 
-	keys, args := combineLuaAppendCalls(calls)
 	result, err := p.appendScript.Run(
 		context.Background(), p.client, keys, args...,
 	).Result()
@@ -384,18 +388,6 @@ func appendConflict(reqs []timebox.AppendRequest, result any) error {
 		ActualSequence:   seq,
 		NewEvents:        newEvents,
 	}
-}
-
-// combineLuaAppendCalls flattens each request's keys and args in the order the
-// script's cursors walk them, led by the request count
-func combineLuaAppendCalls(calls []luaAppendCall) ([]string, []any) {
-	var keys []string
-	args := []any{len(calls)}
-	for _, call := range calls {
-		keys = append(keys, call.keys...)
-		args = append(args, call.args...)
-	}
-	return keys, args
 }
 
 func escapeKeyPart(s string) string {

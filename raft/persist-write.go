@@ -4,17 +4,22 @@ import (
 	"context"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/check"
 )
 
 // Append proposes every append mutation through the local Raft node
 func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
+	if err := check.Distinct(reqs); err != nil {
+		return err
+	}
+
 	var events []*timebox.Event
 	mutates := false
 	for _, req := range reqs {
 		if err := p.checkConflict(req.ID, req.ExpectedSequence); err != nil {
 			return err
 		}
-		if len(req.Events) != 0 || req.Status != nil || len(req.Tags) != 0 {
+		if check.Mutates(req) {
 			mutates = true
 		}
 		events = append(events, req.Events...)

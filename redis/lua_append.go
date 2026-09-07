@@ -7,13 +7,6 @@ import (
 )
 
 type (
-	// luaAppendCall carries one request's contribution to the combined KEYS
-	// and ARGV of the append script
-	luaAppendCall struct {
-		keys []string
-		args []any
-	}
-
 	luaAppendInput struct {
 		statusAt time.Time
 		status   *string
@@ -45,25 +38,28 @@ const (
 	luaAppendTrim   = 4
 )
 
-func buildLuaAppendCall(
-	store *timebox.Store, p *Persistence, in luaAppendInput,
-) luaAppendCall {
+// appendLuaCall adds one request's keys and args in the order the script's
+// cursors claim them
+func (p *Persistence) appendLuaCall(
+	keys []string, args []any, store *timebox.Store, in luaAppendInput,
+) ([]string, []any) {
 	ops := newLuaAppendOps(in.tags)
 	spec := luaAppendSpec{
 		trim:   store.Config().TrimEvents,
 		status: in.status != nil,
 		tags:   len(ops) > 0,
 	}
-	return luaAppendCall{
-		keys: buildLuaAppendKeys(p, in.id, spec),
-		args: buildLuaAppendArgs(joinAggregateID(in.id), in, ops, spec),
-	}
+	keys = append(keys, p.buildLuaAppendKeys(in.id, spec)...)
+	args = append(args, buildLuaAppendArgs(
+		joinAggregateID(in.id), in, ops, spec,
+	)...)
+	return keys, args
 }
 
 // buildLuaAppendKeys lists a request's keys in the order the script's key
 // cursor claims them
-func buildLuaAppendKeys(
-	p *Persistence, id timebox.AggregateID, spec luaAppendSpec,
+func (p *Persistence) buildLuaAppendKeys(
+	id timebox.AggregateID, spec luaAppendSpec,
 ) []string {
 	keys := []string{p.buildKey(id, eventsSuffix)}
 	if spec.status {

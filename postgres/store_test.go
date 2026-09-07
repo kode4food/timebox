@@ -17,9 +17,9 @@ import (
 func TestStore(t *testing.T) {
 	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
 		compliance.Run(t, compliance.Profile{
-			NewStore: func(
+			Open: func(
 				t *testing.T, tc compliance.StoreConfig,
-			) *timebox.Store {
+			) (timebox.Backend, *timebox.Store) {
 				t.Helper()
 
 				pCfg := cfg
@@ -40,7 +40,7 @@ func TestStore(t *testing.T) {
 				t.Cleanup(func() {
 					_ = store.Close()
 				})
-				return store
+				return p, store
 			},
 		})
 	})

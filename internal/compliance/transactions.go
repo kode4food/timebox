@@ -79,6 +79,25 @@ func runTransactions(t *testing.T, p Profile) {
 		assertEvents(t, store, second, 1)
 	})
 
+	t.Run("DuplicateAggregate", func(t *testing.T) {
+		backend, store := openBackend(t, p, StoreConfig{})
+		id := timebox.NewAggregateID("tx", "duplicate")
+		req := timebox.AppendRequest{
+			Store: store,
+			ID:    id,
+			Events: []*timebox.Event{
+				testEvent(t,
+					time.Unix(1_700_000_010, 0).UTC(),
+					"counted", 1, nil, nil,
+				),
+			},
+		}
+
+		err := backend.Append(req, req)
+		assert.ErrorIs(t, err, timebox.ErrDuplicateAggregate)
+		assertEvents(t, store, id, 0)
+	})
+
 	t.Run("RollsBack", func(t *testing.T) {
 		store := openStore(t, p, StoreConfig{})
 		exec := store.Executor(newCounter, counterAppliers)

@@ -81,12 +81,8 @@ func (t *Transaction) Exec[T any](
 	if err := cmd(ag.Value(), ag); err != nil {
 		return zero, err
 	}
-	if _, err := ag.flush(func(atSeq int64, evs []*Event) error {
-		p.stage(t.store.appendRequest(id, atSeq, evs))
-		return nil
-	}); err != nil {
-		return zero, err
-	}
+	atSeq, evs := ag.flush()
+	p.stage(t.store.appendRequest(id, atSeq, evs))
 	return ag.Value(), nil
 }
 

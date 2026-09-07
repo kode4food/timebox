@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/internal/check"
 )
 
 type (
@@ -75,6 +76,9 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 	defer p.mu.Unlock()
 
 	if err := p.checkClosed(); err != nil {
+		return err
+	}
+	if err := check.Distinct(reqs); err != nil {
 		return err
 	}
 	for _, req := range reqs {

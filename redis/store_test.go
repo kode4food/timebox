@@ -25,9 +25,9 @@ func TestStore(t *testing.T) {
 
 	compliance.Run(t, compliance.Profile{
 		Archive: true,
-		NewStore: func(
+		Open: func(
 			t *testing.T, cfg compliance.StoreConfig,
-		) *timebox.Store {
+		) (timebox.Backend, *timebox.Store) {
 			t.Helper()
 
 			pCfg := tbredis.DefaultConfig()
@@ -38,14 +38,18 @@ func TestStore(t *testing.T) {
 			storeCfg.Indexer = cfg.Indexer
 			storeCfg.TrimEvents = cfg.TrimEvents
 
-			store, err := newStore(pCfg, storeCfg)
+			p, err := newPersistence(pCfg)
+			if !assert.NoError(t, err) {
+				t.FailNow()
+			}
+			store, err := p.NewStore(storeCfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}
 			t.Cleanup(func() {
 				_ = store.Close()
 			})
-			return store
+			return p, store
 		},
 	})
 }

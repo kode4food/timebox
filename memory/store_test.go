@@ -13,9 +13,9 @@ import (
 func TestStore(t *testing.T) {
 	compliance.Run(t, compliance.Profile{
 		Archive: true,
-		NewStore: func(
+		Open: func(
 			t *testing.T, cfg compliance.StoreConfig,
-		) *timebox.Store {
+		) (timebox.Backend, *timebox.Store) {
 			t.Helper()
 
 			tbCfg := timebox.DefaultConfig()
@@ -30,7 +30,7 @@ func TestStore(t *testing.T) {
 			t.Cleanup(func() {
 				_ = store.Close()
 			})
-			return store
+			return p, store
 		},
 	})
 }

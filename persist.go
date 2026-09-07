@@ -26,9 +26,9 @@ type (
 		// Ready reports when the persistence backend can serve requests
 		Ready() <-chan struct{}
 
-		// Append atomically appends every request if each expected sequence
-		// still matches. It returns a VersionConflictError naming the first
-		// request whose sequence check fails
+		// Append atomically appends every distinctly named request if each
+		// expected sequence still matches. It returns a VersionConflictError
+		// naming the first request whose sequence check fails
 		Append(...AppendRequest) error
 
 		// LoadEvents loads raw persisted events starting at fromSeq
@@ -158,4 +158,7 @@ var (
 
 	// ErrArchiveHandlerMissing indicates a consume call is missing a handler
 	ErrArchiveHandlerMissing = errors.New("archive handler is required")
+
+	// ErrDuplicateAggregate indicates one append names an aggregate twice
+	ErrDuplicateAggregate = errors.New("aggregate appended twice")
 )

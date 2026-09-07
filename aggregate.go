@@ -30,9 +30,6 @@ type (
 	// Applier applies an event to an aggregate state, returning the new state
 	Applier[T any] func(T, *Event) T
 
-	// Flusher persists enqueued events and returns an error if the write fails
-	Flusher func(int64, []*Event) error
-
 	// SuccessAction receives the Aggregator's final value after Executor.Exec
 	// succeeds, as well as the Events persisted by that execution
 	SuccessAction[T any] func(T, []*Event)
@@ -165,22 +162,19 @@ func (a *Aggregator[T]) apply(ev *Event) {
 	}
 }
 
-func (a *Aggregator[_]) flush(f Flusher) (int, error) {
-	count := len(a.enqueued)
-	expectedSeq := a.nextSeq - int64(count)
-	if err := f(expectedSeq, a.enqueued); err != nil {
-		return count, err
-	}
-	if count == 0 {
-		return 0, nil
+func (a *Aggregator[_]) flush() (int64, []*Event) {
+	evs := a.enqueued
+	atSeq := a.nextSeq - int64(len(evs))
+	if len(evs) == 0 {
+		return atSeq, evs
 	}
 	if len(a.flushed) == 0 {
-		a.flushed = a.enqueued
+		a.flushed = evs
 	} else {
-		a.flushed = slices.Concat(a.flushed, a.enqueued)
+		a.flushed = slices.Concat(a.flushed, evs)
 	}
 	a.enqueued = []*Event{}
-	return count, nil
+	return atSeq, evs
 }
 
 func (a *Aggregator[T]) runOnSuccess(defaults []SuccessAction[T]) {
