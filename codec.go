@@ -201,34 +201,18 @@ func (c binEventCodec) ReadAll(data []byte) ([]*Event, []byte, error) {
 }
 
 func appendAggregateID(buf []byte, id AggregateID) []byte {
-	parts := id.Parts()
-	buf = bin.AppendUint32(buf, uint32(len(parts)))
-	for _, part := range parts {
-		buf = bin.AppendString(buf, string(part))
-	}
-	return buf
+	buf = bin.AppendString(buf, string(id.Type))
+	return bin.AppendString(buf, string(id.Key))
 }
 
 func readAggregateID(data []byte) (AggregateID, []byte, error) {
-	n, data, err := bin.ReadUint32(data)
+	typ, data, err := bin.ReadString(data)
 	if err != nil {
 		return AggregateID{}, nil, err
 	}
-	if n > 2 {
-		return AggregateID{}, nil, ErrInvalidAggregateID
-	}
-	parts := make([]ID, n)
-	for i := range parts {
-		part, rest, err := bin.ReadString(data)
-		if err != nil {
-			return AggregateID{}, nil, err
-		}
-		parts[i] = ID(part)
-		data = rest
-	}
-	id, err := AggregateIDFromParts(parts)
+	key, data, err := bin.ReadString(data)
 	if err != nil {
 		return AggregateID{}, nil, err
 	}
-	return id, data, nil
+	return NewAggregateID(ID(typ), ID(key)), data, nil
 }

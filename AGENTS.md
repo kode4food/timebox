@@ -25,7 +25,6 @@ Dependencies flow from the public Timebox API toward backend implementations and
 - `raft`: replicated commit path, durable Raft log, transport, and local materialized state.
 - `internal/binary`: shared binary encoding primitives.
 - `internal/compliance`: backend contract tests.
-- `internal/id`: internal identifier support.
 
 Rules:
 
@@ -33,7 +32,7 @@ Rules:
 2. Keep exported signatures in the language of the receiving public package.
 3. Preserve the core append contract in every backend: `Append` takes any number of `AppendRequest` values and applies all of them or none, with aggregate-local optimistic concurrency, atomic event-batch append, aligned derived index updates, and a `VersionConflictError` naming the first failing request's aggregate.
 4. Treat snapshots as accelerative state, never as the authoritative event source.
-5. Keep `AggregateID` a comparable type and key pair. An empty key names the type, serving both as a prefix over that type and as a singleton aggregate's identity. Canonicalize IDs to strings or parts only at storage and wire boundaries.
+5. Keep `AggregateID` a comparable type and key pair with both components always populated; a singleton aggregate takes `SingletonKey`. Queries over a whole type take an `ID` type rather than a partial `AggregateID`. Canonicalize IDs to strings only at storage and wire boundaries.
 6. Add interfaces only for real lifecycle or substitution seams.
 7. Name packages and files by concern. Never create `util`, `helpers`, `common`, `models`, or `types` dumping grounds.
 8. Group files by concern. Size alone never justifies a split or move.

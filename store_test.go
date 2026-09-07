@@ -309,10 +309,13 @@ func TestListAggregates(t *testing.T) {
 	assert.NoError(t, store.AppendEvents(id1, 0, []*timebox.Event{ev}))
 	assert.NoError(t, store.AppendEvents(id2, 0, []*timebox.Event{ev}))
 
-	ids, err := store.ListAggregates(id1)
+	ids, err := store.ListAggregates("order")
 	assert.NoError(t, err)
-	assert.Len(t, ids, 1)
-	assert.Equal(t, id1, ids[0])
+	assert.ElementsMatch(t, []timebox.AggregateID{id1, id2}, ids)
+
+	ids, err = store.ListAggregates("invoice")
+	assert.NoError(t, err)
+	assert.Empty(t, ids)
 }
 
 func TestGetEventsEmpty(t *testing.T) {
@@ -467,7 +470,7 @@ func (f *fakePersistence) SaveSnapshot(timebox.SnapshotRequest) error {
 }
 
 func (f *fakePersistence) ListAggregates(
-	timebox.AggregateID,
+	timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	return nil, nil
 }

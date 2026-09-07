@@ -49,7 +49,7 @@ func TestClosedMethods(t *testing.T) {
 	_, err = p.ListAggregatesByTag("prod")
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = p.ListAggregates(timebox.AggregateID{})
+	_, err = p.ListAggregates("")
 	assert.ErrorIs(t, err, memory.ErrClosed)
 }
 

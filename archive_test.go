@@ -48,7 +48,7 @@ func TestArchiveToStream(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, events, 0)
 
-	aggregates, err := store.ListAggregates(id)
+	aggregates, err := store.ListAggregates(id.Type)
 	assert.NoError(t, err)
 	assert.Empty(t, aggregates)
 	statuses, err := store.ListAggregatesByStatus("active")

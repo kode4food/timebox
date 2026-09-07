@@ -41,15 +41,6 @@ func TestBinCodecCorrupt(t *testing.T) {
 	assert.True(t, errors.Is(err, bin.ErrCorruptState))
 }
 
-func TestBinCodecTooManyIDParts(t *testing.T) {
-	buf := bin.AppendInt64(nil, time.Now().UnixNano())
-	buf = bin.AppendInt64(buf, 0)
-	buf = bin.AppendUint32(buf, 3)
-
-	_, err := timebox.BinEvent.Decode(buf)
-	assert.ErrorIs(t, err, timebox.ErrInvalidAggregateID)
-}
-
 func TestStreamEncode(t *testing.T) {
 	codec := timebox.BinEvent
 	ev1 := codecEvent()

@@ -40,7 +40,7 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.Equal(t, 0, snap.EventsSize)
 		assert.Empty(t, snap.AdditionalEvents)
 
-		ids, err := store.ListAggregates(timebox.NewAggregateType("order"))
+		ids, err := store.ListAggregates("order")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 	})

@@ -19,21 +19,8 @@ func TestAggregateID(t *testing.T) {
 func TestAggregateType(t *testing.T) {
 	id := timebox.NewAggregateType("counter")
 	assert.Equal(t, timebox.ID("counter"), id.Type)
-	assert.Empty(t, id.Key)
-	assert.Equal(t, `["counter"]`, id.String())
-	assert.Equal(t, `[]`, timebox.AggregateID{}.String())
-}
-
-func TestAggregateIDParts(t *testing.T) {
-	assert.Equal(t,
-		[]timebox.ID{"order", "1"},
-		timebox.NewAggregateID("order", "1").Parts(),
-	)
-	assert.Equal(t,
-		[]timebox.ID{"order"},
-		timebox.NewAggregateType("order").Parts(),
-	)
-	assert.Empty(t, timebox.AggregateID{}.Parts())
+	assert.Equal(t, timebox.SingletonKey, id.Key)
+	assert.Equal(t, `["counter","_"]`, id.String())
 }
 
 func TestAggregateIDStringEscapes(t *testing.T) {
@@ -57,16 +44,6 @@ func TestAggregateIDComparable(t *testing.T) {
 	assert.Len(t, counts, 1)
 }
 
-func TestAggregateIDHasPrefix(t *testing.T) {
-	id := timebox.NewAggregateID("order", "1")
-
-	assert.True(t, id.HasPrefix(timebox.AggregateID{}))
-	assert.True(t, id.HasPrefix(timebox.NewAggregateType("order")))
-	assert.True(t, id.HasPrefix(timebox.NewAggregateID("order", "1")))
-	assert.False(t, id.HasPrefix(timebox.NewAggregateType("invoice")))
-	assert.False(t, id.HasPrefix(timebox.NewAggregateID("order", "2")))
-}
-
 func TestAggregateIDJSON(t *testing.T) {
 	for _, id := range []timebox.AggregateID{
 		timebox.NewAggregateID("order", "1"),
@@ -87,6 +64,8 @@ func TestAggregateIDJSON(t *testing.T) {
 
 	var res timebox.AggregateID
 	err = json.Unmarshal([]byte(`["order","1","item"]`), &res)
+	assert.ErrorIs(t, err, timebox.ErrInvalidAggregateID)
+	err = json.Unmarshal([]byte(`["order"]`), &res)
 	assert.ErrorIs(t, err, timebox.ErrInvalidAggregateID)
 	assert.Error(t, json.Unmarshal([]byte(`"order"`), &res))
 }

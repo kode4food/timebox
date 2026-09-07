@@ -166,15 +166,6 @@ func TestCommandCorrupt(t *testing.T) {
 		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 
-	t.Run("append too many id parts", func(t *testing.T) {
-		c := make(raft.Command, 9) // header
-		c[0] = raft.CmdTypeAppend
-		c = append(c, bin.AppendUint32(nil, 1)...)
-		c = append(c, bin.AppendUint32(nil, 3)...)
-		_, err := c.AppendRequests()
-		assert.ErrorIs(t, err, timebox.ErrInvalidAggregateID)
-	})
-
 	t.Run("snapshot too short", func(t *testing.T) {
 		_, err := raft.Command([]byte{raft.CmdTypeSnapshot}).SnapshotRequest()
 		assert.True(t, errors.Is(err, bin.ErrCorruptState))

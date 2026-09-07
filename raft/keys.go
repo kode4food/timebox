@@ -90,28 +90,23 @@ func lastAppliedKey() []byte {
 }
 
 func encodeAggregateID(id timebox.AggregateID) string {
-	if id.Type == "" {
-		return "_"
-	}
-	res := encodeKeyPart(string(id.Type))
-	if id.Key == "" {
-		return res
-	}
-	return res + "." + encodeKeyPart(string(id.Key))
+	return encodeAggregateType(id.Type) + encodeKeyPart(string(id.Key))
+}
+
+// encodeAggregateType encodes the type half of a key, including its trailing
+// separator, so it also serves as the scan prefix for a whole type
+func encodeAggregateType(typ timebox.ID) string {
+	return encodeKeyPart(string(typ)) + "."
 }
 
 func decodeAggregateID(value string) (timebox.AggregateID, error) {
-	if value == "_" || value == "" {
-		return timebox.AggregateID{}, nil
-	}
-
 	rawType, rawKey, split := strings.Cut(value, ".")
+	if !split {
+		return timebox.AggregateID{}, timebox.ErrInvalidAggregateID
+	}
 	typ, err := decodeKeyPart(rawType)
 	if err != nil {
 		return timebox.AggregateID{}, err
-	}
-	if !split {
-		return timebox.NewAggregateType(timebox.ID(typ)), nil
 	}
 	key, err := decodeKeyPart(rawKey)
 	if err != nil {

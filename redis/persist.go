@@ -11,7 +11,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/kode4food/timebox"
-	"github.com/kode4food/timebox/internal/id"
 )
 
 // Persistence implements timebox.Persistence using Redis/Valkey
@@ -48,12 +47,10 @@ const (
 	archiveConsumerSuffix = archiveStreamSuffix + ":consumer"
 )
 
-// ErrUnexpectedLuaResult indicates a Redis Lua script returned data in an
-// unexpected shape
 var (
+	// ErrUnexpectedLuaResult indicates a Redis Lua script returned data in an
+	// unexpected shape
 	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
-
-	joinAggregateID, parseAggregateID = id.MakeCodec(':')
 )
 
 var _ timebox.Backend = (*Persistence)(nil)
@@ -266,9 +263,10 @@ func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 	return err
 }
 
-// ListAggregates lists aggregate IDs matching the given prefix
+// ListAggregates lists aggregate IDs of the given type, or of every type when
+// it is empty
 func (p *Persistence) ListAggregates(
-	id timebox.AggregateID,
+	typ timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	searchKeys := []string{
 		p.listAggregateKey(eventsSuffix),
@@ -284,7 +282,7 @@ func (p *Persistence) ListAggregates(
 
 		for _, key := range keys {
 			aid := p.parseAggregateIDFromKey(key)
-			if aid.HasPrefix(id) {
+			if typ == "" || aid.Type == typ {
 				seen[aid] = struct{}{}
 			}
 		}

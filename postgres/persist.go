@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kode4food/timebox"
-	"github.com/kode4food/timebox/internal/id"
 )
 
 type (
@@ -231,16 +230,16 @@ func (p *Persistence) SaveSnapshot(
 	return tx.Commit(ctx)
 }
 
-// ListAggregates lists aggregate IDs matching the given prefix
+// ListAggregates lists aggregate IDs of the given type, or of every type when
+// it is empty
 func (p *Persistence) ListAggregates(
-	prefix timebox.AggregateID,
+	typ timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	ctx := context.Background()
 
 	var rows pgx.Rows
 	var err error
-	parts := id.Parts[string](prefix)
-	if len(parts) == 0 {
+	if typ == "" {
 		rows, err = p.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
@@ -250,10 +249,8 @@ func (p *Persistence) ListAggregates(
 		rows, err = p.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
-			WHERE store = $1
-			  AND array_length(aggregate_parts, 1) >= $2
-			  AND aggregate_parts[1:$2] = $3::text[]
-		`, p.Prefix, len(parts), parts)
+			WHERE store = $1 AND aggregate_parts[1] = $2
+		`, p.Prefix, string(typ))
 	}
 	if err != nil {
 		return nil, err
@@ -266,7 +263,7 @@ func (p *Persistence) ListAggregates(
 		if err := rows.Scan(&parts); err != nil {
 			return nil, err
 		}
-		aggID, err := timebox.AggregateIDFromParts(parts)
+		aggID, err := aggregateID(parts)
 		if err != nil {
 			return nil, err
 		}
@@ -355,11 +352,17 @@ func (p *Persistence) loadEvents(
 	return res, rows.Err()
 }
 
-func aggregateKey(aggID timebox.AggregateID) (string, []string) {
-	parts := id.Parts[string](aggID)
-	if len(parts) == 0 {
-		return "", nil
+func aggregateID(parts []string) (timebox.AggregateID, error) {
+	if len(parts) != 2 {
+		return timebox.AggregateID{}, timebox.ErrInvalidAggregateID
 	}
+	return timebox.NewAggregateID(
+		timebox.ID(parts[0]), timebox.ID(parts[1]),
+	), nil
+}
+
+func aggregateKey(id timebox.AggregateID) (string, []string) {
+	parts := []string{string(id.Type), string(id.Key)}
 	var b strings.Builder
 	for _, part := range parts {
 		b.WriteString(strconv.Itoa(len(part)))

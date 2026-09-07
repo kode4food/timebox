@@ -93,7 +93,7 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, events, 0)
 
-	aggregates, err := store.ListAggregates(id)
+	aggregates, err := store.ListAggregates(id.Type)
 	assert.NoError(t, err)
 	assert.Len(t, aggregates, 1)
 	assert.Equal(t, id, aggregates[0])

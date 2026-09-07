@@ -25,19 +25,23 @@ Timebox currently ships with:
 
 ## Aggregate IDs
 
-An `AggregateID` is a comparable struct of two parts, a `Type` and a `Key`, so it can be used as a map key directly and needs no canonicalization outside of the storage and wire boundaries:
+An `AggregateID` is a comparable struct of exactly two components, a `Type` and a `Key`, so it can be used as a map key directly and needs no canonicalization outside of the storage and wire boundaries:
 
 ```go
 id := timebox.NewAggregateID("order", "ORD-12345")
-orders := timebox.NewAggregateType("order")
+catalog := timebox.NewAggregateType("catalog")
 ```
 
-`NewAggregateType` builds an ID with an empty `Key`. It names the aggregate type itself, and serves two purposes:
+Both components are always populated. `NewAggregateType` builds the ID of an aggregate that is the only one of its type, such as a cluster or catalog aggregate, filling `Key` with `timebox.SingletonKey` (`"_"`).
 
-- as a prefix, it matches every aggregate of that type, which is what `Store.ListAggregates(prefix)` takes. The zero `AggregateID` matches everything.
-- as an identity, it names a singleton aggregate of that type, such as a cluster or catalog aggregate that has only one instance.
+Listing takes a type rather than an ID, since an aggregate ID always names one aggregate:
 
-`AggregateID.Parts()` returns the populated components, one for a type-only ID and two for a type and key. Events marshal their IDs to JSON as an array of those parts, so `("order", "123")` encodes as `["order","123"]` and a type-only ID encodes as `["order"]`. Decoding more than two parts, from JSON, storage keys, or the binary event format, returns `ErrInvalidAggregateID`.
+```go
+orders, err := store.ListAggregates("order") // every order
+all, err := store.ListAggregates("")         // every aggregate
+```
+
+Events marshal their IDs to JSON as a two-element array, so `("order", "123")` encodes as `["order","123"]`. Decoding anything other than a type and a key, from JSON, storage rows, or storage keys, returns `ErrInvalidAggregateID`.
 
 ## Store Behavior
 

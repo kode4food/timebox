@@ -122,7 +122,7 @@ func TestClosedPersistence(t *testing.T) {
 		})
 		assert.Error(t, err)
 
-		_, err = p.ListAggregates(timebox.AggregateID{})
+		_, err = p.ListAggregates("")
 		assert.Error(t, err)
 
 		_, err = p.ListAggregatesByStatus("x")

@@ -43,8 +43,9 @@ type (
 
 	// Queries provides aggregate and index query operations
 	Queries interface {
-		// ListAggregates lists aggregate IDs that match the provided prefix
-		ListAggregates(id AggregateID) ([]AggregateID, error)
+		// ListAggregates lists aggregate IDs of the provided type, or of
+		// every type when it is empty
+		ListAggregates(typ ID) ([]AggregateID, error)
 
 		// GetAggregateStatus loads the current indexed status for an aggregate
 		GetAggregateStatus(id AggregateID) (string, error)

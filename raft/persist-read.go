@@ -82,9 +82,10 @@ func (p *Persistence) LoadSnapshot(
 	return rec, nil
 }
 
-// ListAggregates lists known aggregate IDs that share the given prefix
+// ListAggregates lists known aggregate IDs of the given type, or of every type
+// when it is empty
 func (p *Persistence) ListAggregates(
-	id timebox.AggregateID,
+	typ timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	var ids []timebox.AggregateID
 
@@ -93,6 +94,9 @@ func (p *Persistence) ListAggregates(
 		c := b.Cursor()
 		defer func() { _ = c.Close() }()
 		pfx := AggregateMetaPrefix()
+		if typ != "" {
+			pfx = append(pfx, encodeAggregateType(typ)...)
+		}
 		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			key := string(k)
 			if !strings.HasSuffix(key, metaSuffix) {
@@ -105,9 +109,7 @@ func (p *Persistence) ListAggregates(
 			if err != nil {
 				return err
 			}
-			if nextID.HasPrefix(id) {
-				ids = append(ids, nextID)
-			}
+			ids = append(ids, nextID)
 			k, _ = c.Next()
 		}
 		return nil

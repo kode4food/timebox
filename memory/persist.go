@@ -164,9 +164,10 @@ func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 	return nil
 }
 
-// ListAggregates lists aggregate IDs matching the given prefix
+// ListAggregates lists aggregate IDs of the given type, or of every type when
+// it is empty
 func (p *Persistence) ListAggregates(
-	id timebox.AggregateID,
+	typ timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -176,9 +177,9 @@ func (p *Persistence) ListAggregates(
 	}
 
 	var res []timebox.AggregateID
-	for _, a := range p.aggs {
-		if a.id.HasPrefix(id) {
-			res = append(res, a.id)
+	for id := range p.aggs {
+		if typ == "" || id.Type == typ {
+			res = append(res, id)
 		}
 	}
 	return res, nil

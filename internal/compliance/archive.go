@@ -45,7 +45,7 @@ func runArchive(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Empty(t, evs)
 
-		ids, err := store.ListAggregates(timebox.NewAggregateType("order"))
+		ids, err := store.ListAggregates("order")
 		assert.NoError(t, err)
 		assert.Empty(t, ids)
 

@@ -51,7 +51,7 @@ func (p *Persistence) ListAggregatesByStatus(
 		if err := rows.Scan(&parts, &ts); err != nil {
 			return nil, err
 		}
-		aggID, err := timebox.AggregateIDFromParts(parts)
+		aggID, err := aggregateID(parts)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +87,7 @@ func (p *Persistence) ListAggregatesByTag(
 		if err := rows.Scan(&parts); err != nil {
 			return nil, err
 		}
-		aggID, err := timebox.AggregateIDFromParts(parts)
+		aggID, err := aggregateID(parts)
 		if err != nil {
 			return nil, err
 		}

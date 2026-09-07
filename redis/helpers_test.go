@@ -9,11 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
-	"github.com/kode4food/timebox/internal/id"
 	tbredis "github.com/kode4food/timebox/redis"
 )
 
-var joinAggregateID, _ = id.MakeCodec(':')
+// joinAggregateID skips escaping, which no test ID needs
+func joinAggregateID(id timebox.AggregateID) string {
+	return string(id.Type) + ":" + string(id.Key)
+}
 
 func newStore(
 	cfg tbredis.Config, storeCfg timebox.Config,

@@ -37,8 +37,7 @@ type (
 	// succeeds, as well as the Events persisted by that execution
 	SuccessAction[T any] func(T, []*Event)
 
-	// AggregateID identifies an aggregate by type and key ("order", "123"). An
-	// empty Key names the type itself
+	// AggregateID identifies an aggregate by type and key ("order", "123")
 	AggregateID struct {
 		Type ID
 		Key  ID
@@ -48,11 +47,14 @@ type (
 	ID string
 )
 
+// SingletonKey is the Key of an aggregate that is the only one of its type
+const SingletonKey ID = "_"
+
 var (
 	// ErrInvalidAggregateID indicates an encoded AggregateID did not decode to
-	// a type and an optional key
+	// a type and a key
 	ErrInvalidAggregateID = errors.New(
-		"aggregate id must have at most a type and a key",
+		"aggregate id must have a type and a key",
 	)
 )
 
@@ -61,10 +63,9 @@ func NewAggregateID(typ, key ID) AggregateID {
 	return AggregateID{Type: typ, Key: key}
 }
 
-// NewAggregateType builds an AggregateID naming a type but no individual
-// aggregate, matching every aggregate of that type when used as a prefix
+// NewAggregateType builds the AggregateID of the only aggregate of a type
 func NewAggregateType(typ ID) AggregateID {
-	return AggregateID{Type: typ}
+	return AggregateID{Type: typ, Key: SingletonKey}
 }
 
 func newAggregator[T any](
@@ -129,79 +130,33 @@ func (a *Aggregator[_]) Transaction() *Transaction {
 	return a.tx
 }
 
-// Parts returns the AggregateID's populated components, from its type to its
-// key. A zero AggregateID has no parts
-func (id AggregateID) Parts() []ID {
-	switch {
-	case id.Type == "":
-		return nil
-	case id.Key == "":
-		return []ID{id.Type}
-	default:
-		return []ID{id.Type, id.Key}
-	}
-}
-
 // String returns a human-readable AggregateID representation
 func (id AggregateID) String() string {
 	var b strings.Builder
 	b.WriteByte('[')
-	for i, p := range id.Parts() {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(strconv.Quote(string(p)))
-	}
+	b.WriteString(strconv.Quote(string(id.Type)))
+	b.WriteByte(',')
+	b.WriteString(strconv.Quote(string(id.Key)))
 	b.WriteByte(']')
 	return b.String()
 }
 
-// HasPrefix checks if the AggregateID starts with the provided prefix. A prefix
-// naming only a type matches every aggregate of that type, and the zero
-// AggregateID matches everything
-func (id AggregateID) HasPrefix(prefix AggregateID) bool {
-	switch {
-	case prefix.Type == "":
-		return true
-	case prefix.Type != id.Type:
-		return false
-	default:
-		return prefix.Key == "" || prefix.Key == id.Key
-	}
-}
-
-// MarshalJSON encodes the AggregateID as an array of its parts
+// MarshalJSON encodes the AggregateID as a type and key pair
 func (id AggregateID) MarshalJSON() ([]byte, error) {
-	return json.Marshal(id.Parts())
+	return json.Marshal([2]ID{id.Type, id.Key})
 }
 
-// UnmarshalJSON decodes the AggregateID from an array of its parts
+// UnmarshalJSON decodes the AggregateID from a type and key pair
 func (id *AggregateID) UnmarshalJSON(data []byte) error {
 	var parts []ID
 	if err := json.Unmarshal(data, &parts); err != nil {
 		return err
 	}
-	res, err := AggregateIDFromParts(parts)
-	if err != nil {
-		return err
+	if len(parts) != 2 {
+		return ErrInvalidAggregateID
 	}
-	*id = res
+	*id = NewAggregateID(parts[0], parts[1])
 	return nil
-}
-
-// AggregateIDFromParts rebuilds an AggregateID from parts decoded out of
-// storage or off the wire
-func AggregateIDFromParts[T ~string](parts []T) (AggregateID, error) {
-	switch len(parts) {
-	case 0:
-		return AggregateID{}, nil
-	case 1:
-		return NewAggregateType(ID(parts[0])), nil
-	case 2:
-		return NewAggregateID(ID(parts[0]), ID(parts[1])), nil
-	default:
-		return AggregateID{}, ErrInvalidAggregateID
-	}
 }
 
 func (a *Aggregator[T]) apply(ev *Event) {

@@ -13,7 +13,7 @@ func runAggregates(t *testing.T, p Profile) {
 	t.Run("Empty", func(t *testing.T) {
 		store := openStore(t, p, StoreConfig{})
 
-		all, err := store.ListAggregates(timebox.AggregateID{})
+		all, err := store.ListAggregates("")
 		assert.NoError(t, err)
 		assert.Empty(t, all)
 	})
@@ -32,18 +32,18 @@ func runAggregates(t *testing.T, p Profile) {
 		assert.NoError(t, store.AppendEvents(second, 0, []*timebox.Event{ev}))
 		assert.NoError(t, store.AppendEvents(third, 0, []*timebox.Event{ev}))
 
-		all, err := store.ListAggregates(timebox.AggregateID{})
+		all, err := store.ListAggregates("")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t,
 			[]timebox.AggregateID{first, second, third},
 			all,
 		)
 
-		orders, err := store.ListAggregates(timebox.NewAggregateType("order"))
+		orders, err := store.ListAggregates("order")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{first, second}, orders)
 
-		users, err := store.ListAggregates(timebox.NewAggregateType("user"))
+		users, err := store.ListAggregates("user")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{third}, users)
 	})
@@ -69,7 +69,7 @@ func runAggregates(t *testing.T, p Profile) {
 		}
 		assert.Equal(t, id, evs[0].AggregateID)
 
-		ids, err := store.ListAggregates(timebox.NewAggregateType(`order:1`))
+		ids, err := store.ListAggregates(`order:1`)
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 
@@ -127,19 +127,19 @@ func runAggregates(t *testing.T, p Profile) {
 		}
 		assert.Equal(t, memRaw, evs[0].AggregateID)
 
-		ids, err := store.ListAggregates(timebox.NewAggregateType("order:1"))
+		ids, err := store.ListAggregates("order:1")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{redisEsc}, ids)
 
-		ids, err = store.ListAggregates(timebox.NewAggregateType("order"))
+		ids, err = store.ListAggregates("order")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{redisRaw}, ids)
 
-		ids, err = store.ListAggregates(timebox.NewAggregateType("mem\x1f1"))
+		ids, err = store.ListAggregates("mem\x1f1")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{memEsc}, ids)
 
-		ids, err = store.ListAggregates(timebox.NewAggregateType("mem"))
+		ids, err = store.ListAggregates("mem")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, []timebox.AggregateID{memRaw}, ids)
 	})
