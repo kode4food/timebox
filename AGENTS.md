@@ -4,7 +4,7 @@
 
 Event-sourcing persistence library for Go. Module: `github.com/kode4food/timebox`.
 
-Timebox provides append-only aggregate event storage with optimistic concurrency, snapshots, status and tag indexing, archiving, and pluggable memory, PostgreSQL, Redis, and Raft backends.
+Timebox provides append-only aggregate event storage with optimistic concurrency, multi-aggregate transactions, snapshots, status and tag indexing, archiving, and pluggable memory, PostgreSQL, Redis, and Raft backends.
 
 ## Exact Scope
 
@@ -18,7 +18,7 @@ Timebox provides append-only aggregate event storage with optimistic concurrency
 
 Dependencies flow from the public Timebox API toward backend implementations and narrow internal packages.
 
-- `timebox`: public event, aggregate, store, executor, indexing, snapshot, and backend contracts.
+- `timebox`: public event, aggregate, store, executor, transaction, indexing, snapshot, and backend contracts.
 - `memory`: in-process backend.
 - `postgres`: PostgreSQL backend and schema ownership.
 - `redis`: Redis/Valkey backend and Lua-backed atomic operations.
@@ -31,7 +31,7 @@ Rules:
 
 1. Give each concept one authoritative owner.
 2. Keep exported signatures in the language of the receiving public package.
-3. Preserve the core append contract in every backend: aggregate-local optimistic concurrency, atomic event-batch append, and aligned derived index updates.
+3. Preserve the core append contract in every backend: `Append` takes any number of `AppendRequest` values and applies all of them or none, with aggregate-local optimistic concurrency, atomic event-batch append, aligned derived index updates, and a `VersionConflictError` naming the first failing request's aggregate.
 4. Treat snapshots as accelerative state, never as the authoritative event source.
 5. Add interfaces only for real lifecycle or substitution seams.
 6. Name packages and files by concern. Never create `util`, `helpers`, `common`, `models`, or `types` dumping grounds.

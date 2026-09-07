@@ -17,6 +17,7 @@ Timebox currently ships with:
 
 - `Store`: event-store semantics over a `Persistence`
 - `Executor`: loads aggregate state, runs a command, persists raised events, and retries on optimistic conflicts
+- `Transaction`: groups commands over several aggregates into one atomic append
 - `Aggregator`: accumulates events and exposes the current aggregate view during a command
 - `Indexer`: optional append-time hook that derives status and tag updates from an appended event batch
 - `Snapshot`: cached aggregate state plus the sequence it represents
@@ -44,6 +45,29 @@ Snapshotting is available in two ways:
 
 - explicit saves through `Executor.SaveSnapshot(id)` or `Store.PutSnapshot(id, value, sequence)`
 - opportunistic executor saves while loading aggregates when no snapshot exists yet or when trailing event data grows past `SnapshotRatio`
+
+## Transactions
+
+`Store.Transact` runs a function whose commands over any number of aggregates commit as a single atomic append. Every backend applies the whole batch or none of it, and each aggregate keeps its own optimistic concurrency check.
+
+```go
+err := store.Transact(func(t *timebox.Transaction) error {
+	if _, err := t.Exec(orders, orderID, placeOrder); err != nil {
+		return err
+	}
+	_, err := t.Exec(accounts, accountID, debitAccount)
+	return err
+})
+```
+
+- `Transaction.Exec(executor, id, cmd)` runs a command and enlists its events. Executors must belong to the same `Store`, otherwise it returns `ErrStoreMismatch`.
+- Calling `Exec` again for an aggregate already joined continues the same `Aggregator`, so its later events append to the same staged batch. Joining one aggregate under two different state types returns `ErrAggregateTypeConflict`.
+- Values returned from `Exec` only hold if the transaction commits.
+- An error returned from the function discards the transaction. A version conflict on any aggregate re-runs the whole function, up to `MaxRetries`, then returns `ErrMaxRetriesExceeded`.
+- Executor caches and `SuccessAction` callbacks run only after a successful commit.
+- `Aggregator.Transaction()` returns the enclosing `Transaction`, so a command holding only an `Aggregator` can enlist further aggregates.
+
+`Executor.Exec` is a single-aggregate transaction, so its behavior is unchanged.
 
 ## Backend Config
 

@@ -37,10 +37,10 @@ var (
 	)
 )
 
-// Transaction runs fn and commits every aggregate joined through
+// Transact runs fn and commits every aggregate joined through
 // Transaction.Exec as one atomic append. It retries fn on version conflict up
 // to MaxRetries. An error returned from fn discards the transaction
-func (s *Store) Transaction(fn func(*Transaction) error) error {
+func (s *Store) Transact(fn func(*Transaction) error) error {
 	for range s.config.MaxRetries {
 		t := &Transaction{store: s}
 		if err := fn(t); err != nil {

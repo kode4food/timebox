@@ -32,7 +32,7 @@ func runTransactions(t *testing.T, p Profile) {
 		first := timebox.NewAggregateID("tx", "first")
 		second := timebox.NewAggregateID("tx", "second")
 
-		err := store.Transaction(func(tx *timebox.Transaction) error {
+		err := store.Transact(func(tx *timebox.Transaction) error {
 			if _, err := tx.Exec(exec, first, count(1)); err != nil {
 				return err
 			}
@@ -53,7 +53,7 @@ func runTransactions(t *testing.T, p Profile) {
 		partner := timebox.NewAggregateID("tx", "partner")
 
 		attempts := 0
-		err := store.Transaction(func(tx *timebox.Transaction) error {
+		err := store.Transact(func(tx *timebox.Transaction) error {
 			attempts++
 			if _, err := tx.Exec(exec, contended, count(1)); err != nil {
 				return err

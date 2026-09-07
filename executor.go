@@ -62,7 +62,7 @@ func (e *Executor[T]) AppliesEvent(ev *Event) bool {
 // events. It retries on version conflicts up to MaxRetries
 func (e *Executor[T]) Exec(id AggregateID, cmd Command[T]) (T, error) {
 	var res T
-	if err := e.store.Transaction(func(t *Transaction) error {
+	if err := e.store.Transact(func(t *Transaction) error {
 		var err error
 		res, err = t.Exec(e, id, cmd)
 		return err

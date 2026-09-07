@@ -21,7 +21,7 @@ func TestTransactionCommitsBothAggregates(t *testing.T) {
 	parent := timebox.NewAggregateID("counter", "parent")
 
 	var childVal, parentVal int
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		st, err := tx.Exec(executor, child, raiseCount(3))
 		if err != nil {
 			return err
@@ -50,7 +50,7 @@ func TestTransactionRollsBackOnConflict(t *testing.T) {
 	partner := timebox.NewAggregateID("counter", "partner")
 
 	attempts := 0
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		attempts++
 		if _, err := tx.Exec(executor, contended, raiseCount(1)); err != nil {
 			return err
@@ -83,7 +83,7 @@ func TestTransactionDiscardsOnError(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "discarded")
 	boom := errors.New("boom")
 
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		if _, err := tx.Exec(executor, id, raiseCount(1)); err != nil {
 			return err
 		}
@@ -101,7 +101,7 @@ func TestTransactionJoinsSameAggregateTwice(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "twice")
 
 	var final int
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		if _, err := tx.Exec(executor, id, raiseCount(2)); err != nil {
 			return err
 		}
@@ -130,7 +130,7 @@ func TestTransactionSuccessActionsRunAfterCommit(t *testing.T) {
 	id := timebox.NewAggregateID("counter", "success")
 	ran := 0
 
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		_, err := tx.Exec(executor, id,
 			func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
 				ag.OnSuccess(func(CounterState, []*timebox.Event) {
@@ -155,7 +155,7 @@ func TestTransactionRejectsForeignExecutor(t *testing.T) {
 	defer func() { _ = other.Close() }()
 	defer func() { _ = otherStore.Close() }()
 
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		_, err := tx.Exec(otherExec,
 			timebox.NewAggregateID("counter", "foreign"), raiseCount(1),
 		)
@@ -193,7 +193,7 @@ func TestTransactionRejectsConflictingStateTypes(t *testing.T) {
 	)
 	id := timebox.NewAggregateID("counter", "conflicting")
 
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		if _, err := tx.Exec(executor, id, raiseCount(1)); err != nil {
 			return err
 		}
@@ -217,7 +217,7 @@ func TestAggregatorTransaction(t *testing.T) {
 	second := timebox.NewAggregateID("counter", "enlisted")
 
 	var seen *timebox.Transaction
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		_, err := tx.Exec(executor, first,
 			func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
 				seen = ag.Transaction()
@@ -254,7 +254,7 @@ func TestAggregatorTransactionRollsBack(t *testing.T) {
 	enlisted := timebox.NewAggregateID("counter", "enlisted")
 	boom := errors.New("boom")
 
-	err := store.Transaction(func(tx *timebox.Transaction) error {
+	err := store.Transact(func(tx *timebox.Transaction) error {
 		if _, err := tx.Exec(executor, holder,
 			func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
 				if err := ag.Raise(EventIncremented, 1); err != nil {
