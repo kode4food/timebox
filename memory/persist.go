@@ -72,47 +72,21 @@ func (p *Persistence) Close() error {
 	return nil
 }
 
-// Append appends events if the expected sequence matches
-func (p *Persistence) Append(req timebox.AppendRequest) error {
+// Append appends every request's events if each expected sequence matches
+func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if err := p.checkClosed(); err != nil {
 		return err
 	}
-
-	key := keyFor(req.ID)
-	a, ok := p.aggs[key]
-	if !ok {
-		a = &aggregate{
-			id:     req.ID,
-			events: []*timebox.Event{},
-			tags:   map[string]bool{},
-		}
-		p.aggs[key] = a
-	}
-
-	seq := max(a.baseSeq+int64(len(a.events)), a.snapshotSeq)
-	if req.ExpectedSequence != seq {
-		start := firstEventIndex(a.events, req.ExpectedSequence)
-		return &timebox.VersionConflictError{
-			ExpectedSequence: req.ExpectedSequence,
-			ActualSequence:   seq,
-			NewEvents:        a.events[start:],
+	for _, req := range reqs {
+		if err := p.checkSequence(req); err != nil {
+			return err
 		}
 	}
-
-	a.events = append(a.events, req.Events...)
-	if req.Status != nil {
-		a.status = *req.Status
-		a.statusAt = req.StatusAt.UTC()
-	}
-	for tag, add := range req.Tags {
-		if !add {
-			delete(a.tags, tag)
-			continue
-		}
-		a.tags[tag] = true
+	for _, req := range reqs {
+		p.applyAppend(req)
 	}
 	return nil
 }
@@ -178,16 +152,7 @@ func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 		return err
 	}
 
-	key := keyFor(req.ID)
-	a, ok := p.aggs[key]
-	if !ok {
-		a = &aggregate{
-			id:     req.ID,
-			events: []*timebox.Event{},
-			tags:   map[string]bool{},
-		}
-		p.aggs[key] = a
-	}
+	a := p.aggregate(req.ID)
 	if req.Sequence < a.snapshotSeq {
 		return nil
 	}
@@ -354,6 +319,61 @@ func (p *Persistence) ConsumeArchive(
 		case <-p.archiveCh:
 		}
 	}
+}
+
+func (p *Persistence) checkSequence(req timebox.AppendRequest) error {
+	a, ok := p.aggs[keyFor(req.ID)]
+	if !ok {
+		if req.ExpectedSequence == 0 {
+			return nil
+		}
+		return &timebox.VersionConflictError{
+			ID:               req.ID,
+			ExpectedSequence: req.ExpectedSequence,
+		}
+	}
+
+	seq := max(a.baseSeq+int64(len(a.events)), a.snapshotSeq)
+	if req.ExpectedSequence == seq {
+		return nil
+	}
+	start := firstEventIndex(a.events, req.ExpectedSequence)
+	return &timebox.VersionConflictError{
+		ID:               req.ID,
+		ExpectedSequence: req.ExpectedSequence,
+		ActualSequence:   seq,
+		NewEvents:        a.events[start:],
+	}
+}
+
+func (p *Persistence) applyAppend(req timebox.AppendRequest) {
+	a := p.aggregate(req.ID)
+	a.events = append(a.events, req.Events...)
+	if req.Status != nil {
+		a.status = *req.Status
+		a.statusAt = req.StatusAt.UTC()
+	}
+	for tag, add := range req.Tags {
+		if !add {
+			delete(a.tags, tag)
+			continue
+		}
+		a.tags[tag] = true
+	}
+}
+
+func (p *Persistence) aggregate(id timebox.AggregateID) *aggregate {
+	key := keyFor(id)
+	a, ok := p.aggs[key]
+	if !ok {
+		a = &aggregate{
+			id:     id,
+			events: []*timebox.Event{},
+			tags:   map[string]bool{},
+		}
+		p.aggs[key] = a
+	}
+	return a
 }
 
 func (p *Persistence) nextArchive() (*timebox.ArchiveRecord, error) {

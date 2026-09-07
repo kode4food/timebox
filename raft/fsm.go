@@ -48,11 +48,11 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
 
 			switch de.cmd.Type() {
 			case CmdTypeAppend:
-				req, err := de.cmd.AppendRequest()
+				reqs, err := de.cmd.AppendRequests()
 				if err != nil {
 					return err
 				}
-				if res, err = f.applyAppendTx(b, req); err != nil {
+				if res, err = f.applyAppendsTx(b, reqs); err != nil {
 					return err
 				}
 			case CmdTypeSnapshot:
@@ -96,37 +96,47 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
 	return results, nil
 }
 
-func (f *fsm) applyAppendTx(
-	b *kvBucket, req *timebox.AppendRequest,
+// applyAppendsTx verifies every request's expected sequence before writing any
+// of them, so a conflict on one aggregate leaves the whole set unwritten
+func (f *fsm) applyAppendsTx(
+	b *kvBucket, reqs []*timebox.AppendRequest,
 ) (*ApplyResult, error) {
+	metas := make([]*AggregateMeta, len(reqs))
+	for i, req := range reqs {
+		encodedID := encodeAggregateID(req.ID)
+		meta, err := loadOrCreateMetaTx(b, encodedID)
+		if err != nil {
+			return nil, err
+		}
+		if req.ExpectedSequence != meta.CurrentSequence {
+			return conflictResultTx(b, encodedID, meta, req)
+		}
+		metas[i] = meta
+	}
+
+	for i, req := range reqs {
+		if err := f.writeAppendTx(b, metas[i], req); err != nil {
+			return nil, err
+		}
+	}
+	return &ApplyResult{Appends: reqs}, nil
+}
+
+func (f *fsm) writeAppendTx(
+	b *kvBucket, meta *AggregateMeta, req *timebox.AppendRequest,
+) error {
 	encodedID := encodeAggregateID(req.ID)
-	meta, err := loadOrCreateMetaTx(b, encodedID)
-	if err != nil {
-		return nil, err
-	}
-
-	currentSeq := meta.CurrentSequence
-	if req.ExpectedSequence != currentSeq {
-		return conflictResultTx(b, encodedID, meta, req.ExpectedSequence)
-	}
-
 	if err := writeEventsTx(
 		b, aggregateEventPrefix(encodedID), req.Events,
 	); err != nil {
-		return nil, err
+		return err
 	}
 	if err := applyMutationsTx(b, meta, encodedID, req); err != nil {
-		return nil, err
+		return err
 	}
 
-	meta.CurrentSequence = currentSeq + int64(len(req.Events))
-	if err := b.Put(
-		AggregateMetaKey(encodedID), marshalMeta(meta),
-	); err != nil {
-		return nil, err
-	}
-
-	return &ApplyResult{Append: req}, nil
+	meta.CurrentSequence += int64(len(req.Events))
+	return b.Put(AggregateMetaKey(encodedID), marshalMeta(meta))
 }
 
 func (f *fsm) applySnapshotTx(
@@ -334,9 +344,12 @@ func markApplied(b *kvBucket, logIndex uint64) error {
 }
 
 func conflictResultTx(
-	b *kvBucket, encodedID string, meta *AggregateMeta, expectedSeq int64,
+	b *kvBucket, encodedID string, meta *AggregateMeta,
+	req *timebox.AppendRequest,
 ) (*ApplyResult, error) {
+	expectedSeq := req.ExpectedSequence
 	conflict := &timebox.VersionConflictError{
+		ID:               req.ID,
 		ExpectedSequence: expectedSeq,
 		ActualSequence:   meta.CurrentSequence,
 	}

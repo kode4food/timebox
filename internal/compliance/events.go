@@ -166,6 +166,7 @@ func runEvents(t *testing.T, p Profile) {
 		}
 		assert.Equal(t, int64(1), conflict.ExpectedSequence)
 		assert.Equal(t, int64(2), conflict.ActualSequence)
+		assert.Equal(t, id, conflict.ID)
 		if !assert.Len(t, conflict.NewEvents, 1) {
 			t.FailNow()
 		}

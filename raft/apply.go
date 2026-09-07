@@ -147,8 +147,10 @@ func (p *Persistence) flushBatchPublish(
 		}
 		if evs := p.proposalEvents(propIDs[i], batch[i].cmd); len(evs) > 0 {
 			published = append(published, evs...)
-		} else if res.Append != nil {
-			published = append(published, res.Append.Events...)
+		} else {
+			for _, req := range res.Appends {
+				published = append(published, req.Events...)
+			}
 		}
 	}
 	p.appliedIndex.Store(batch[len(batch)-1].index)

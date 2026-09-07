@@ -33,17 +33,16 @@ var (
 	ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 )
 
-// NewExecutor constructs an Executor bound to a Store with the given appliers
+// Executor constructs an Executor bound to a Store with the given appliers
 // and state constructor
-func NewExecutor[T any](
-	store *Store, cons constructor[T], apps Appliers[T],
-	onSuccess ...SuccessAction[T],
+func (s *Store) Executor[T any](
+	cons constructor[T], apps Appliers[T], onSuccess ...SuccessAction[T],
 ) *Executor[T] {
 	return &Executor[T]{
-		store:     store,
+		store:     s,
 		appliers:  apps,
 		construct: cons,
-		cache:     newCache[*projection[T]](store.config.CacheSize),
+		cache:     newCache[*projection[T]](s.config.CacheSize),
 		success:   onSuccess,
 	}
 }
@@ -62,42 +61,16 @@ func (e *Executor[T]) AppliesEvent(ev *Event) bool {
 // Exec loads the aggregate state, executes the command, and persists raised
 // events. It retries on version conflicts up to MaxRetries
 func (e *Executor[T]) Exec(id AggregateID, cmd Command[T]) (T, error) {
-	var zero T
-	for range e.store.config.MaxRetries {
-		proj, err := e.loadSnapshot(id)
-		if err != nil {
-			return zero, err
-		}
-
-		ag := newAggregator(id, e.appliers, proj.state, proj.nextSeq)
-		if err := cmd(ag.Value(), ag); err != nil {
-			return zero, err
-		}
-
-		count, err := ag.flush(func(expectedSeq int64, evs []*Event) error {
-			return e.store.AppendEvents(id, expectedSeq, evs)
-		})
-		if err == nil {
-			if count == 0 {
-				ag.runOnSuccess(e.success)
-				return proj.state, nil
-			}
-			val := ag.Value()
-			final := &projection[T]{
-				state:   val,
-				nextSeq: ag.nextSeq,
-			}
-			e.updateCache(id, final)
-			ag.runOnSuccess(e.success)
-			return final.state, nil
-		}
-
-		if !e.handleVersionConflict(err, id, proj) {
-			return zero, err
-		}
+	var res T
+	if err := e.store.Transaction(func(t *Transaction) error {
+		var err error
+		res, err = t.Exec(e, id, cmd)
+		return err
+	}); err != nil {
+		var zero T
+		return zero, err
 	}
-
-	return zero, ErrMaxRetriesExceeded
+	return res, nil
 }
 
 // Get returns the current aggregate state
@@ -120,19 +93,25 @@ func (e *Executor[T]) SaveSnapshot(id AggregateID) error {
 	return e.store.PutSnapshot(id, state, seq)
 }
 
-func (e *Executor[T]) handleVersionConflict(
-	err error, id AggregateID, proj *projection[T],
-) bool {
-	var versionErr *VersionConflictError
-	if !errors.As(err, &versionErr) {
-		return false
+// complete refreshes the cached projection and runs success actions once the
+// Transaction holding this aggregate has committed
+func (e *Executor[T]) complete(id AggregateID, ag *Aggregator[T]) {
+	if len(ag.flushed) > 0 {
+		e.updateCache(id, &projection[T]{
+			state:   ag.Value(),
+			nextSeq: ag.nextSeq,
+		})
 	}
+	ag.runOnSuccess(e.success)
+}
 
-	if evs := versionErr.NewEvents; len(evs) > 0 {
-		updated := e.applyEvents(proj.state, evs, proj.nextSeq)
-		e.updateCache(id, updated)
-	}
-	return true
+func (e *Executor[T]) invalidate(id AggregateID) {
+	entry := e.cache.Get(cacheKey(id), func() *projection[T] {
+		return &projection[T]{state: e.construct()}
+	})
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	entry.value = &projection[T]{state: e.construct()}
 }
 
 func (e *Executor[T]) loadSnapshot(id AggregateID) (*projection[T], error) {

@@ -6,26 +6,30 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-// Append proposes one append mutation through the local Raft node
-func (p *Persistence) Append(req timebox.AppendRequest) error {
-	if err := p.checkConflict(
-		req.ID, req.ExpectedSequence,
-	); err != nil {
-		return err
+// Append proposes every append mutation through the local Raft node
+func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
+	var events []*timebox.Event
+	mutates := false
+	for _, req := range reqs {
+		if err := p.checkConflict(req.ID, req.ExpectedSequence); err != nil {
+			return err
+		}
+		if len(req.Events) != 0 || req.Status != nil || len(req.Tags) != 0 {
+			mutates = true
+		}
+		events = append(events, req.Events...)
 	}
-	if len(req.Events) == 0 && req.Status == nil && len(req.Tags) == 0 {
+	if !mutates {
 		return nil
 	}
+
 	propID := p.newProposalID()
-	cmd, err := MakeAppendCommand(propID, &req)
+	cmd, err := MakeAppendCommand(propID, reqs)
 	if err != nil {
 		return err
 	}
 	res, err := p.applyWithTimeout(
-		context.Background(),
-		cmd,
-		propID,
-		req.Events,
+		context.Background(), cmd, propID, events,
 	)
 	if err != nil {
 		return err

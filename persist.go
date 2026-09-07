@@ -26,10 +26,10 @@ type (
 		// Ready reports when the persistence backend can serve requests
 		Ready() <-chan struct{}
 
-		// Append atomically appends events if the expected sequence still
-		// matches. It returns a VersionConflictError when the sequence check
-		// fails
-		Append(AppendRequest) error
+		// Append atomically appends every request if each expected sequence
+		// still matches. It returns a VersionConflictError naming the first
+		// request whose sequence check fails
+		Append(...AppendRequest) error
 
 		// LoadEvents loads raw persisted events starting at fromSeq
 		LoadEvents(LoadEventsRequest) (*EventsResult, error)

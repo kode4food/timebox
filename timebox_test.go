@@ -161,7 +161,7 @@ func setupTestExecutorWithConfig(
 	p, store, err := newMemoryStore(storeCfg)
 	assert.NoError(t, err)
 
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers)
 	return p, store, executor
 }
 

@@ -15,6 +15,7 @@ type (
 	Aggregator[T any] struct {
 		value    T
 		appliers Appliers[T]
+		tx       *Transaction
 		id       AggregateID
 		enqueued []*Event
 		flushed  []*Event
@@ -101,6 +102,12 @@ func (a *Aggregator[T]) Raise[V any](typ EventType, value V) error {
 	a.nextSeq++
 	a.apply(ev)
 	return nil
+}
+
+// Transaction returns the Transaction this Aggregator's events commit in, so
+// code holding only an Aggregator can enlist further aggregates
+func (a *Aggregator[_]) Transaction() *Transaction {
+	return a.tx
 }
 
 func (a *Aggregator[T]) apply(ev *Event) {

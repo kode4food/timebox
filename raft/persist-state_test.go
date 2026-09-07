@@ -271,9 +271,9 @@ func TestFollowerExec(t *testing.T) {
 		return counterState{}
 	}
 
-	leaderExec := timebox.NewExecutor(leader.store, newState, appliers)
+	leaderExec := leader.store.Executor(newState, appliers)
 	for _, n := range followers {
-		exec := timebox.NewExecutor(n.store, newState, appliers)
+		exec := n.store.Executor(newState, appliers)
 		_, err := exec.Get(id)
 		if !assert.NoError(t, err) {
 			return
@@ -297,7 +297,7 @@ func TestFollowerExec(t *testing.T) {
 	start := make(chan struct{})
 
 	for _, n := range followers {
-		exec := timebox.NewExecutor(n.store, newState, appliers)
+		exec := n.store.Executor(newState, appliers)
 		go func(exec *timebox.Executor[counterState]) {
 			<-start
 			state, err := exec.Exec(id,
@@ -319,7 +319,7 @@ func TestFollowerExec(t *testing.T) {
 
 	assert.Eventually(t, func() bool {
 		for _, n := range nodes {
-			exec := timebox.NewExecutor(n.store, newState, appliers)
+			exec := n.store.Executor(newState, appliers)
 			state, err := exec.Get(id)
 			if err != nil || state.Value != 3 {
 				return false

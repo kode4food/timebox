@@ -189,26 +189,6 @@ func TestRaiseMarksCommittedEvents(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestAppliesEvent(t *testing.T) {
-	server, store, executor := setupTestExecutor(t)
-	defer func() { _ = server.Close() }()
-	defer func() { _ = store.Close() }()
-
-	// Test with event types that have appliers
-	incremented := &timebox.Event{Type: EventIncremented}
-	assert.True(t, executor.AppliesEvent(incremented))
-
-	decremented := &timebox.Event{Type: EventDecremented}
-	assert.True(t, executor.AppliesEvent(decremented))
-
-	reset := &timebox.Event{Type: EventReset}
-	assert.True(t, executor.AppliesEvent(reset))
-
-	// Test with event type that does not have an applier
-	unknown := &timebox.Event{Type: "unknown_event"}
-	assert.False(t, executor.AppliesEvent(unknown))
-}
-
 func TestConflictRetry(t *testing.T) {
 	server, store, executor := setupTestExecutor(t)
 	defer func() { _ = server.Close() }()
@@ -328,7 +308,7 @@ func TestCacheEviction(t *testing.T) {
 	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers)
 
 	id1 := timebox.NewAggregateID("counter", "1")
 	id2 := timebox.NewAggregateID("counter", "2")
@@ -404,6 +384,26 @@ func TestNoOpCommand(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, state.Value)
+}
+
+func TestAppliesEvent(t *testing.T) {
+	server, store, executor := setupTestExecutor(t)
+	defer func() { _ = server.Close() }()
+	defer func() { _ = store.Close() }()
+
+	// Test with event types that have appliers
+	incremented := &timebox.Event{Type: EventIncremented}
+	assert.True(t, executor.AppliesEvent(incremented))
+
+	decremented := &timebox.Event{Type: EventDecremented}
+	assert.True(t, executor.AppliesEvent(decremented))
+
+	reset := &timebox.Event{Type: EventReset}
+	assert.True(t, executor.AppliesEvent(reset))
+
+	// Test with event type that does not have an applier
+	unknown := &timebox.Event{Type: "unknown_event"}
+	assert.False(t, executor.AppliesEvent(unknown))
 }
 
 func TestGet(t *testing.T) {
@@ -508,8 +508,7 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	var values []int
 	var eventTypes []timebox.EventType
 	var eventCounts []int
-	executor := timebox.NewExecutor(
-		store,
+	executor := store.Executor(
 		newCounterState,
 		appliers,
 		func(st CounterState, evs []*timebox.Event) {
@@ -604,8 +603,7 @@ func TestOnSuccessDefaultsOnly(t *testing.T) {
 
 	id := timebox.NewAggregateID("counter", "on-success-default")
 	called := false
-	executor := timebox.NewExecutor(
-		store,
+	executor := store.Executor(
 		newCounterState,
 		appliers,
 		func(st CounterState, evs []*timebox.Event) {
@@ -690,7 +688,7 @@ func setupExecutorWithCacheConfigs(
 
 	server, store := setupExecutorStore(t, tbCfg, storeCfg)
 	count := 0
-	executor := timebox.NewExecutor(store, func() CounterState {
+	executor := store.Executor(func() CounterState {
 		count++
 		return newCounterState()
 	}, appliers)
@@ -703,7 +701,7 @@ func setupExecutorWithConfigs(
 	t.Helper()
 
 	server, store := setupExecutorStore(t, tbCfg, storeCfg)
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers)
 	return server, store, executor
 }
 

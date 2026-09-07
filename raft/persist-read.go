@@ -133,6 +133,7 @@ func (p *Persistence) checkConflict(
 			return nil
 		}
 		vc := &timebox.VersionConflictError{
+			ID:               id,
 			ExpectedSequence: expected,
 			ActualSequence:   meta.CurrentSequence,
 		}

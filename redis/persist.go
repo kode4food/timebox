@@ -21,7 +21,7 @@ type Persistence struct {
 
 	client         *redis.Client
 	prefix         string
-	appendScripts  map[luaAppendSpec]*redis.Script
+	appendScript   *redis.Script
 	getEvents      map[bool]*redis.Script
 	putSnapshot    map[bool]*redis.Script
 	getSnapshot    map[bool]*redis.Script
@@ -89,9 +89,9 @@ func newPersistence(cfg Config) (*Persistence, error) {
 	}
 
 	return &Persistence{
-		client:        client,
-		prefix:        buildStorePrefix(cfg),
-		appendScripts: makeLuaAppendScripts(),
+		client:       client,
+		prefix:       buildStorePrefix(cfg),
+		appendScript: redis.NewScript(luaAppend),
 		getEvents: map[bool]*redis.Script{
 			false: redis.NewScript(luaGetEvents),
 			true:  redis.NewScript(luaGetEventsTrim),
@@ -115,45 +115,36 @@ func (p *Persistence) Close() error {
 	return p.client.Close()
 }
 
-// Append appends events if the expected sequence matches
-func (p *Persistence) Append(req timebox.AppendRequest) error {
-	evs, err := timebox.EncodeJSONEvents(req.Events)
-	if err != nil {
-		return err
+// Append appends every request's events if each expected sequence matches
+func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
+	if len(reqs) == 0 {
+		return nil
 	}
 
-	call := buildLuaAppendCall(req.Store, p, luaAppendInput{
-		id:       req.ID,
-		atSeq:    req.ExpectedSequence,
-		status:   req.Status,
-		statusAt: req.StatusAt,
-		tags:     req.Tags,
-		events:   evs,
-	})
+	calls := make([]luaAppendCall, len(reqs))
+	for i, req := range reqs {
+		evs, err := timebox.EncodeJSONEvents(req.Events)
+		if err != nil {
+			return err
+		}
+		calls[i] = buildLuaAppendCall(req.Store, p, luaAppendInput{
+			id:       req.ID,
+			atSeq:    req.ExpectedSequence,
+			status:   req.Status,
+			statusAt: req.StatusAt,
+			tags:     req.Tags,
+			events:   evs,
+		})
+	}
 
-	result, err := p.appendScripts[call.spec].Run(
-		context.Background(), p.client, call.keys, call.args...,
+	keys, args := combineLuaAppendCalls(calls)
+	result, err := p.appendScript.Run(
+		context.Background(), p.client, keys, args...,
 	).Result()
 	if err != nil {
 		return err
 	}
-
-	res := result.([]any)
-	success := res[0].(int64)
-	seq := res[1].(int64)
-	if success != 0 {
-		return nil
-	}
-
-	newEvents, err := decodeEvents(res[2].([]any))
-	if err != nil {
-		return err
-	}
-	return &timebox.VersionConflictError{
-		ExpectedSequence: req.ExpectedSequence,
-		ActualSequence:   seq,
-		NewEvents:        newEvents,
-	}
+	return appendConflict(reqs, result)
 }
 
 // LoadEvents loads events starting at fromSeq
@@ -362,6 +353,64 @@ func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {
 	}
 
 	return parseAggregateID(str)
+}
+
+// appendConflict turns the script result into a VersionConflictError naming the
+// request that failed, or nil when every append landed
+func appendConflict(reqs []timebox.AppendRequest, result any) error {
+	res, ok := result.([]any)
+	if !ok || len(res) < 4 {
+		return errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
+	}
+	success, ok := res[0].(int64)
+	if !ok {
+		return errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
+	}
+	if success != 0 {
+		return nil
+	}
+
+	seq, seqOK := res[1].(int64)
+	at, atOK := res[3].(int64)
+	if !seqOK || !atOK || at < 1 || at > int64(len(reqs)) {
+		return errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
+	}
+	raw, ok := res[2].([]any)
+	if !ok {
+		return errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
+	}
+	newEvents, err := decodeEvents(raw)
+	if err != nil {
+		return err
+	}
+
+	req := reqs[at-1]
+	return &timebox.VersionConflictError{
+		ID:               req.ID,
+		ExpectedSequence: req.ExpectedSequence,
+		ActualSequence:   seq,
+		NewEvents:        newEvents,
+	}
+}
+
+// combineLuaAppendCalls flattens each request's keys and args in the order the
+// script's cursors walk them, led by the request count
+func combineLuaAppendCalls(calls []luaAppendCall) ([]string, []any) {
+	var keys []string
+	args := []any{len(calls)}
+	for _, call := range calls {
+		keys = append(keys, call.keys...)
+		args = append(args, call.args...)
+	}
+	return keys, args
 }
 
 func escapeKeyPart(s string) string {

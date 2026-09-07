@@ -19,9 +19,9 @@ func TestCommandType(t *testing.T) {
 	})
 
 	t.Run("append", func(t *testing.T) {
-		c, err := raft.MakeAppendCommand(1, &timebox.AppendRequest{
+		c, err := raft.MakeAppendCommand(1, []timebox.AppendRequest{{
 			ID: timebox.NewAggregateID("ns", "id"),
-		})
+		}})
 		assert.NoError(t, err)
 		assert.Equal(t, raft.CmdTypeAppend, c.Type())
 	})
@@ -72,7 +72,7 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 		ev.AggregateID = append(timebox.AggregateID(nil), id...)
 		ev.Sequence = 7 + int64(i)
 	}
-	req := &timebox.AppendRequest{
+	req := timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 7,
 		Status:           &status,
@@ -80,15 +80,19 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 		Tags:             map[string]bool{"prod": true},
 		Events:           evs,
 	}
-	c, err := raft.MakeAppendCommand(99, req)
+	c, err := raft.MakeAppendCommand(99, []timebox.AppendRequest{req})
 	assert.NoError(t, err)
 
 	pid, err := c.ProposalID()
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(99), pid)
 
-	got, err := c.AppendRequest()
+	reqs, err := c.AppendRequests()
 	assert.NoError(t, err)
+	if !assert.Len(t, reqs, 1) {
+		return
+	}
+	got := reqs[0]
 	assert.Equal(t, req.ID, got.ID)
 	assert.Equal(t, req.ExpectedSequence, got.ExpectedSequence)
 	assert.Equal(t, req.Status, got.Status)
@@ -150,14 +154,15 @@ func TestCommandConsumeArchiveRoundtrip(t *testing.T) {
 
 func TestCommandCorrupt(t *testing.T) {
 	t.Run("append too short", func(t *testing.T) {
-		_, err := raft.Command([]byte{raft.CmdTypeAppend}).AppendRequest()
+		_, err := raft.Command([]byte{raft.CmdTypeAppend}).AppendRequests()
 		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 
 	t.Run("append corrupt payload", func(t *testing.T) {
 		c := make(raft.Command, 9+4) // header + truncated payload
 		c[0] = raft.CmdTypeAppend
-		_, err := c.AppendRequest()
+		c[9+3] = 1 // one request, truncated body
+		_, err := c.AppendRequests()
 		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 

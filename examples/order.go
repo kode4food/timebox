@@ -250,7 +250,7 @@ func NewOrderState() OrderState {
 // Executor and Applier functions
 
 func createExecutor(store *timebox.Store) *OrderExecutor {
-	return timebox.NewExecutor(store, NewOrderState, OrderAppliers{
+	return store.Executor(NewOrderState, OrderAppliers{
 		OrderCreated:         orderCreated,
 		OrderItemAdded:       orderItemAdded,
 		OrderItemRemoved:     orderItemRemoved,

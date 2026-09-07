@@ -15,12 +15,21 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-// Persistence implements timebox.Persistence using Postgres
-type Persistence struct {
-	timebox.AlwaysReady
-	Config
-	pool *pgxpool.Pool
-}
+type (
+	// Persistence implements timebox.Persistence using Postgres
+	Persistence struct {
+		timebox.AlwaysReady
+		Config
+		pool *pgxpool.Pool
+	}
+
+	// querier is the query surface shared by pgxpool.Pool and pgx.Tx, so one
+	// append path serves a pooled call and a transaction alike
+	querier interface {
+		Query(context.Context, string, ...any) (pgx.Rows, error)
+		QueryRow(context.Context, string, ...any) pgx.Row
+	}
+)
 
 const defaultConnectTimeout = 5 * time.Second
 
@@ -106,7 +115,7 @@ func (p *Persistence) LoadEvents(
 	}
 
 	start := max(req.FromSeq, baseSeq)
-	evs, err := p.loadEvents(ctx, req.ID, key, start)
+	evs, err := p.loadEvents(ctx, p.pool, req.ID, key, start)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +148,7 @@ func (p *Persistence) LoadSnapshot(
 		return nil, err
 	}
 
-	evs, err := p.loadEvents(ctx, req.ID, key, snapSeq)
+	evs, err := p.loadEvents(ctx, p.pool, req.ID, key, snapSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -304,9 +313,10 @@ func (p *Persistence) insertAggregate(
 }
 
 func (p *Persistence) loadEvents(
-	ctx context.Context, id timebox.AggregateID, key string, fromSeq int64,
+	ctx context.Context, q querier, id timebox.AggregateID, key string,
+	fromSeq int64,
 ) ([]*timebox.Event, error) {
-	rows, err := p.pool.Query(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT sequence, event_at, event_type, data
 		FROM timebox_events
 		WHERE store = $1

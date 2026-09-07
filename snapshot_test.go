@@ -197,7 +197,7 @@ func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
 	err = store.AppendEvents(id, 0, []*timebox.Event{ev})
 	assert.NoError(t, err)
 
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers)
 	state, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			assert.Equal(t, 1, st.Value)
@@ -245,7 +245,7 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 	err = store.AppendEvents(id, 1, []*timebox.Event{ev})
 	assert.NoError(t, err)
 
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers)
 	state, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			assert.Equal(t, 11, st.Value)
@@ -275,8 +275,7 @@ func TestSaveSnapshotError(t *testing.T) {
 		Value chan int
 	}
 
-	executor := timebox.NewExecutor(
-		store,
+	executor := store.Executor(
 		func() *BadState { return &BadState{Value: make(chan int)} },
 		timebox.Appliers[*BadState]{},
 	)
@@ -340,7 +339,7 @@ func TestSaveSnapshotColdCache(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Fresh executor with cold cache must fast-forward through the new event
-	fresh := timebox.NewExecutor(store, newCounterState, appliers)
+	fresh := store.Executor(newCounterState, appliers)
 	err = fresh.SaveSnapshot(id)
 	assert.NoError(t, err)
 
@@ -402,7 +401,7 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
-	executor := timebox.NewExecutor(store, newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers)
 	id := timebox.NewAggregateID("counter", "inline-save-error")
 
 	_, err = executor.Exec(id,

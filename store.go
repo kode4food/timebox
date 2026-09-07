@@ -20,6 +20,7 @@ type (
 	// mismatch. NewEvents contains the conflicting events
 	VersionConflictError struct {
 		NewEvents        []*Event
+		ID               AggregateID
 		ExpectedSequence int64
 		ActualSequence   int64
 	}
@@ -79,38 +80,7 @@ func (s *Store) Close() error {
 // AppendEvents atomically appends events for an aggregate if the expected
 // sequence matches the current log sequence
 func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
-	evs = sequenceEvents(id, atSeq, evs)
-
-	var status *string
-	var statusAt time.Time
-	tags := map[string]bool{}
-
-	if len(evs) > 0 && s.config.Indexer != nil {
-		idxs := s.config.Indexer(evs)
-
-		for _, idx := range idxs {
-			if idx != nil && idx.Status != nil {
-				status = idx.Status
-			}
-			if idx != nil {
-				maps.Copy(tags, idx.Tags)
-			}
-		}
-	}
-
-	if status != nil {
-		statusAt = evs[len(evs)-1].Timestamp.UTC()
-	}
-
-	return s.persistence.Append(AppendRequest{
-		Store:            s,
-		ID:               id,
-		ExpectedSequence: atSeq,
-		Status:           status,
-		StatusAt:         statusAt,
-		Tags:             tags,
-		Events:           evs,
-	})
+	return s.persistence.Append(s.appendRequest(id, atSeq, evs))
 }
 
 // GetEvents returns all events for an aggregate starting at fromSeq
@@ -201,6 +171,45 @@ func (e *VersionConflictError) Error() string {
 		"version conflict: expected sequence %d, but at %d (%d new events)",
 		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
 	)
+}
+
+// appendRequest sequences the events and derives the index metadata an append
+// carries, without performing the append
+func (s *Store) appendRequest(
+	id AggregateID, atSeq int64, evs []*Event,
+) AppendRequest {
+	evs = sequenceEvents(id, atSeq, evs)
+
+	var status *string
+	var statusAt time.Time
+	tags := map[string]bool{}
+
+	if len(evs) > 0 && s.config.Indexer != nil {
+		idxs := s.config.Indexer(evs)
+
+		for _, idx := range idxs {
+			if idx != nil && idx.Status != nil {
+				status = idx.Status
+			}
+			if idx != nil {
+				maps.Copy(tags, idx.Tags)
+			}
+		}
+	}
+
+	if status != nil {
+		statusAt = evs[len(evs)-1].Timestamp.UTC()
+	}
+
+	return AppendRequest{
+		Store:            s,
+		ID:               id,
+		ExpectedSequence: atSeq,
+		Status:           status,
+		StatusAt:         statusAt,
+		Tags:             tags,
+		Events:           evs,
+	}
 }
 
 func sequenceEvents(id AggregateID, atSeq int64, evs []*Event) []*Event {

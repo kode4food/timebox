@@ -446,7 +446,7 @@ func (f *fakePersistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
 	return timebox.NewStore(f, cfg)
 }
 
-func (f *fakePersistence) Append(timebox.AppendRequest) error {
+func (f *fakePersistence) Append(...timebox.AppendRequest) error {
 	return nil
 }
 

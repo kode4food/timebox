@@ -77,12 +77,29 @@ const checkSequenceQuery = `
 	)
 `
 
-// Append appends events if the expected sequence matches
-func (p *Persistence) Append(req timebox.AppendRequest) error {
+// Append appends every request's events if each expected sequence matches
+func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 	ctx := context.Background()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for _, req := range reqs {
+		if err := p.appendOne(ctx, tx, req); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Persistence) appendOne(
+	ctx context.Context, q querier, req timebox.AppendRequest,
+) error {
 	key, parts := aggregateKey(req.ID)
 	if len(req.Events) == 0 && req.Status == nil && len(req.Tags) == 0 {
-		return p.checkConflict(ctx, req.ID, key, req.ExpectedSequence)
+		return p.checkConflict(ctx, q, req.ID, key, req.ExpectedSequence)
 	}
 	evAts, evTypes, evData := encodeAppendEvents(req.Events)
 	tags, tagAdds := encodeTags(req.Tags)
@@ -100,23 +117,23 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 
 	switch {
 	case req.Status != nil && len(req.Tags) > 0:
-		err = p.pool.QueryRow(ctx, appendStatusTagsQuery,
+		err = q.QueryRow(ctx, appendStatusTagsQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, tags, tagAdds,
 			evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	case req.Status != nil:
-		err = p.pool.QueryRow(ctx, appendStatusQuery,
+		err = q.QueryRow(ctx, appendStatusQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	case len(req.Tags) > 0:
-		err = p.pool.QueryRow(ctx, appendTagsQuery,
+		err = q.QueryRow(ctx, appendTagsQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
 			tags, tagAdds, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	default:
-		err = p.pool.QueryRow(ctx, appendPlainQuery,
+		err = q.QueryRow(ctx, appendPlainQuery,
 			p.Prefix, key, parts, req.ExpectedSequence,
 			evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
@@ -127,11 +144,12 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 	if success {
 		return nil
 	}
-	evs, err := p.loadEvents(ctx, req.ID, key, req.ExpectedSequence)
+	evs, err := p.loadEvents(ctx, q, req.ID, key, req.ExpectedSequence)
 	if err != nil {
 		return err
 	}
 	return &timebox.VersionConflictError{
+		ID:               req.ID,
 		ExpectedSequence: req.ExpectedSequence,
 		ActualSequence:   actualSeq,
 		NewEvents:        evs,
@@ -139,10 +157,11 @@ func (p *Persistence) Append(req timebox.AppendRequest) error {
 }
 
 func (p *Persistence) checkConflict(
-	ctx context.Context, id timebox.AggregateID, key string, expected int64,
+	ctx context.Context, q querier, id timebox.AggregateID, key string,
+	expected int64,
 ) error {
 	var actual int64
-	if err := p.pool.QueryRow(
+	if err := q.QueryRow(
 		ctx, checkSequenceQuery, p.Prefix, key,
 	).Scan(&actual); err != nil {
 		return err
@@ -153,12 +172,13 @@ func (p *Persistence) checkConflict(
 	var evs []*timebox.Event
 	if expected < actual {
 		var err error
-		evs, err = p.loadEvents(ctx, id, key, expected)
+		evs, err = p.loadEvents(ctx, q, id, key, expected)
 		if err != nil {
 			return err
 		}
 	}
 	return &timebox.VersionConflictError{
+		ID:               id,
 		ExpectedSequence: expected,
 		ActualSequence:   actual,
 		NewEvents:        evs,

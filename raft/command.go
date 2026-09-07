@@ -39,8 +39,8 @@ type (
 
 	// ApplyResult reports the local outcome of one applied Raft command
 	ApplyResult struct {
-		Append *timebox.AppendRequest
-		Error  error
+		Appends []*timebox.AppendRequest
+		Error   error
 	}
 
 	// Command is the encoded form of one replicated Timebox mutation
@@ -64,19 +64,21 @@ var (
 	ErrCommandTypeUnknown = errors.New("unknown command type")
 )
 
-// MakeAppendCommand encodes one append mutation into a Raft command
+// MakeAppendCommand encodes a set of append mutations into a Raft command
 func MakeAppendCommand(
-	proposalID uint64, req *timebox.AppendRequest,
+	proposalID uint64, reqs []timebox.AppendRequest,
 ) (Command, error) {
-	c := make(Command, 0, cmdHeaderSize+128)
+	c := make(Command, 0, cmdHeaderSize+128*len(reqs))
 	c = bin.AppendByte(c, CmdTypeAppend)
 	c = bin.AppendUint64(c, proposalID)
-	c = appendAggregateID(c, req.ID)
-	c = bin.AppendInt64(c, req.ExpectedSequence)
-	c = bin.AppendOptString(c, req.Status)
-	c = bin.AppendInt64(c, req.StatusAt.UnixMilli())
-	c = appendBoolMap(c, req.Tags)
-	return timebox.BinEvent.AppendAll(c, req.Events)
+	c = bin.AppendUint32(c, uint32(len(reqs)))
+	for i := range reqs {
+		var err error
+		if c, err = appendRequestTo(c, &reqs[i]); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 // MakeSnapshotCommand encodes one snapshot mutation into a Raft command
@@ -123,12 +125,22 @@ func (c Command) ProposalID() (uint64, error) {
 	return v, err
 }
 
-// AppendRequest decodes an append request from the command payload
-func (c Command) AppendRequest() (*timebox.AppendRequest, error) {
+// AppendRequests decodes the append requests from the command payload
+func (c Command) AppendRequests() ([]*timebox.AppendRequest, error) {
 	if len(c) < cmdHeaderSize {
 		return nil, bin.ErrCorruptState
 	}
-	return decodeAppendRequest(c[cmdHeaderSize:])
+	count, data, err := bin.ReadUint32(c[cmdHeaderSize:])
+	if err != nil {
+		return nil, err
+	}
+	reqs := make([]*timebox.AppendRequest, count)
+	for i := range reqs {
+		if reqs[i], data, err = decodeAppendRequest(data); err != nil {
+			return nil, err
+		}
+	}
+	return reqs, nil
 }
 
 // SnapshotRequest decodes a snapshot request from the command payload
@@ -155,30 +167,41 @@ func (c Command) ConsumeArchiveRequest() (*ConsumeArchiveCommand, error) {
 	return decodeConsumeArchiveCommand(c[cmdHeaderSize:])
 }
 
-func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
+func appendRequestTo(
+	c Command, req *timebox.AppendRequest,
+) (Command, error) {
+	c = appendAggregateID(c, req.ID)
+	c = bin.AppendInt64(c, req.ExpectedSequence)
+	c = bin.AppendOptString(c, req.Status)
+	c = bin.AppendInt64(c, req.StatusAt.UnixMilli())
+	c = appendBoolMap(c, req.Tags)
+	return timebox.BinEvent.AppendAll(c, req.Events)
+}
+
+func decodeAppendRequest(data []byte) (*timebox.AppendRequest, []byte, error) {
 	id, data, err := readAggregateID(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	expectedSeq, data, err := bin.ReadInt64(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	status, data, err := bin.ReadOptString(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	statusAt, data, err := bin.ReadInt64(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	tags, data, err := readBoolMap(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	events, _, err := timebox.BinEvent.ReadAll(data)
+	events, data, err := timebox.BinEvent.ReadAll(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return &timebox.AppendRequest{
 		ID:               id,
@@ -187,7 +210,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, error) {
 		StatusAt:         time.UnixMilli(statusAt).UTC(),
 		Tags:             tags,
 		Events:           events,
-	}, nil
+	}, data, nil
 }
 
 func decodeSnapshotCommand(data []byte) (*SnapshotCommand, error) {
