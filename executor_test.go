@@ -473,7 +473,7 @@ func TestRaiseError(t *testing.T) {
 	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
-	id := timebox.AggregateID{"raise", "error"}
+	id := timebox.AggregateID{Type: "raise", Key: "error"}
 	_, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
 			ch := make(chan int)
