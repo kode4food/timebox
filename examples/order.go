@@ -110,14 +110,9 @@ func main() {
 }
 
 func setupExample() *orderExample {
-	p, err := redis.NewPersistence(redis.Config{
+	store, err := redis.NewStore(redis.Config{
 		Prefix: "example",
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	store, err := p.NewStore(timebox.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -173,19 +168,19 @@ func (ex *orderExample) createOrder() {
 
 func (ex *orderExample) addShippingAddress() {
 	fmt.Println("\nAdding shipping address...")
-	state, err := ex.executor.Exec(ex.orderID, func(
-		s OrderState, ag *OrderAggregator,
-	) error {
-		return ag.Raise(OrderShippingChanged, AddressChangedData{
-			Address: Address{
-				Street:  "123 Main St",
-				City:    "San Francisco",
-				State:   "CA",
-				ZipCode: "94102",
-				Country: "USA",
-			},
-		})
-	})
+	state, err := ex.executor.Exec(ex.orderID,
+		func(s OrderState, ag *OrderAggregator) error {
+			return ag.Raise(OrderShippingChanged, AddressChangedData{
+				Address: Address{
+					Street:  "123 Main St",
+					City:    "San Francisco",
+					State:   "CA",
+					ZipCode: "94102",
+					Country: "USA",
+				},
+			})
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -199,11 +194,11 @@ func (ex *orderExample) addShippingAddress() {
 
 func (ex *orderExample) confirmOrder() {
 	fmt.Println("\nConfirming order...")
-	state, err := ex.executor.Exec(ex.orderID, func(
-		s OrderState, ag *OrderAggregator,
-	) error {
-		return ag.Raise(OrderConfirmed, struct{}{})
-	})
+	state, err := ex.executor.Exec(ex.orderID,
+		func(s OrderState, ag *OrderAggregator) error {
+			return ag.Raise(OrderConfirmed, struct{}{})
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -213,11 +208,11 @@ func (ex *orderExample) confirmOrder() {
 
 func (ex *orderExample) shipOrder() {
 	fmt.Println("\nShipping order...")
-	state, err := ex.executor.Exec(ex.orderID, func(
-		s OrderState, ag *OrderAggregator,
-	) error {
-		return ag.Raise(OrderShipped, struct{}{})
-	})
+	state, err := ex.executor.Exec(ex.orderID,
+		func(s OrderState, ag *OrderAggregator) error {
+			return ag.Raise(OrderShipped, struct{}{})
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -227,11 +222,11 @@ func (ex *orderExample) shipOrder() {
 
 func (ex *orderExample) deliverOrder() {
 	fmt.Println("\nDelivering order...")
-	state, err := ex.executor.Exec(ex.orderID, func(
-		s OrderState, ag *OrderAggregator,
-	) error {
-		return ag.Raise(OrderDelivered, struct{}{})
-	})
+	state, err := ex.executor.Exec(ex.orderID,
+		func(s OrderState, ag *OrderAggregator) error {
+			return ag.Raise(OrderDelivered, struct{}{})
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -297,16 +292,14 @@ func orderItemRemoved(st OrderState, ev *timebox.Event) OrderState {
 func orderShippingChanged(st OrderState, ev *timebox.Event) OrderState {
 	var data AddressChangedData
 	_ = json.Unmarshal(ev.Data, &data)
-	addr := data.Address
-	st.ShippingAddress = &addr
+	st.ShippingAddress = new(data.Address)
 	return st
 }
 
 func orderBillingChanged(st OrderState, ev *timebox.Event) OrderState {
 	var data AddressChangedData
 	_ = json.Unmarshal(ev.Data, &data)
-	addr := data.Address
-	st.BillingAddress = &addr
+	st.BillingAddress = new(data.Address)
 	return st
 }
 

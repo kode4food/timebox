@@ -9,21 +9,20 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/memory"
 )
 
 func TestArchiveToStream(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{
+	store, err := memory.NewStore(timebox.Config{
 		TrimEvents: true,
 		Indexer: func([]*timebox.Event) []*timebox.Index {
-			active := "active"
 			return []*timebox.Index{{
-				Status: &active,
+				Status: new("active"),
 				Tags:   map[string]bool{"prod": true},
 			}}
 		},
 	})
 	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -58,12 +57,12 @@ func TestArchiveToStream(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, tagIDs)
 	var handled *timebox.ArchiveRecord
-	err = store.ConsumeArchive(ctx, func(
-		_ context.Context, rec *timebox.ArchiveRecord,
-	) error {
-		handled = rec
-		return nil
-	})
+	err = store.ConsumeArchive(ctx,
+		func(_ context.Context, rec *timebox.ArchiveRecord) error {
+			handled = rec
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 	assert.NotNil(t, handled)
 	assert.Equal(t, id, handled.AggregateID)
@@ -71,9 +70,8 @@ func TestArchiveToStream(t *testing.T) {
 }
 
 func TestConsumeArchive(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{})
+	store, err := memory.NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
@@ -104,9 +102,8 @@ func TestConsumeArchive(t *testing.T) {
 }
 
 func TestConsumeArchiveNoHandler(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{})
+	store, err := memory.NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	err = store.ConsumeArchive(context.Background(), nil)
@@ -114,20 +111,19 @@ func TestConsumeArchiveNoHandler(t *testing.T) {
 }
 
 func TestConsumeArchiveNoMessages(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{})
+	store, err := memory.NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	called := false
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
 	defer cancel()
-	err = store.ConsumeArchive(ctx, func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		called = true
-		return nil
-	})
+	err = store.ConsumeArchive(ctx,
+		func(_ context.Context, _ *timebox.ArchiveRecord) error {
+			called = true
+			return nil
+		},
+	)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.False(t, called)
 }

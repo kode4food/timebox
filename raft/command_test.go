@@ -65,7 +65,6 @@ func TestCommandProposalID(t *testing.T) {
 }
 
 func TestCommandAppendRoundtrip(t *testing.T) {
-	status := "active"
 	id := timebox.NewAggregateID("ns", "id1")
 	evs := testEvents()
 	for i, ev := range evs {
@@ -75,7 +74,7 @@ func TestCommandAppendRoundtrip(t *testing.T) {
 	req := timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 7,
-		Status:           &status,
+		Status:           new("active"),
 		StatusAt:         time.Now().UTC().Truncate(time.Millisecond),
 		Tags:             map[string]bool{"prod": true},
 		Events:           evs,

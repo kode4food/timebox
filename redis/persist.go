@@ -17,7 +17,7 @@ import (
 // Persistence implements timebox.Persistence using Redis/Valkey
 type Persistence struct {
 	timebox.AlwaysReady
-	Config
+	cfg Config
 
 	client         *redis.Client
 	prefix         string
@@ -65,9 +65,23 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	return newPersistence(cfg)
 }
 
-// NewStore creates a Store using the current Redis Persistence
-func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
-	return timebox.NewStore(p, cfg)
+// NewStore opens Redis persistence and creates a Store
+func NewStore(cfgs ...Config) (*timebox.Store, error) {
+	p, err := NewPersistence(cfgs...)
+	if err != nil {
+		return nil, err
+	}
+	s, err := timebox.NewStore(p)
+	if err != nil {
+		_ = p.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// Config returns the backend's Timebox configuration
+func (p *Persistence) Config() timebox.Config {
+	return p.cfg.Timebox
 }
 
 func newPersistence(cfg Config) (*Persistence, error) {
@@ -87,6 +101,7 @@ func newPersistence(cfg Config) (*Persistence, error) {
 	}
 
 	return &Persistence{
+		cfg:          cfg,
 		client:       client,
 		prefix:       buildStorePrefix(cfg),
 		appendScript: redis.NewScript(luaAppend),
@@ -104,7 +119,6 @@ func newPersistence(cfg Config) (*Persistence, error) {
 		},
 		publishArchive: redis.NewScript(luaPublishArchive),
 		consumeArchive: redis.NewScript(luaConsumeArchive),
-		Config:         cfg,
 	}, nil
 }
 
@@ -129,7 +143,7 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 		if err != nil {
 			return err
 		}
-		keys, args = p.appendLuaCall(keys, args, req.Store, luaAppendInput{
+		keys, args = p.appendLuaCall(keys, args, luaAppendInput{
 			id:       req.ID,
 			atSeq:    req.ExpectedSequence,
 			status:   req.Status,
@@ -152,7 +166,7 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 func (p *Persistence) LoadEvents(
 	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
-	trimEvents := req.Config().TrimEvents
+	trimEvents := p.cfg.Timebox.TrimEvents
 	eventsKey := p.buildKey(req.ID, eventsSuffix)
 	keys := []string{eventsKey}
 	if trimEvents {
@@ -211,7 +225,7 @@ func (p *Persistence) LoadSnapshot(
 	eventsKey := p.buildKey(req.ID, eventsSuffix)
 	keys := []string{snapKey, snapSeqKey, eventsKey}
 
-	result, err := p.getSnapshot[req.Config().TrimEvents].Run(
+	result, err := p.getSnapshot[p.cfg.Timebox.TrimEvents].Run(
 		context.Background(), p.client, keys,
 	).Result()
 	if err != nil {
@@ -253,7 +267,7 @@ func (p *Persistence) LoadSnapshot(
 
 // SaveSnapshot saves a snapshot if the provided sequence is not older
 func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
-	trimEvents := req.Config().TrimEvents
+	trimEvents := p.cfg.Timebox.TrimEvents
 	snapKey := p.buildKey(req.ID, snapshotValSuffix)
 	snapSeqKey := p.buildKey(req.ID, snapshotSeqSuffix)
 	keys := []string{snapKey, snapSeqKey}

@@ -14,16 +14,12 @@ func TestStore(t *testing.T) {
 	compliance.Run(t, compliance.Profile{
 		Archive: true,
 		Open: func(
-			t *testing.T, cfg compliance.StoreConfig,
+			t *testing.T, cfg timebox.Config,
 		) (timebox.Backend, *timebox.Store) {
 			t.Helper()
 
-			tbCfg := timebox.DefaultConfig()
-			tbCfg.Indexer = cfg.Indexer
-			tbCfg.TrimEvents = cfg.TrimEvents
-
-			p := memory.NewPersistence()
-			store, err := p.NewStore(tbCfg)
+			p := memory.NewPersistence(cfg)
+			store, err := timebox.NewStore(p)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}

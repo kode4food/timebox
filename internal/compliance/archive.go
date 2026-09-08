@@ -14,7 +14,7 @@ import (
 
 func runArchive(t *testing.T, p Profile) {
 	if !p.Archive {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "archive-disabled")
 
 		err := store.Archive(id)
@@ -26,7 +26,7 @@ func runArchive(t *testing.T, p Profile) {
 	}
 
 	t.Run("Lifecycle", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{
+		store := openStore(t, p, timebox.Config{
 			Indexer: newIndexer(t),
 		})
 		id := timebox.NewAggregateID("order", "archive")
@@ -58,12 +58,12 @@ func runArchive(t *testing.T, p Profile) {
 		assert.Empty(t, ids)
 
 		var rec *timebox.ArchiveRecord
-		err = store.ConsumeArchive(context.Background(), func(
-			_ context.Context, item *timebox.ArchiveRecord,
-		) error {
-			rec = item
-			return nil
-		})
+		err = store.ConsumeArchive(context.Background(),
+			func(_ context.Context, item *timebox.ArchiveRecord) error {
+				rec = item
+				return nil
+			},
+		)
 		assert.NoError(t, err)
 		if !assert.NotNil(t, rec) {
 			t.FailNow()
@@ -79,13 +79,13 @@ func runArchive(t *testing.T, p Profile) {
 	})
 
 	t.Run("Missing", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		err := store.Archive(timebox.NewAggregateID("order", "missing"))
 		assert.NoError(t, err)
 	})
 
 	t.Run("NoSnapshot", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "archive-no-snapshot")
 		ev := testEvent(t,
 			time.Unix(1_700_000_021, 0).UTC(),
@@ -96,12 +96,12 @@ func runArchive(t *testing.T, p Profile) {
 		assert.NoError(t, store.Archive(id))
 
 		var rec *timebox.ArchiveRecord
-		err := store.ConsumeArchive(context.Background(), func(
-			_ context.Context, item *timebox.ArchiveRecord,
-		) error {
-			rec = item
-			return nil
-		})
+		err := store.ConsumeArchive(context.Background(),
+			func(_ context.Context, item *timebox.ArchiveRecord) error {
+				rec = item
+				return nil
+			},
+		)
 		assert.NoError(t, err)
 		if !assert.NotNil(t, rec) {
 			t.FailNow()
@@ -116,29 +116,29 @@ func runArchive(t *testing.T, p Profile) {
 	})
 
 	t.Run("NoHandler", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		err := store.ConsumeArchive(context.Background(), nil)
 		assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
 	})
 
 	t.Run("NoMessages", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
 		defer cancel()
 
 		called := false
-		err := store.ConsumeArchive(ctx, func(
-			_ context.Context, _ *timebox.ArchiveRecord,
-		) error {
-			called = true
-			return nil
-		})
+		err := store.ConsumeArchive(ctx,
+			func(_ context.Context, _ *timebox.ArchiveRecord) error {
+				called = true
+				return nil
+			},
+		)
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.False(t, called)
 	})
 
 	t.Run("HandlerErrorKeepsRecord", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "handler")
 		ev := testEvent(t,
 			time.Unix(1_700_000_020, 0).UTC(),
@@ -149,21 +149,21 @@ func runArchive(t *testing.T, p Profile) {
 		assert.NoError(t, store.Archive(id))
 
 		handlerErr := errors.New("handler failed")
-		err := store.ConsumeArchive(context.Background(), func(
-			_ context.Context, rec *timebox.ArchiveRecord,
-		) error {
-			assert.Equal(t, id, rec.AggregateID)
-			return handlerErr
-		})
+		err := store.ConsumeArchive(context.Background(),
+			func(_ context.Context, rec *timebox.ArchiveRecord) error {
+				assert.Equal(t, id, rec.AggregateID)
+				return handlerErr
+			},
+		)
 		assert.ErrorIs(t, err, handlerErr)
 
 		var rec *timebox.ArchiveRecord
-		err = store.ConsumeArchive(context.Background(), func(
-			_ context.Context, item *timebox.ArchiveRecord,
-		) error {
-			rec = item
-			return nil
-		})
+		err = store.ConsumeArchive(context.Background(),
+			func(_ context.Context, item *timebox.ArchiveRecord) error {
+				rec = item
+				return nil
+			},
+		)
 		assert.NoError(t, err)
 		if !assert.NotNil(t, rec) {
 			t.FailNow()

@@ -51,7 +51,7 @@ func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 			ID:         req.ID,
 			Data:       req.Data,
 			Sequence:   req.Sequence,
-			TrimEvents: req.Config().TrimEvents,
+			TrimEvents: p.cfg.Timebox.TrimEvents,
 		}),
 		propID,
 		nil,

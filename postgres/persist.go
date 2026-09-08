@@ -19,7 +19,7 @@ type (
 	// Persistence implements timebox.Persistence using Postgres
 	Persistence struct {
 		timebox.AlwaysReady
-		Config
+		cfg  Config
 		pool *pgxpool.Pool
 	}
 
@@ -44,9 +44,23 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	return newPersistence(cfg)
 }
 
-// NewStore creates a Store using the current Postgres Persistence
-func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
-	return timebox.NewStore(p, cfg)
+// NewStore opens Postgres persistence and creates a Store
+func NewStore(cfgs ...Config) (*timebox.Store, error) {
+	p, err := NewPersistence(cfgs...)
+	if err != nil {
+		return nil, err
+	}
+	s, err := timebox.NewStore(p)
+	if err != nil {
+		_ = p.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// Config returns the backend's Timebox configuration
+func (p *Persistence) Config() timebox.Config {
+	return p.cfg.Timebox
 }
 
 func newPersistence(cfg Config) (*Persistence, error) {
@@ -83,8 +97,8 @@ func newPersistence(cfg Config) (*Persistence, error) {
 	}
 
 	return &Persistence{
-		Config: cfg,
-		pool:   pool,
+		cfg:  cfg,
+		pool: pool,
 	}, nil
 }
 
@@ -107,7 +121,7 @@ func (p *Persistence) LoadEvents(
 		SELECT base_seq
 		FROM timebox_snapshots
 		WHERE store = $1 AND aggregate_key = $2
-	`, p.Prefix, key).Scan(&baseSeq)
+	`, p.cfg.Prefix, key).Scan(&baseSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		baseSeq = 0
 	} else if err != nil {
@@ -140,7 +154,7 @@ func (p *Persistence) LoadSnapshot(
 		SELECT snapshot_data, snapshot_seq
 		FROM timebox_snapshots
 		WHERE store = $1 AND aggregate_key = $2
-	`, p.Prefix, key).Scan(&snapData, &snapSeq)
+	`, p.cfg.Prefix, key).Scan(&snapData, &snapSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		snapData = ""
 		snapSeq = 0
@@ -201,7 +215,7 @@ func (p *Persistence) SaveSnapshot(
 	}
 
 	newBase := baseSeq
-	if req.Config().TrimEvents && req.Sequence > baseSeq {
+	if p.cfg.Timebox.TrimEvents && req.Sequence > baseSeq {
 		newBase = min(req.Sequence, nextSeq)
 		if newBase > baseSeq {
 			if _, err := tx.Exec(ctx, `
@@ -209,7 +223,7 @@ func (p *Persistence) SaveSnapshot(
 				WHERE store = $1
 				  AND aggregate_key = $2
 				  AND sequence < $3
-			`, p.Prefix, key, newBase); err != nil {
+			`, p.cfg.Prefix, key, newBase); err != nil {
 				return err
 			}
 		}
@@ -224,7 +238,7 @@ func (p *Persistence) SaveSnapshot(
 		SET base_seq = EXCLUDED.base_seq,
 		    snapshot_seq = EXCLUDED.snapshot_seq,
 		    snapshot_data = EXCLUDED.snapshot_data
-	`, p.Prefix, key, newBase, req.Sequence, req.Data); err != nil {
+	`, p.cfg.Prefix, key, newBase, req.Sequence, req.Data); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -244,13 +258,13 @@ func (p *Persistence) ListAggregates(
 			SELECT aggregate_parts
 			FROM timebox_statuses
 			WHERE store = $1
-		`, p.Prefix)
+		`, p.cfg.Prefix)
 	} else {
 		rows, err = p.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
 			WHERE store = $1 AND aggregate_parts[1] = $2
-		`, p.Prefix, string(typ))
+		`, p.cfg.Prefix, string(typ))
 	}
 	if err != nil {
 		return nil, err
@@ -293,7 +307,7 @@ func (p *Persistence) loadSnapshotState(
 		  AND s.aggregate_key = i.aggregate_key
 		WHERE i.store = $1 AND i.aggregate_key = $2
 		FOR UPDATE OF i
-	`, p.Prefix, key).Scan(baseSeq, snapSeq, nextSeq)
+	`, p.cfg.Prefix, key).Scan(baseSeq, snapSeq, nextSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -311,7 +325,7 @@ func (p *Persistence) insertAggregate(
 			store, aggregate_key, aggregate_parts
 		) VALUES ($1, $2, $3)
 		ON CONFLICT (store, aggregate_key) DO NOTHING
-	`, p.Prefix, key, parts)
+	`, p.cfg.Prefix, key, parts)
 	return err
 }
 
@@ -326,7 +340,7 @@ func (p *Persistence) loadEvents(
 		  AND aggregate_key = $2
 		  AND sequence >= $3
 		ORDER BY sequence
-	`, p.Prefix, key, fromSeq)
+	`, p.cfg.Prefix, key, fromSeq)
 	if err != nil {
 		return nil, err
 	}

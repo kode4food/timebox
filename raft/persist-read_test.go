@@ -16,7 +16,6 @@ func TestLoadEventsUnknownAggregate(t *testing.T) {
 
 	id := timebox.NewAggregateID("order", "missing")
 	res, err := n.persistence.LoadEvents(timebox.LoadEventsRequest{
-		Store:   n.store,
 		ID:      id,
 		FromSeq: 7,
 	})
@@ -50,7 +49,6 @@ func TestLoadEventsUsesBaseSequenceAfterTrim(t *testing.T) {
 	}
 
 	res, err := n.persistence.LoadEvents(timebox.LoadEventsRequest{
-		Store:   n.store,
 		ID:      id,
 		FromSeq: 0,
 	})

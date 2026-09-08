@@ -521,9 +521,7 @@ func TestMakeApplier(t *testing.T) {
 				},
 			),
 			"reset": timebox.MakeApplier(
-				func(
-					state TestState, ev *timebox.Event, _ struct{},
-				) TestState {
+				func(state TestState, ev *timebox.Event, _ struct{}) TestState {
 					return TestState{Value: 0}
 				},
 			),

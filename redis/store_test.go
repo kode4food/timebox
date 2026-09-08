@@ -26,7 +26,7 @@ func TestStore(t *testing.T) {
 	compliance.Run(t, compliance.Profile{
 		Archive: true,
 		Open: func(
-			t *testing.T, cfg compliance.StoreConfig,
+			t *testing.T, cfg timebox.Config,
 		) (timebox.Backend, *timebox.Store) {
 			t.Helper()
 
@@ -34,15 +34,13 @@ func TestStore(t *testing.T) {
 			pCfg.Addr = server.Addr()
 			pCfg.Prefix = suitePrefix(t)
 
-			storeCfg := timebox.DefaultConfig()
-			storeCfg.Indexer = cfg.Indexer
-			storeCfg.TrimEvents = cfg.TrimEvents
+			pCfg.Timebox = cfg
 
-			p, err := newPersistence(pCfg)
+			p, err := tbredis.NewPersistence(pCfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}
-			store, err := p.NewStore(storeCfg)
+			store, err := timebox.NewStore(p)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}

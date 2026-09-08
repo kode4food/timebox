@@ -12,28 +12,41 @@ import (
 	"github.com/kode4food/timebox/memory"
 )
 
+func TestNewStore(t *testing.T) {
+	t.Run("Config", func(t *testing.T) {
+		s, err := memory.NewStore(timebox.Config{MaxRetries: 3})
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = s.Close() }()
+		assert.Equal(t, 3, s.Config().MaxRetries)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		s, err := memory.NewStore(timebox.Config{MaxRetries: -1})
+		assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
+		assert.Nil(t, s)
+	})
+}
+
 func TestClosedMethods(t *testing.T) {
 	p := memory.NewPersistence()
-	store, err := p.NewStore(timebox.Config{})
-	assert.NoError(t, err)
 	assert.NoError(t, p.Close())
 
-	_, err = p.LoadEvents(timebox.LoadEventsRequest{
-		Store:   store,
+	_, err := p.LoadEvents(timebox.LoadEventsRequest{
 		ID:      timebox.NewAggregateID("order", "1"),
 		FromSeq: 0,
 	})
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	err = p.ConsumeArchive(context.Background(), func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		return nil
-	})
+	err = p.ConsumeArchive(context.Background(),
+		func(_ context.Context, _ *timebox.ArchiveRecord) error {
+			return nil
+		},
+	)
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
 	err = p.Append(timebox.AppendRequest{
-		Store:            store,
 		ID:               timebox.NewAggregateID("order", "1"),
 		ExpectedSequence: 0,
 		Events:           testEvents("created"),

@@ -206,12 +206,12 @@ func TestArchiveReplicates(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 
 	var rec *timebox.ArchiveRecord
-	err = follower.store.ConsumeArchive(t.Context(), func(
-		_ context.Context, item *timebox.ArchiveRecord,
-	) error {
-		rec = item
-		return nil
-	})
+	err = follower.store.ConsumeArchive(t.Context(),
+		func(_ context.Context, item *timebox.ArchiveRecord) error {
+			rec = item
+			return nil
+		},
+	)
 	if !assert.NoError(t, err) || !assert.NotNil(t, rec) {
 		return
 	}
@@ -225,11 +225,11 @@ func TestArchiveReplicates(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		for _, n := range nodes {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
-			err := n.store.ConsumeArchive(ctx, func(
-				_ context.Context, _ *timebox.ArchiveRecord,
-			) error {
-				return nil
-			})
+			err := n.store.ConsumeArchive(ctx,
+				func(_ context.Context, _ *timebox.ArchiveRecord) error {
+					return nil
+				},
+			)
 			cancel()
 			if !errors.Is(err, context.DeadlineExceeded) {
 				return false

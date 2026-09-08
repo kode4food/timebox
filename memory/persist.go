@@ -16,6 +16,7 @@ type (
 	// Persistence keeps store state in memory for semantic tests
 	Persistence struct {
 		timebox.AlwaysReady
+		config timebox.Config
 
 		closed    bool
 		nextID    int64
@@ -47,17 +48,30 @@ var (
 var _ timebox.Backend = (*Persistence)(nil)
 
 // NewPersistence creates a new in-memory Persistence
-func NewPersistence() *Persistence {
+func NewPersistence(cfgs ...timebox.Config) *Persistence {
+	cfg := timebox.Configure(timebox.DefaultConfig(), cfgs...)
 	return &Persistence{
+		config:    cfg,
 		aggs:      map[timebox.AggregateID]*aggregate{},
 		archive:   []*timebox.ArchiveRecord{},
 		archiveCh: make(chan struct{}, 1),
 	}
 }
 
-// NewStore creates a Store using the current in-memory Persistence
-func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
-	return timebox.NewStore(p, cfg)
+// NewStore opens in-memory persistence and creates a Store
+func NewStore(cfgs ...timebox.Config) (*timebox.Store, error) {
+	p := NewPersistence(cfgs...)
+	s, err := timebox.NewStore(p)
+	if err != nil {
+		_ = p.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// Config returns the backend's Timebox configuration
+func (p *Persistence) Config() timebox.Config {
+	return p.config
 }
 
 // Close closes the in-memory Persistence
@@ -160,7 +174,7 @@ func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 
 	a.snapshotData = req.Data
 	a.snapshotSeq = req.Sequence
-	if req.Config().TrimEvents && req.Sequence > a.baseSeq {
+	if p.config.TrimEvents && req.Sequence > a.baseSeq {
 		trim := min(req.Sequence-a.baseSeq, int64(len(a.events)))
 		a.events = a.events[trim:]
 		a.baseSeq += trim

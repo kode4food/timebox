@@ -13,15 +13,15 @@ type (
 	Backend interface {
 		Persistence
 		Queries
+
+		// Config returns the backend's Timebox configuration
+		Config() Config
 	}
 
 	// Persistence provides the low-level primitives Store uses to implement
 	// Store semantics
 	Persistence interface {
 		io.Closer
-
-		// NewStore creates a Store using this Persistence instance
-		NewStore(Config) (*Store, error)
 
 		// Ready reports when the persistence backend can serve requests
 		Ready() <-chan struct{}
@@ -69,8 +69,7 @@ type (
 
 	// AppendRequest contains primitive inputs required for an atomic append
 	AppendRequest struct {
-		StatusAt time.Time
-		*Store
+		StatusAt         time.Time
 		Status           *string
 		Tags             map[string]bool
 		ID               AggregateID
@@ -80,7 +79,6 @@ type (
 
 	// LoadEventsRequest contains primitive inputs required for an event load
 	LoadEventsRequest struct {
-		*Store
 		ID      AggregateID
 		FromSeq int64
 	}
@@ -95,7 +93,6 @@ type (
 	// LoadSnapshotRequest contains primitive inputs required for a snapshot
 	// load
 	LoadSnapshotRequest struct {
-		*Store
 		ID AggregateID
 	}
 
@@ -108,7 +105,6 @@ type (
 
 	// SnapshotRequest contains primitive inputs required for a snapshot save
 	SnapshotRequest struct {
-		*Store
 		ID       AggregateID
 		Data     []byte
 		Sequence int64

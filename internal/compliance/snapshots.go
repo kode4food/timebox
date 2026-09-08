@@ -11,7 +11,7 @@ import (
 
 func runSnapshots(t *testing.T, p Profile) {
 	t.Run("Missing", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "missing")
 
 		var state map[string]int
@@ -26,7 +26,7 @@ func runSnapshots(t *testing.T, p Profile) {
 	})
 
 	t.Run("BeforeEvents", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "before-events")
 
 		assert.NoError(t, store.PutSnapshot(id, map[string]int{"v": 0}, 0))
@@ -46,7 +46,7 @@ func runSnapshots(t *testing.T, p Profile) {
 	})
 
 	t.Run("RoundTrip", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "snapshot")
 		ev := testEvent(t,
 			time.Unix(1_700_000_012, 0).UTC(),
@@ -99,7 +99,7 @@ func runSnapshots(t *testing.T, p Profile) {
 	})
 
 	t.Run("Trim", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{TrimEvents: true})
+		store := openStore(t, p, timebox.Config{TrimEvents: true})
 		id := timebox.NewAggregateID("order", "trim")
 
 		assert.NoError(t,
@@ -163,7 +163,7 @@ func runSnapshots(t *testing.T, p Profile) {
 	})
 
 	t.Run("NoTrim", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "no-trim")
 
 		assert.NoError(t,
@@ -186,7 +186,7 @@ func runSnapshots(t *testing.T, p Profile) {
 	})
 
 	t.Run("MarshalError", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		err := store.PutSnapshot(
 			timebox.NewAggregateID("order", "bad-snapshot"),
 			func() {}, 1,

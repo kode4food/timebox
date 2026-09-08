@@ -107,7 +107,7 @@ func (p *Persistence) servePublish() {
 					if !ok {
 						return
 					}
-					p.Publisher(events...)
+					p.cfg.Publisher(events...)
 				}
 			case <-p.publishQ.Ready():
 				for {
@@ -115,7 +115,7 @@ func (p *Persistence) servePublish() {
 					if !ok {
 						break
 					}
-					p.Publisher(events...)
+					p.cfg.Publisher(events...)
 				}
 			}
 		}
@@ -123,7 +123,7 @@ func (p *Persistence) servePublish() {
 }
 
 func (p *Persistence) servePeerSends() {
-	localID := nodeID(p.LocalID)
+	localID := nodeID(p.cfg.LocalID)
 	for id, peer := range p.peers {
 		if id == localID || peer.RaftAddr == "" {
 			continue
@@ -336,7 +336,7 @@ func (p *Persistence) serveReady() {
 				if err := p.handleReady(rd); err != nil {
 					slog.Error(
 						"Raft ready loop stopped",
-						slog.String("local_id", p.LocalID),
+						slog.String("local_id", p.cfg.LocalID),
 						slog.Any("error", err),
 					)
 					p.stop(internalError(err))

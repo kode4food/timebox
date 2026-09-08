@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
+	"github.com/kode4food/timebox/memory"
 )
 
 type inlineSnapshotPersistence struct {
@@ -22,8 +23,7 @@ type inlineSnapshotPersistence struct {
 }
 
 func TestSequenceWithSnapshot(t *testing.T) {
-	server, store, executor := setupTestExecutor(t)
-	defer func() { _ = server.Close() }()
+	store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snap-seq-test")
@@ -64,12 +64,11 @@ func TestSequenceWithSnapshot(t *testing.T) {
 }
 
 func TestSnapshotTrimsEvents(t *testing.T) {
-	server, store, executor := setupTestExecutorWithConfig(t,
+	store, executor := setupTestExecutorWithConfig(t,
 		func(cfg *timebox.Config) {
 			cfg.TrimEvents = true
 		},
 	)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "trim-events")
@@ -118,8 +117,7 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 }
 
 func TestSnapshotLargeBatch(t *testing.T) {
-	server, store, executor := setupTestExecutor(t)
-	defer func() { _ = server.Close() }()
+	store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "large-batch")
@@ -183,9 +181,8 @@ func TestSnapshotLargeBatch(t *testing.T) {
 }
 
 func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{})
+	store, err := memory.NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snapshot")
@@ -218,12 +215,11 @@ func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
 }
 
 func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
-	server, store, setupExecutor := setupTestExecutorWithConfig(t,
+	store, setupExecutor := setupTestExecutorWithConfig(t,
 		func(cfg *timebox.Config) {
 			cfg.SnapshotRatio = 100
 		},
 	)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snapshot-ratio")
@@ -267,8 +263,7 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 }
 
 func TestSaveSnapshotError(t *testing.T) {
-	server, store, _ := setupTestExecutor(t)
-	defer func() { _ = server.Close() }()
+	store, _ := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
 
 	type BadState struct {
@@ -285,8 +280,7 @@ func TestSaveSnapshotError(t *testing.T) {
 }
 
 func TestSaveSnapshot(t *testing.T) {
-	server, store, executor := setupTestExecutor(t)
-	defer func() { _ = server.Close() }()
+	store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("save", "snapshot")
@@ -312,8 +306,7 @@ func TestSaveSnapshot(t *testing.T) {
 }
 
 func TestSaveSnapshotColdCache(t *testing.T) {
-	server, store, executor := setupTestExecutor(t)
-	defer func() { _ = server.Close() }()
+	store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "cold-snapshot")
@@ -352,21 +345,20 @@ func TestSaveSnapshotColdCache(t *testing.T) {
 }
 
 func TestSaveSnapshotLoadError(t *testing.T) {
-	server, store, executor := setupTestExecutor(t)
+	store, executor := setupTestExecutor(t)
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("save", "snapshot-error")
 
-	_ = server.Close()
+	_ = store.Close()
 
 	err := executor.SaveSnapshot(id)
 	assert.Error(t, err)
 }
 
 func TestGetSnapshotEmpty(t *testing.T) {
-	server, store, err := newMemoryStore(timebox.Config{})
+	store, err := memory.NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = server.Close() }()
 	defer func() { _ = store.Close() }()
 
 	var state CounterState
@@ -397,7 +389,7 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 		},
 		saveErr: saveErr,
 	}
-	store, err := timebox.NewStore(p, timebox.Config{})
+	store, err := timebox.NewStore(p)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 

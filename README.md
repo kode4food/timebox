@@ -53,14 +53,18 @@ Events marshal their IDs to JSON as a two-element array, so `("order", "123")` e
 - `CacheSize`: executor projection cache size
 - `Indexer`: optional function that derives status and tag updates from an appended event batch
 
-Create a store by opening backend persistence and then binding a store to it:
+Pass backend settings and Timebox configuration to the backend's `NewStore` function:
 
 ```go
-p, err := postgres.NewPersistence(postgres.Config{...})
-store, err := p.NewStore(timebox.Config{...})
+store, err := postgres.NewStore(postgres.Config{
+	URL: "postgres://localhost:5432/postgres?sslmode=disable",
+	Timebox: timebox.Config{
+		MaxRetries: 8,
+	},
+})
 ```
 
-You can also call `timebox.NewStore(p, cfg)` directly when you already have a backend value that satisfies `timebox.Backend`.
+For direct access to persistence, use `postgres.NewPersistence(cfg)` and then `timebox.NewStore(p)`. The store reads its Timebox configuration from `p.Config()`. Redis and Raft use the same construction pattern; memory accepts `timebox.Config` directly through `memory.NewStore(cfg)`.
 
 Snapshotting is available in two ways:
 

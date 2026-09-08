@@ -101,7 +101,7 @@ func (p *Persistence) applySnapshot(snap *raftpb.Snapshot) error {
 
 	data := snap.GetData()
 	meta := snap.GetMetadata()
-	path := filepath.Join(p.DataDir, projectionDirName, projectionDBName)
+	path := filepath.Join(p.cfg.DataDir, projectionDirName, projectionDBName)
 	if ref, ok := decodeSnapshotRef(data); ok {
 		src, ok := p.takeIncomingSnapshot(ref)
 		if !ok {
@@ -162,7 +162,7 @@ func (p *Persistence) restoreMaterializedState(
 }
 
 func (p *Persistence) newSnapshotRef() (uint64, string, error) {
-	dir := filepath.Join(p.DataDir, snapshotDirName)
+	dir := filepath.Join(p.cfg.DataDir, snapshotDirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return 0, "", err
 	}

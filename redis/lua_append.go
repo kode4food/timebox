@@ -41,11 +41,11 @@ const (
 // appendLuaCall adds one request's keys and args in the order the script's
 // cursors claim them
 func (p *Persistence) appendLuaCall(
-	keys []string, args []any, store *timebox.Store, in luaAppendInput,
+	keys []string, args []any, in luaAppendInput,
 ) ([]string, []any) {
 	ops := newLuaAppendOps(in.tags)
 	spec := luaAppendSpec{
-		trim:   store.Config().TrimEvents,
+		trim:   p.cfg.Timebox.TrimEvents,
 		status: in.status != nil,
 		tags:   len(ops) > 0,
 	}

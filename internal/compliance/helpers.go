@@ -12,18 +12,13 @@ import (
 )
 
 type (
-	StoreConfig struct {
-		Indexer    timebox.Indexer
-		TrimEvents bool
-	}
-
 	Profile struct {
 		Open    Opener
 		Archive bool
 	}
 
 	// Opener opens a backend and a Store bound to it
-	Opener func(*testing.T, StoreConfig) (timebox.Backend, *timebox.Store)
+	Opener func(*testing.T, timebox.Config) (timebox.Backend, *timebox.Store)
 
 	indexData struct {
 		Value  int             `json:"value"`
@@ -34,7 +29,7 @@ type (
 
 const readyTimeout = 15 * time.Second
 
-func openStore(t *testing.T, p Profile, cfg StoreConfig) *timebox.Store {
+func openStore(t *testing.T, p Profile, cfg timebox.Config) *timebox.Store {
 	t.Helper()
 
 	_, store := openBackend(t, p, cfg)
@@ -42,7 +37,7 @@ func openStore(t *testing.T, p Profile, cfg StoreConfig) *timebox.Store {
 }
 
 func openBackend(
-	t *testing.T, p Profile, cfg StoreConfig,
+	t *testing.T, p Profile, cfg timebox.Config,
 ) (timebox.Backend, *timebox.Store) {
 	t.Helper()
 

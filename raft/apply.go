@@ -187,7 +187,7 @@ func (p *Persistence) applyConfChange(ent *raftpb.Entry) error {
 }
 
 func (p *Persistence) markReady() {
-	if p.Publisher != nil {
+	if p.cfg.Publisher != nil {
 		p.flushBatch = p.flushBatchPublish
 	}
 	p.readyOnce.Do(func() {

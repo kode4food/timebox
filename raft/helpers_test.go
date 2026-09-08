@@ -57,20 +57,20 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 		dataDir = t.TempDir()
 	}
 
-	tbCfg := testRaftConfig(nodeConfig{
+	pCfg := testRaftConfig(nodeConfig{
 		id:        cfg.id,
 		addr:      addr,
 		dataDir:   dataDir,
 		publisher: cfg.publisher,
 	})
-	storeCfg := testRaftStoreConfig(cfg)
+	pCfg.Timebox = testRaftTimeboxConfig(cfg)
 
-	persistence, err := raft.NewPersistence(tbCfg)
+	persistence, err := raft.NewPersistence(pCfg)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
 
-	store, err := persistence.NewStore(storeCfg)
+	store, err := timebox.NewStore(persistence)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
@@ -111,21 +111,21 @@ func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 		dataDir = t.TempDir()
 	}
 
-	tbCfg := testRaftConfig(nodeConfig{
+	pCfg := testRaftConfig(nodeConfig{
 		id:        cfg.id,
 		addr:      cfg.addr,
 		dataDir:   dataDir,
 		publisher: cfg.publisher,
 	})
-	storeCfg := testRaftStoreConfig(cfg)
-	tbCfg.Servers = srvs
+	pCfg.Servers = srvs
+	pCfg.Timebox = testRaftTimeboxConfig(cfg)
 
-	p, err := raft.NewPersistence(tbCfg)
+	p, err := raft.NewPersistence(pCfg)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
 
-	store, err := p.NewStore(storeCfg)
+	store, err := timebox.NewStore(p)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
@@ -441,7 +441,7 @@ func testRaftConfig(cfg nodeConfig) raft.Config {
 	}
 }
 
-func testRaftStoreConfig(cfg nodeConfig) timebox.Config {
+func testRaftTimeboxConfig(cfg nodeConfig) timebox.Config {
 	indexer := combinedIndexer
 	if cfg.indexer != nil {
 		indexer = cfg.indexer
@@ -538,12 +538,11 @@ func combinedIndexer(evs []*timebox.Event) []*timebox.Index {
 			continue
 		}
 
-		status := data["status"]
 		tags := map[string]bool{data["env"]: true}
 		if data["env"] != "prod" {
 			tags["prod"] = false
 		}
-		idxs = append(idxs, &timebox.Index{Status: &status, Tags: tags})
+		idxs = append(idxs, &timebox.Index{Status: new(data["status"]), Tags: tags})
 	}
 	return idxs
 }

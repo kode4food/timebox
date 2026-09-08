@@ -2,7 +2,6 @@ package timebox_test
 
 import (
 	"encoding/json"
-	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,18 +94,16 @@ func TestStoreIndexer(t *testing.T) {
 		}
 
 		t.Run(mode, func(t *testing.T) {
-			server, store, executor := setupTestExecutorWithConfig(t,
+			store, executor := setupTestExecutorWithConfig(t,
 				func(cfg *timebox.Config) {
 					cfg.TrimEvents = trimEvents
 					cfg.Indexer = func(
 						events []*timebox.Event,
 					) []*timebox.Index {
-						active := "active"
-						return []*timebox.Index{{Status: &active}}
+						return []*timebox.Index{{Status: new("active")}}
 					}
 				},
 			)
-			defer func() { _ = server.Close() }()
 			defer func() { _ = store.Close() }()
 
 			id := timebox.NewAggregateID("counter", "indexed")
@@ -133,36 +130,26 @@ func newCounterState() CounterState {
 }
 
 func setupTestExecutor(t *testing.T) (
-	io.Closer, *timebox.Store, *timebox.Executor[CounterState],
+	*timebox.Store, *timebox.Executor[CounterState],
 ) {
 	return setupTestExecutorWithConfig(t, nil)
-}
-
-func newMemoryStore(cfg timebox.Config) (io.Closer, *timebox.Store, error) {
-	p := memory.NewPersistence()
-	s, err := p.NewStore(cfg)
-	if err != nil {
-		_ = p.Close()
-		return nil, nil, err
-	}
-	return p, s, nil
 }
 
 func setupTestExecutorWithConfig(
 	t *testing.T, mutate func(*timebox.Config),
 ) (
-	io.Closer, *timebox.Store, *timebox.Executor[CounterState],
+	*timebox.Store, *timebox.Executor[CounterState],
 ) {
-	storeCfg := timebox.Config{}
+	cfg := timebox.Config{}
 	if mutate != nil {
-		mutate(&storeCfg)
+		mutate(&cfg)
 	}
 
-	p, store, err := newMemoryStore(storeCfg)
+	store, err := memory.NewStore(cfg)
 	assert.NoError(t, err)
 
 	executor := store.Executor(newCounterState, appliers)
-	return p, store, executor
+	return store, executor
 }
 
 func encodedSize(t *testing.T, value any) int {

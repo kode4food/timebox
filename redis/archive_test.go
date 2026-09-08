@@ -20,9 +20,7 @@ func TestConsumeArchiveMalformed(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := newStore(
-		tbredis.Config{Addr: server.Addr()}, timebox.Config{},
-	)
+	store, err := tbredis.NewStore(tbredis.Config{Addr: server.Addr()})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -36,11 +34,11 @@ func TestConsumeArchiveMalformed(t *testing.T) {
 	}).Result()
 	assert.NoError(t, err)
 
-	err = store.ConsumeArchive(context.Background(), func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		return nil
-	})
+	err = store.ConsumeArchive(context.Background(),
+		func(_ context.Context, _ *timebox.ArchiveRecord) error {
+			return nil
+		},
+	)
 	assert.ErrorIs(t, err, timebox.ErrArchiveRecordMalformed)
 }
 
@@ -49,9 +47,7 @@ func TestArchivePayloadBytes(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := newStore(
-		tbredis.Config{Addr: server.Addr()}, timebox.Config{},
-	)
+	store, err := tbredis.NewStore(tbredis.Config{Addr: server.Addr()})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -67,12 +63,12 @@ func TestArchivePayloadBytes(t *testing.T) {
 	assert.NoError(t, err)
 
 	var handled *timebox.ArchiveRecord
-	err = store.ConsumeArchive(context.Background(), func(
-		_ context.Context, record *timebox.ArchiveRecord,
-	) error {
-		handled = record
-		return nil
-	})
+	err = store.ConsumeArchive(context.Background(),
+		func(_ context.Context, record *timebox.ArchiveRecord) error {
+			handled = record
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 	assert.NotNil(t, handled)
 	assert.Equal(t,
@@ -86,9 +82,7 @@ func TestArchivePayloadJSON(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := newStore(
-		tbredis.Config{Addr: server.Addr()}, timebox.Config{},
-	)
+	store, err := tbredis.NewStore(tbredis.Config{Addr: server.Addr()})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -102,11 +96,11 @@ func TestArchivePayloadJSON(t *testing.T) {
 	}).Result()
 	assert.NoError(t, err)
 
-	err = store.ConsumeArchive(context.Background(), func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		return nil
-	})
+	err = store.ConsumeArchive(context.Background(),
+		func(_ context.Context, _ *timebox.ArchiveRecord) error {
+			return nil
+		},
+	)
 	assert.Error(t, err)
 }
 
@@ -115,9 +109,7 @@ func TestArchivePayloadBadEvent(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := newStore(
-		tbredis.Config{Addr: server.Addr()}, timebox.Config{},
-	)
+	store, err := tbredis.NewStore(tbredis.Config{Addr: server.Addr()})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -132,11 +124,11 @@ func TestArchivePayloadBadEvent(t *testing.T) {
 	}).Result()
 	assert.NoError(t, err)
 
-	err = store.ConsumeArchive(context.Background(), func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		return nil
-	})
+	err = store.ConsumeArchive(context.Background(),
+		func(_ context.Context, _ *timebox.ArchiveRecord) error {
+			return nil
+		},
+	)
 	assert.Error(t, err)
 }
 
@@ -145,9 +137,7 @@ func TestArchiveHandlerError(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := newStore(
-		tbredis.Config{Addr: server.Addr()}, timebox.Config{},
-	)
+	store, err := tbredis.NewStore(tbredis.Config{Addr: server.Addr()})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -165,11 +155,11 @@ func TestArchiveHandlerError(t *testing.T) {
 	assert.NoError(t, store.Archive(id))
 
 	handlerErr := errors.New("handler failed")
-	err = store.ConsumeArchive(ctx, func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		return handlerErr
-	})
+	err = store.ConsumeArchive(ctx,
+		func(_ context.Context, _ *timebox.ArchiveRecord) error {
+			return handlerErr
+		},
+	)
 	assert.ErrorIs(t, err, handlerErr)
 
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
@@ -186,9 +176,7 @@ func TestArchivePendingRecovery(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := newStore(
-		tbredis.Config{Addr: server.Addr()}, timebox.Config{},
-	)
+	store, err := tbredis.NewStore(tbredis.Config{Addr: server.Addr()})
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -231,12 +219,12 @@ func TestArchivePendingRecovery(t *testing.T) {
 	server.SetTime(now.Add(tbredis.DefaultMinIdle + time.Second))
 
 	var handled *timebox.ArchiveRecord
-	err = store.ConsumeArchive(ctx, func(
-		_ context.Context, record *timebox.ArchiveRecord,
-	) error {
-		handled = record
-		return nil
-	})
+	err = store.ConsumeArchive(ctx,
+		func(_ context.Context, record *timebox.ArchiveRecord) error {
+			handled = record
+			return nil
+		},
+	)
 	assert.NoError(t, err)
 	assert.NotNil(t, handled)
 	assert.Equal(t, id, handled.AggregateID)

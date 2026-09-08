@@ -128,7 +128,7 @@ func (p *Persistence) lockAppends(
 			SELECT 1 FROM timebox_statuses
 			WHERE store = $1 AND aggregate_key = $2
 			FOR UPDATE
-		`, p.Prefix, key)
+		`, p.cfg.Prefix, key)
 		if err != nil {
 			return err
 		}
@@ -160,23 +160,23 @@ func (p *Persistence) appendOne(
 	switch {
 	case req.Status != nil && len(req.Tags) > 0:
 		err = q.QueryRow(ctx, appendStatusTagsQuery,
-			p.Prefix, key, parts, req.ExpectedSequence,
+			p.cfg.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, tags, tagAdds,
 			evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	case req.Status != nil:
 		err = q.QueryRow(ctx, appendStatusQuery,
-			p.Prefix, key, parts, req.ExpectedSequence,
+			p.cfg.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	case len(req.Tags) > 0:
 		err = q.QueryRow(ctx, appendTagsQuery,
-			p.Prefix, key, parts, req.ExpectedSequence,
+			p.cfg.Prefix, key, parts, req.ExpectedSequence,
 			tags, tagAdds, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	default:
 		err = q.QueryRow(ctx, appendPlainQuery,
-			p.Prefix, key, parts, req.ExpectedSequence,
+			p.cfg.Prefix, key, parts, req.ExpectedSequence,
 			evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	}
@@ -204,7 +204,7 @@ func (p *Persistence) checkConflict(
 ) error {
 	var actual int64
 	if err := q.QueryRow(
-		ctx, checkSequenceQuery, p.Prefix, key,
+		ctx, checkSequenceQuery, p.cfg.Prefix, key,
 	).Scan(&actual); err != nil {
 		return err
 	}

@@ -17,30 +17,12 @@ func joinAggregateID(id timebox.AggregateID) string {
 	return string(id.Type) + ":" + string(id.Key)
 }
 
-func newStore(
-	cfg tbredis.Config, storeCfg timebox.Config,
-) (*timebox.Store, error) {
-	p, err := tbredis.NewPersistence(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return p.NewStore(storeCfg)
-}
-
-func newPersistence(cfgs ...tbredis.Config) (*tbredis.Persistence, error) {
-	return tbredis.NewPersistence(cfgs...)
-}
-
 func testConfig(addr string, mutate func(*tbredis.Config)) tbredis.Config {
 	cfg := tbredis.Config{Addr: addr}
 	if mutate != nil {
 		mutate(&cfg)
 	}
 	return cfg
-}
-
-func testStoreConfig(addr string, mutate func(*tbredis.Config)) tbredis.Config {
-	return testConfig(addr, mutate)
 }
 
 func withPersistence(
@@ -53,7 +35,7 @@ func withPersistence(
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	p, err := newPersistence(testConfig(server.Addr(), mutate))
+	p, err := tbredis.NewPersistence(testConfig(server.Addr(), mutate))
 	assert.NoError(t, err)
 	defer func() { _ = p.Close() }()
 

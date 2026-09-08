@@ -11,7 +11,7 @@ import (
 
 func runAggregates(t *testing.T, p Profile) {
 	t.Run("Empty", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 
 		all, err := store.ListAggregates("")
 		assert.NoError(t, err)
@@ -19,7 +19,7 @@ func runAggregates(t *testing.T, p Profile) {
 	})
 
 	t.Run("List", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		first := timebox.NewAggregateID("order", "1")
 		second := timebox.NewAggregateID("order", "2")
 		third := timebox.NewAggregateID("user", "1")
@@ -49,14 +49,13 @@ func runAggregates(t *testing.T, p Profile) {
 	})
 
 	t.Run("AggregateIDChars", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{
+		store := openStore(t, p, timebox.Config{
 			Indexer: newIndexer(t),
 		})
 		id := timebox.NewAggregateID(`order:1`, `part\2 quoted["3"]`)
-		active := "active"
 		ev := testEvent(t,
 			time.Unix(1_700_000_008, 0).UTC(),
-			"event.test", 1, &active,
+			"event.test", 1, new("active"),
 			map[string]bool{"dev": true},
 		)
 
@@ -79,7 +78,7 @@ func runAggregates(t *testing.T, p Profile) {
 	})
 
 	t.Run("AggregateIDEscaping", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		redisEsc := timebox.NewAggregateID("order:1", "item")
 		redisRaw := timebox.NewAggregateID("order", "1:item")
 		memEsc := timebox.NewAggregateID("mem\x1f1", "item")

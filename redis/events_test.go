@@ -17,16 +17,16 @@ func TestCorruptEvents(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	storeCfg := testStoreConfig(server.Addr(), func(cfg *tbredis.Config) {
+	cfg := testConfig(server.Addr(), func(cfg *tbredis.Config) {
 		cfg.Prefix = "corrupt"
 	})
 
-	store, err := newStore(storeCfg, timebox.Config{})
+	store, err := tbredis.NewStore(cfg)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
-	eventsKey := storeCfg.Prefix + ":" + joinAggregateID(id) + ":events"
+	eventsKey := cfg.Prefix + ":" + joinAggregateID(id) + ":events"
 
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()

@@ -28,7 +28,7 @@ var counterAppliers = timebox.Appliers[counter]{
 
 func runTransactions(t *testing.T, p Profile) {
 	t.Run("Concurrent", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		exec := store.Executor(newCounter, counterAppliers)
 		ids := make([]timebox.AggregateID, 24)
 		for i := range ids {
@@ -60,7 +60,7 @@ func runTransactions(t *testing.T, p Profile) {
 	})
 
 	t.Run("Atomic", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		exec := store.Executor(newCounter, counterAppliers)
 
 		first := timebox.NewAggregateID("tx", "first")
@@ -80,11 +80,10 @@ func runTransactions(t *testing.T, p Profile) {
 	})
 
 	t.Run("DuplicateAggregate", func(t *testing.T) {
-		backend, store := openBackend(t, p, StoreConfig{})
+		backend, store := openBackend(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("tx", "duplicate")
 		req := timebox.AppendRequest{
-			Store: store,
-			ID:    id,
+			ID: id,
 			Events: []*timebox.Event{
 				testEvent(t,
 					time.Unix(1_700_000_010, 0).UTC(),
@@ -99,7 +98,7 @@ func runTransactions(t *testing.T, p Profile) {
 	})
 
 	t.Run("RollsBack", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		exec := store.Executor(newCounter, counterAppliers)
 
 		contended := timebox.NewAggregateID("tx", "contended")

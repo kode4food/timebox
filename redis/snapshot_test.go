@@ -17,11 +17,11 @@ func TestSnapshotCorrupt(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	storeCfg := testStoreConfig(server.Addr(), func(cfg *tbredis.Config) {
+	cfg := testConfig(server.Addr(), func(cfg *tbredis.Config) {
 		cfg.Prefix = "corrupt-snapshot"
 	})
 
-	store, err := newStore(storeCfg, timebox.Config{})
+	store, err := tbredis.NewStore(cfg)
 	assert.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -32,7 +32,7 @@ func TestSnapshotCorrupt(t *testing.T) {
 
 	err = client.Set(
 		context.Background(),
-		storeCfg.Prefix+":"+joinAggregateID(id)+":snapshot:val",
+		cfg.Prefix+":"+joinAggregateID(id)+":snapshot:val",
 		"not-json",
 		0,
 	).Err()

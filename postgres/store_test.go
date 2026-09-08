@@ -18,22 +18,19 @@ func TestStore(t *testing.T) {
 	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
 		compliance.Run(t, compliance.Profile{
 			Open: func(
-				t *testing.T, tc compliance.StoreConfig,
+				t *testing.T, tc timebox.Config,
 			) (timebox.Backend, *timebox.Store) {
 				t.Helper()
 
 				pCfg := cfg
 				pCfg.Prefix = storeSuitePrefix(t)
+				pCfg.Timebox = tc
 				p, err := postgres.NewPersistence(pCfg)
 				if !assert.NoError(t, err) {
 					t.FailNow()
 				}
 
-				storeCfg := timebox.DefaultConfig()
-				storeCfg.Indexer = tc.Indexer
-				storeCfg.TrimEvents = tc.TrimEvents
-
-				store, err := p.NewStore(storeCfg)
+				store, err := timebox.NewStore(p)
 				if !assert.NoError(t, err) {
 					t.FailNow()
 				}

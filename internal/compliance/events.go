@@ -11,7 +11,7 @@ import (
 
 func runEvents(t *testing.T, p Profile) {
 	t.Run("Missing", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "missing")
 
 		evs, err := store.GetEvents(id, 0)
@@ -20,7 +20,7 @@ func runEvents(t *testing.T, p Profile) {
 	})
 
 	t.Run("EmptyAppend", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "empty")
 
 		err := store.AppendEvents(id, 0, nil)
@@ -32,7 +32,7 @@ func runEvents(t *testing.T, p Profile) {
 	})
 
 	t.Run("AppendLoad", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "append")
 		first := testEvent(t,
 			time.Unix(1_700_000_000, 123).UTC(),
@@ -78,7 +78,7 @@ func runEvents(t *testing.T, p Profile) {
 	})
 
 	t.Run("AppendCopy", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "copy")
 		other := timebox.NewAggregateID("other", "copy")
 		first := testEvent(t,
@@ -114,7 +114,7 @@ func runEvents(t *testing.T, p Profile) {
 	})
 
 	t.Run("Value", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "value")
 		ev := testEvent(t,
 			time.Unix(1_700_000_022, 0).UTC(),
@@ -137,7 +137,7 @@ func runEvents(t *testing.T, p Profile) {
 	})
 
 	t.Run("Conflict", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "conflict")
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{
@@ -178,7 +178,7 @@ func runEvents(t *testing.T, p Profile) {
 	})
 
 	t.Run("EmptyAppendConflict", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "empty-conflict")
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{
@@ -209,7 +209,7 @@ func runEvents(t *testing.T, p Profile) {
 	})
 
 	t.Run("ConflictAheadOfCurrent", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{})
+		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "ahead-conflict")
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{

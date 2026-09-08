@@ -16,7 +16,7 @@ type (
 	// Persistence applies Timebox writes through Raft and serves reads from
 	// local materialized state
 	Persistence struct {
-		Config
+		cfg Config
 
 		db  *kvDB
 		fsm *fsm
@@ -97,9 +97,23 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	return openPersistence(cfg)
 }
 
-// NewStore creates a Store using the current Raft Persistence
-func (p *Persistence) NewStore(cfg timebox.Config) (*timebox.Store, error) {
-	return timebox.NewStore(p, cfg)
+// NewStore opens Raft persistence and creates a Store
+func NewStore(cfgs ...Config) (*timebox.Store, error) {
+	p, err := NewPersistence(cfgs...)
+	if err != nil {
+		return nil, err
+	}
+	s, err := timebox.NewStore(p)
+	if err != nil {
+		_ = p.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// Config returns the backend's Timebox configuration
+func (p *Persistence) Config() timebox.Config {
+	return p.cfg.Timebox
 }
 
 // Close stops raft and closes local durable state
@@ -138,7 +152,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 	}
 
 	p := &Persistence{
-		Config:       cfg,
+		cfg:          cfg,
 		db:           db,
 		raftLog:      log,
 		transport:    tr,

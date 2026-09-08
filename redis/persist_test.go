@@ -18,6 +18,34 @@ func TestNewPersistenceBadConfig(t *testing.T) {
 	assert.ErrorIs(t, err, tbredis.ErrInvalidDB)
 }
 
+func TestNewStoreBadTimeboxConfig(t *testing.T) {
+	server, err := miniredis.Run()
+	assert.NoError(t, err)
+	defer func() { server.Close() }()
+
+	store, err := tbredis.NewStore(tbredis.Config{
+		Addr:    server.Addr(),
+		Timebox: timebox.Config{MaxRetries: -1},
+	})
+	assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
+	assert.Nil(t, store)
+}
+
+func TestAppendWithoutStore(t *testing.T) {
+	withPersistence(t, nil,
+		func(_ context.Context, p *tbredis.Persistence, _ *redis.Client) {
+			id := timebox.NewAggregateID("order", "standalone")
+			err := p.Append(timebox.AppendRequest{
+				ID: id,
+				Events: []*timebox.Event{{
+					AggregateID: id,
+				}},
+			})
+			assert.NoError(t, err)
+		},
+	)
+}
+
 func TestConsumeArchiveServerDown(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
@@ -28,11 +56,11 @@ func TestConsumeArchiveServerDown(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	server.Close()
-	err = p.ConsumeArchive(context.Background(), func(
-		_ context.Context, _ *timebox.ArchiveRecord,
-	) error {
-		return nil
-	})
+	err = p.ConsumeArchive(context.Background(),
+		func(_ context.Context, _ *timebox.ArchiveRecord) error {
+			return nil
+		},
+	)
 	assert.Error(t, err)
 }
 
@@ -42,7 +70,7 @@ func TestNewPersistencePingError(t *testing.T) {
 	addr := server.Addr()
 	server.Close()
 
-	p, err := newPersistence(tbredis.Config{Addr: addr})
+	p, err := tbredis.NewPersistence(tbredis.Config{Addr: addr})
 	assert.Error(t, err)
 	assert.Nil(t, p)
 }
@@ -53,16 +81,13 @@ func TestPersistenceCorruptEvents(t *testing.T) {
 	}, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
-		store, err := p.NewStore(timebox.Config{})
-		assert.NoError(t, err)
 		id := timebox.NewAggregateID("order", "1")
-		err = client.RPush(ctx,
+		err := client.RPush(ctx,
 			"corrupt:"+joinAggregateID(id)+":events", "not-json",
 		).Err()
 		assert.NoError(t, err)
 
 		_, err = p.LoadEvents(timebox.LoadEventsRequest{
-			Store:   store,
 			ID:      id,
 			FromSeq: 0,
 		})
@@ -76,10 +101,8 @@ func TestCorruptSnapshot(t *testing.T) {
 	}, func(
 		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
 	) {
-		store, err := p.NewStore(timebox.Config{})
-		assert.NoError(t, err)
 		id := timebox.NewAggregateID("order", "1")
-		err = client.Set(ctx,
+		err := client.Set(ctx,
 			"corrupt-snapshot:"+joinAggregateID(id)+":snapshot:val",
 			"not-json",
 			0,
@@ -87,8 +110,7 @@ func TestCorruptSnapshot(t *testing.T) {
 		assert.NoError(t, err)
 
 		snap, err := p.LoadSnapshot(timebox.LoadSnapshotRequest{
-			Store: store,
-			ID:    id,
+			ID: id,
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, json.RawMessage("not-json"), snap.Data)

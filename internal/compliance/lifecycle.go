@@ -11,11 +11,11 @@ import (
 
 func runLifecycle(t *testing.T, p Profile) {
 	t.Run("Ready", func(t *testing.T) {
-		_ = openStore(t, p, StoreConfig{})
+		_ = openStore(t, p, timebox.Config{})
 	})
 
 	t.Run("Closed", func(t *testing.T) {
-		store := openStore(t, p, StoreConfig{
+		store := openStore(t, p, timebox.Config{
 			Indexer: newIndexer(t),
 		})
 		id := timebox.NewAggregateID("order", "closed")

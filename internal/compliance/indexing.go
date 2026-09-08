@@ -18,7 +18,7 @@ func runIndexing(t *testing.T, p Profile) {
 
 		t.Run(mode, func(t *testing.T) {
 			t.Run("MissingStatus", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
@@ -31,7 +31,7 @@ func runIndexing(t *testing.T, p Profile) {
 			})
 
 			t.Run("NoIndexer", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{TrimEvents: trimEvents})
+				store := openStore(t, p, timebox.Config{TrimEvents: trimEvents})
 				id := timebox.NewAggregateID("order", "no-indexer")
 				ev := testEvent(t,
 					time.Unix(1_700_000_000, 0).UTC(),
@@ -57,7 +57,7 @@ func runIndexing(t *testing.T, p Profile) {
 
 			t.Run("EmptyAppendSkipsIndexer", func(t *testing.T) {
 				calls := 0
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					TrimEvents: trimEvents,
 					Indexer: func([]*timebox.Event) []*timebox.Index {
 						calls++
@@ -85,7 +85,7 @@ func runIndexing(t *testing.T, p Profile) {
 			})
 
 			t.Run("Status", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
@@ -153,7 +153,7 @@ func runIndexing(t *testing.T, p Profile) {
 			})
 
 			t.Run("StatusReplace", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
@@ -195,14 +195,12 @@ func runIndexing(t *testing.T, p Profile) {
 			})
 
 			t.Run("StatusClear", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
 				id := timebox.NewAggregateID("order", "clear")
 				active := "active"
-				cleared := ""
-
 				assert.NoError(t,
 					store.AppendEvents(id, 0, []*timebox.Event{
 						testEvent(t,
@@ -221,7 +219,7 @@ func runIndexing(t *testing.T, p Profile) {
 						),
 						testEvent(t,
 							time.Unix(1_700_000_203, 0).UTC(),
-							"event.test", 3, &cleared, nil,
+							"event.test", 3, new(""), nil,
 						),
 					}),
 				)
@@ -240,7 +238,7 @@ func runIndexing(t *testing.T, p Profile) {
 			})
 
 			t.Run("Tags", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
@@ -305,7 +303,7 @@ func runIndexing(t *testing.T, p Profile) {
 			})
 
 			t.Run("TagsOnly", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
@@ -330,18 +328,17 @@ func runIndexing(t *testing.T, p Profile) {
 			})
 
 			t.Run("BatchIndex", func(t *testing.T) {
-				store := openStore(t, p, StoreConfig{
+				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
 				})
 				id := timebox.NewAggregateID("order", "batch-index")
-				active := "active"
 				paused := "paused"
 
 				assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{
 					testEvent(t,
 						time.Unix(1_700_000_012, 0).UTC(),
-						"event.test", 1, &active,
+						"event.test", 1, new("active"),
 						map[string]bool{"prod": true},
 					),
 					testEvent(t,
