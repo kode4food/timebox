@@ -54,8 +54,8 @@ func TestStoreReadyDefault(t *testing.T) {
 }
 
 func TestStoreWaitReady(t *testing.T) {
-	p := &fakeReadyBackend{readyCh: make(chan struct{})}
-	store, err := timebox.NewStore(p)
+	b := &fakeReadyBackend{readyCh: make(chan struct{})}
+	store, err := timebox.NewStore(b)
 	assert.NoError(t, err)
 	assert.NotNil(t, store)
 
@@ -63,7 +63,7 @@ func TestStoreWaitReady(t *testing.T) {
 	defer cancel()
 	assert.ErrorIs(t, store.WaitReady(ctx), context.DeadlineExceeded)
 
-	close(p.readyCh)
+	close(b.readyCh)
 
 	ctx, cancel = context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
@@ -75,15 +75,15 @@ func TestStoreConfigAndStatus(t *testing.T) {
 		MaxRetries: 3,
 		CacheSize:  5,
 	}
-	p := memory.Open()
-	store, err := timebox.NewStore(p, cfg)
+	b := memory.Open()
+	store, err := timebox.NewStore(b, cfg)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 3, store.Config().MaxRetries)
 
 	id := timebox.NewAggregateID("order", "1")
 	status := "active"
-	err = p.Append(timebox.AppendRequest{
+	err = b.Append(timebox.AppendRequest{
 		ID:               id,
 		ExpectedSequence: 0,
 		Status:           &status,

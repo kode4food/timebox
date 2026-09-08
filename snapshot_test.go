@@ -337,14 +337,14 @@ func TestSaveSnapshotColdCache(t *testing.T) {
 }
 
 func TestSaveSnapshotLoadError(t *testing.T) {
-	p := memory.Open()
-	store, err := p.NewStore()
+	b := memory.Open()
+	store, err := b.NewStore()
 	assert.NoError(t, err)
 
 	executor := store.Executor(newCounterState, appliers)
 	id := timebox.NewAggregateID("save", "snapshot-error")
 
-	_ = p.Close()
+	_ = b.Close()
 
 	assert.Error(t, executor.SaveSnapshot(id))
 }
@@ -370,7 +370,7 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 	recData, err := json.Marshal(&CounterState{Value: 10})
 	assert.NoError(t, err)
 
-	p := &inlineSnapshotBackend{
+	b := &inlineSnapshotBackend{
 		rec: &timebox.SnapshotRecord{
 			Data:     recData,
 			Sequence: 1,
@@ -381,7 +381,7 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 		},
 		saveErr: saveErr,
 	}
-	store, err := timebox.NewStore(p)
+	store, err := timebox.NewStore(b)
 	assert.NoError(t, err)
 
 	executor := store.Executor(newCounterState, appliers)
@@ -394,12 +394,12 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 		},
 	)
 	assert.ErrorIs(t, err, saveErr)
-	assert.Equal(t, 1, p.saveCount)
-	assert.Equal(t, id, p.saveID)
-	assert.Equal(t, int64(3), p.saveSequence)
+	assert.Equal(t, 1, b.saveCount)
+	assert.Equal(t, id, b.saveID)
+	assert.Equal(t, int64(3), b.saveSequence)
 
 	var saved CounterState
-	err = json.Unmarshal(p.saveData, &saved)
+	err = json.Unmarshal(b.saveData, &saved)
 	assert.NoError(t, err)
 	assert.Equal(t, 2_000_010, saved.Value)
 }
@@ -418,22 +418,22 @@ func inlineSnapshotEvent(t *testing.T, delta int) *timebox.Event {
 	}
 }
 
-func (p *inlineSnapshotBackend) LoadSnapshot(
+func (b *inlineSnapshotBackend) LoadSnapshot(
 	timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	return &timebox.SnapshotRecord{
-		Data:     append([]byte(nil), p.rec.Data...),
-		Sequence: p.rec.Sequence,
-		Events:   append([]*timebox.Event(nil), p.rec.Events...),
+		Data:     append([]byte(nil), b.rec.Data...),
+		Sequence: b.rec.Sequence,
+		Events:   append([]*timebox.Event(nil), b.rec.Events...),
 	}, nil
 }
 
-func (p *inlineSnapshotBackend) SaveSnapshot(
+func (b *inlineSnapshotBackend) SaveSnapshot(
 	req timebox.SnapshotRequest,
 ) error {
-	p.saveID = req.ID
-	p.saveData = append([]byte(nil), req.Data...)
-	p.saveSequence = req.Sequence
-	p.saveCount++
-	return p.saveErr
+	b.saveID = req.ID
+	b.saveData = append([]byte(nil), req.Data...)
+	b.saveSequence = req.Sequence
+	b.saveCount++
+	return b.saveErr
 }

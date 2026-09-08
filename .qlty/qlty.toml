@@ -87,3 +87,4 @@ default = true
 
 [[plugin]]
 name = "radarlint-go"
+mode = "disabled"
