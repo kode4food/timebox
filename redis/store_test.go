@@ -34,20 +34,18 @@ func TestStore(t *testing.T) {
 			pCfg.Addr = server.Addr()
 			pCfg.Prefix = suitePrefix(t)
 
-			pCfg.Timebox = cfg
-
-			p, err := tbredis.NewPersistence(pCfg)
+			b, err := tbredis.Open(pCfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}
-			store, err := timebox.NewStore(p)
+			store, err := timebox.NewStore(b, cfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}
 			t.Cleanup(func() {
-				_ = store.Close()
+				_ = b.Close()
 			})
-			return p, store
+			return b, store
 		},
 	})
 }

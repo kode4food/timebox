@@ -15,7 +15,7 @@ func runLifecycle(t *testing.T, p Profile) {
 	})
 
 	t.Run("Closed", func(t *testing.T) {
-		store := openStore(t, p, timebox.Config{
+		backend, store := openBackend(t, p, timebox.Config{
 			Indexer: newIndexer(t),
 		})
 		id := timebox.NewAggregateID("order", "closed")
@@ -24,7 +24,7 @@ func runLifecycle(t *testing.T, p Profile) {
 			"event.test", 1, nil, nil,
 		)
 
-		assert.NoError(t, store.Close())
+		assert.NoError(t, backend.Close())
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{ev})
 		assert.Error(t, err)

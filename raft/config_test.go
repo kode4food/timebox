@@ -92,12 +92,17 @@ func TestConfig(t *testing.T) {
 }
 
 func TestNewStoreBadTimeboxConfig(t *testing.T) {
-	store, err := raft.NewStore(raft.DefaultConfig().With(raft.Config{
+	p, err := raft.Open(raft.DefaultConfig().With(raft.Config{
 		LocalID: "node-1",
 		Address: freeAddr(t),
 		DataDir: t.TempDir(),
-		Timebox: timebox.Config{MaxRetries: -1},
 	}))
+	if !assert.NoError(t, err) {
+		return
+	}
+	t.Cleanup(func() { _ = p.Close() })
+
+	store, err := p.NewStore(timebox.Config{MaxRetries: -1})
 	assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
 	assert.Nil(t, store)
 }
@@ -109,11 +114,16 @@ func TestNewStore(t *testing.T) {
 		DataDir: t.TempDir(),
 	})
 
-	store, err := raft.NewStore(cfg)
+	p, err := raft.Open(cfg)
 	if !assert.NoError(t, err) {
 		return
 	}
-	t.Cleanup(func() { _ = store.Close() })
+
+	store, err := p.NewStore()
+	if !assert.NoError(t, err) {
+		return
+	}
+	t.Cleanup(func() { _ = p.Close() })
 
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()

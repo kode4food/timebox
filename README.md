@@ -15,7 +15,7 @@ Timebox currently ships with:
 
 ## Core Concepts
 
-- `Store`: event-store semantics over a `Persistence`
+- `Store`: event-store semantics over a `Backend`
 - `AggregateID`: an aggregate's type and key, as in `("order", "123")`
 - `Executor`: loads aggregate state, runs a command, persists raised events, and retries on optimistic conflicts
 - `Transaction`: groups commands over several aggregates into one atomic append
@@ -41,7 +41,7 @@ orders, err := store.ListAggregates("order") // every order
 all, err := store.ListAggregates("")         // every aggregate
 ```
 
-Events marshal their IDs to JSON as a two-element array, so `("order", "123")` encodes as `["order","123"]`. Applications validate IDs at uncontrolled input boundaries, such as HTTP requests. Persistence codecs read IDs written by Timebox and do not enforce application input rules.
+Events marshal their IDs to JSON as a two-element array, so `("order", "123")` encodes as `["order","123"]`. Applications validate IDs at uncontrolled input boundaries, such as HTTP requests. Backend codecs read IDs written by Timebox and do not enforce application input rules.
 
 ## Store Behavior
 
@@ -53,18 +53,20 @@ Events marshal their IDs to JSON as a two-element array, so `("order", "123")` e
 - `CacheSize`: executor projection cache size
 - `Indexer`: optional function that derives status and tag updates from an appended event batch
 
-Pass backend settings and Timebox configuration to the backend's `NewStore` function:
+Open the backend with its own settings, then create a Store over it with the Timebox configuration:
 
 ```go
-store, err := postgres.NewStore(postgres.Config{
+backend, err := postgres.Open(postgres.Config{
 	URL: "postgres://localhost:5432/postgres?sslmode=disable",
-	Timebox: timebox.Config{
-		MaxRetries: 8,
-	},
+})
+defer func() { _ = backend.Close() }()
+
+store, err := backend.NewStore(timebox.Config{
+	MaxRetries: 8,
 })
 ```
 
-For direct access to persistence, use `postgres.NewPersistence(cfg)` and then `timebox.NewStore(p)`. The store reads its Timebox configuration from `p.Config()`. Redis and Raft use the same construction pattern; memory accepts `timebox.Config` directly through `memory.NewStore(cfg)`.
+`NewStore` accepts any number of `timebox.Config` values, overlaid on the defaults in order. One Backend opens as many Stores as an application needs, each with its own configuration, over the same underlying storage. Memory, Redis, and Raft use the same construction pattern.
 
 Snapshotting is available in two ways:
 

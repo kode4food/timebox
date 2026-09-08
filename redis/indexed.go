@@ -11,12 +11,12 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-func (p *Persistence) GetAggregateStatus(
+func (b *Backend) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
 	aggID := joinAggregateID(id)
-	status, err := p.client.HGet(
-		context.Background(), p.buildStatusHashKey(), aggID,
+	status, err := b.client.HGet(
+		context.Background(), b.buildStatusHashKey(), aggID,
 	).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -27,11 +27,11 @@ func (p *Persistence) GetAggregateStatus(
 	return status, nil
 }
 
-func (p *Persistence) ListAggregatesByStatus(
+func (b *Backend) ListAggregatesByStatus(
 	status string,
 ) ([]timebox.StatusEntry, error) {
-	key := p.buildStatusIndexKey(status)
-	members, err := p.client.ZRangeWithScores(
+	key := b.buildStatusIndexKey(status)
+	members, err := b.client.ZRangeWithScores(
 		context.Background(), key, 0, -1,
 	).Result()
 	if err != nil {
@@ -48,11 +48,11 @@ func (p *Persistence) ListAggregatesByStatus(
 	return res, nil
 }
 
-func (p *Persistence) ListAggregatesByTag(
+func (b *Backend) ListAggregatesByTag(
 	tag string,
 ) ([]timebox.AggregateID, error) {
-	members, err := p.client.SMembers(
-		context.Background(), p.buildTagIndexKey(tag),
+	members, err := b.client.SMembers(
+		context.Background(), b.buildTagIndexKey(tag),
 	).Result()
 	if err != nil {
 		return nil, err
@@ -65,14 +65,14 @@ func (p *Persistence) ListAggregatesByTag(
 	return ids, nil
 }
 
-func (p *Persistence) buildStatusHashKey() string {
-	return fmt.Sprintf("%s:%s", p.prefix, statusSuffix)
+func (b *Backend) buildStatusHashKey() string {
+	return fmt.Sprintf("%s:%s", b.prefix, statusSuffix)
 }
 
-func (p *Persistence) buildStatusIndexKey(status string) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, statusSuffix, status)
+func (b *Backend) buildStatusIndexKey(status string) string {
+	return fmt.Sprintf("%s:%s:%s", b.prefix, statusSuffix, status)
 }
 
-func (p *Persistence) buildTagIndexKey(tag string) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, tagSuffix, escapeKeyPart(tag))
+func (b *Backend) buildTagIndexKey(tag string) string {
+	return fmt.Sprintf("%s:%s:%s", b.prefix, tagSuffix, escapeKeyPart(tag))
 }

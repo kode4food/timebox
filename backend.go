@@ -9,21 +9,13 @@ import (
 )
 
 type (
-	// Backend is used by Store to provide Persistence and Queries
+	// Backend provides the low-level primitives Store uses to implement
+	// Store semantics, along with its query operations
 	Backend interface {
-		Persistence
+		io.Closer
 		Queries
 
-		// Config returns the backend's Timebox configuration
-		Config() Config
-	}
-
-	// Persistence provides the low-level primitives Store uses to implement
-	// Store semantics
-	Persistence interface {
-		io.Closer
-
-		// Ready reports when the persistence backend can serve requests
+		// Ready reports when the backend can serve requests
 		Ready() <-chan struct{}
 
 		// Append atomically appends every distinctly named request if each
@@ -75,12 +67,14 @@ type (
 		ID               AggregateID
 		Events           []*Event
 		ExpectedSequence int64
+		TrimEvents       bool
 	}
 
 	// LoadEventsRequest contains primitive inputs required for an event load
 	LoadEventsRequest struct {
-		ID      AggregateID
-		FromSeq int64
+		ID         AggregateID
+		FromSeq    int64
+		TrimEvents bool
 	}
 
 	// EventsResult contains raw persisted events and the sequence to assign to
@@ -93,7 +87,8 @@ type (
 	// LoadSnapshotRequest contains primitive inputs required for a snapshot
 	// load
 	LoadSnapshotRequest struct {
-		ID AggregateID
+		ID         AggregateID
+		TrimEvents bool
 	}
 
 	// SnapshotRecord contains raw snapshot data and any raw trailing events
@@ -105,9 +100,10 @@ type (
 
 	// SnapshotRequest contains primitive inputs required for a snapshot save
 	SnapshotRequest struct {
-		ID       AggregateID
-		Data     []byte
-		Sequence int64
+		ID         AggregateID
+		Data       []byte
+		Sequence   int64
+		TrimEvents bool
 	}
 
 	// Index stores optional projection metadata derived from an event

@@ -11,18 +11,18 @@ import (
 )
 
 // GetAggregateStatus gets the current status for an aggregate
-func (p *Persistence) GetAggregateStatus(
+func (b *Backend) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
 	ctx := context.Background()
 	key, _ := aggregateKey(id)
 
 	var status string
-	err := p.pool.QueryRow(ctx, `
+	err := b.pool.QueryRow(ctx, `
 		SELECT status
 		FROM timebox_statuses
 		WHERE store = $1 AND aggregate_key = $2
-	`, p.cfg.Prefix, key).Scan(&status)
+	`, b.cfg.Prefix, key).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -30,15 +30,15 @@ func (p *Persistence) GetAggregateStatus(
 }
 
 // ListAggregatesByStatus lists aggregates for the given status
-func (p *Persistence) ListAggregatesByStatus(
+func (b *Backend) ListAggregatesByStatus(
 	status string,
 ) ([]timebox.StatusEntry, error) {
-	rows, err := p.pool.Query(context.Background(), `
+	rows, err := b.pool.Query(context.Background(), `
 		SELECT aggregate_parts, status_at
 		FROM timebox_statuses
 		WHERE store = $1 AND status = $2
 		ORDER BY status_at
-	`, p.cfg.Prefix, status)
+	`, b.cfg.Prefix, status)
 	if err != nil {
 		return nil, err
 	}
@@ -64,10 +64,10 @@ func (p *Persistence) ListAggregatesByStatus(
 }
 
 // ListAggregatesByTag lists aggregates for a tag
-func (p *Persistence) ListAggregatesByTag(
+func (b *Backend) ListAggregatesByTag(
 	tag string,
 ) ([]timebox.AggregateID, error) {
-	rows, err := p.pool.Query(context.Background(), `
+	rows, err := b.pool.Query(context.Background(), `
 		SELECT i.aggregate_parts
 		FROM timebox_tags ti
 		JOIN timebox_statuses i
@@ -75,7 +75,7 @@ func (p *Persistence) ListAggregatesByTag(
 		  AND i.aggregate_key = ti.aggregate_key
 		WHERE ti.store = $1
 		  AND ti.tag = $2
-	`, p.cfg.Prefix, tag)
+	`, b.cfg.Prefix, tag)
 	if err != nil {
 		return nil, err
 	}

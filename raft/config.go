@@ -11,10 +11,8 @@ import (
 )
 
 type (
-	// Config contains Raft node settings and Timebox configuration
+	// Config defines one opinionated Raft Backend node
 	Config struct {
-		Timebox timebox.Config
-
 		// Local state
 		LocalID string
 		DataDir string
@@ -73,14 +71,12 @@ var (
 // DefaultConfig returns the opinionated defaults for one Raft node
 func DefaultConfig() Config {
 	return Config{
-		Timebox:     timebox.DefaultConfig(),
 		LogTailSize: DefaultLogTailSize,
 	}
 }
 
 // With merges another config into this config
 func (c Config) With(other Config) Config {
-	c.Timebox = timebox.Configure(c.Timebox, other.Timebox)
 	if other.LocalID != "" {
 		c.LocalID = other.LocalID
 	}

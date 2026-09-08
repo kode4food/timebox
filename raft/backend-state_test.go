@@ -79,8 +79,8 @@ func TestFollower(t *testing.T) {
 	if !assert.NotNil(t, follower) {
 		return
 	}
-	assert.Equal(t, leader.persistence.State(), raft.StateLeader)
-	assert.Equal(t, follower.persistence.State(), raft.StateFollower)
+	assert.Equal(t, leader.backend.State(), raft.StateLeader)
+	assert.Equal(t, follower.backend.State(), raft.StateFollower)
 
 	id := timebox.NewAggregateID("order", "replicated")
 	err := follower.store.AppendEvents(id, 0, []*timebox.Event{
@@ -127,7 +127,7 @@ func TestSingleReady(t *testing.T) {
 	})
 	waitReady(t, n)
 
-	assert.Equal(t, raft.StateLeader, n.persistence.State())
+	assert.Equal(t, raft.StateLeader, n.backend.State())
 }
 
 func TestFollowerStatus(t *testing.T) {
@@ -246,7 +246,7 @@ func TestFollowerExec(t *testing.T) {
 	var leader *node
 	var followers []*node
 	for _, n := range nodes {
-		if n.persistence.State() == raft.StateLeader {
+		if n.backend.State() == raft.StateLeader {
 			leader = n
 			continue
 		}
@@ -602,7 +602,7 @@ func TestRestart(t *testing.T) {
 	if !assert.NoError(t, err) {
 		return
 	}
-	if !assert.NoError(t, n.store.Close()) {
+	if !assert.NoError(t, n.backend.Close()) {
 		return
 	}
 	n.store = nil
@@ -665,7 +665,7 @@ func TestRestartRetainedLog(t *testing.T) {
 		}
 	}
 
-	if !assert.NoError(t, node.store.Close()) {
+	if !assert.NoError(t, node.backend.Close()) {
 		return
 	}
 	node.store = nil

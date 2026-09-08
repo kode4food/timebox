@@ -15,8 +15,13 @@ import (
 
 func TestNewStoreBadTimeboxConfig(t *testing.T) {
 	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
-		cfg.Timebox = timebox.Config{MaxRetries: -1}
-		store, err := postgres.NewStore(cfg)
+		b, err := postgres.Open(cfg)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = b.Close() }()
+
+		store, err := b.NewStore(timebox.Config{MaxRetries: -1})
 		assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
 		assert.Nil(t, store)
 	})
@@ -24,11 +29,16 @@ func TestNewStoreBadTimeboxConfig(t *testing.T) {
 
 func TestEventRow(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, cfg postgres.Config) {
-		store, err := postgres.NewStore(cfg)
+		b, err := postgres.Open(cfg)
 		if !assert.NoError(t, err) {
 			return
 		}
-		defer func() { _ = store.Close() }()
+		defer func() { _ = b.Close() }()
+
+		store, err := b.NewStore()
+		if !assert.NoError(t, err) {
+			return
+		}
 
 		id := timebox.NewAggregateID("order", "row")
 		ev := testEvent(t, time.Unix(1_700_000_000, 123).UTC(), "a", "dev", 1)
@@ -73,17 +83,17 @@ func TestEventRow(t *testing.T) {
 }
 
 func TestNewStoreBadConfig(t *testing.T) {
-	_, err := postgres.NewPersistence(postgres.Config{MaxConns: -1})
+	_, err := postgres.Open(postgres.Config{MaxConns: -1})
 	assert.ErrorIs(t, err, postgres.ErrInvalidMaxConns)
 }
 
 func TestAppendConflictOrder(t *testing.T) {
 	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
-		p, err := postgres.NewPersistence(cfg)
+		b, err := postgres.Open(cfg)
 		if !assert.NoError(t, err) {
 			return
 		}
-		defer func() { _ = p.Close() }()
+		defer func() { _ = b.Close() }()
 		first := timebox.NewAggregateID("order", "z")
 		second := timebox.NewAggregateID("order", "a")
 		reqs := []timebox.AppendRequest{
@@ -91,23 +101,23 @@ func TestAppendConflictOrder(t *testing.T) {
 			{ID: second, ExpectedSequence: 1},
 		}
 		var conflict *timebox.VersionConflictError
-		if assert.ErrorAs(t, p.Append(reqs...), &conflict) {
+		if assert.ErrorAs(t, b.Append(reqs...), &conflict) {
 			assert.Equal(t, first, conflict.ID)
 		}
 		assert.Equal(t, first, reqs[0].ID)
-		ids, err := p.ListAggregates("")
+		ids, err := b.ListAggregates("")
 		assert.NoError(t, err)
 		assert.Empty(t, ids)
 	})
 }
 
-func TestNewPersistenceBadConfig(t *testing.T) {
-	_, err := postgres.NewPersistence(postgres.Config{MaxConns: -1})
+func TestOpenBadConfig(t *testing.T) {
+	_, err := postgres.Open(postgres.Config{MaxConns: -1})
 	assert.ErrorIs(t, err, postgres.ErrInvalidMaxConns)
 }
 
-func TestNewPersistenceBadURL(t *testing.T) {
-	_, err := postgres.NewPersistence(postgres.Config{
+func TestOpenBadURL(t *testing.T) {
+	_, err := postgres.Open(postgres.Config{
 		URL:      "postgres://localhost:1/bad?sslmode=disable",
 		Prefix:   "test",
 		MaxConns: 4,
@@ -115,48 +125,48 @@ func TestNewPersistenceBadURL(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestClosedPersistence(t *testing.T) {
+func TestClosedBackend(t *testing.T) {
 	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
-		p, err := postgres.NewPersistence(cfg)
+		b, err := postgres.Open(cfg)
 		if !assert.NoError(t, err) {
 			return
 		}
-		assert.NoError(t, p.Close())
+		assert.NoError(t, b.Close())
 
 		id := timebox.NewAggregateID("order", "closed")
 
-		_, err = p.LoadEvents(timebox.LoadEventsRequest{
+		_, err = b.LoadEvents(timebox.LoadEventsRequest{
 			ID:      id,
 			FromSeq: 0,
 		})
 		assert.Error(t, err)
 
-		_, err = p.LoadSnapshot(timebox.LoadSnapshotRequest{
+		_, err = b.LoadSnapshot(timebox.LoadSnapshotRequest{
 			ID: id,
 		})
 		assert.Error(t, err)
 
-		err = p.SaveSnapshot(timebox.SnapshotRequest{
+		err = b.SaveSnapshot(timebox.SnapshotRequest{
 			ID:       id,
 			Data:     []byte("{}"),
 			Sequence: 0,
 		})
 		assert.Error(t, err)
 
-		_, err = p.ListAggregates("")
+		_, err = b.ListAggregates("")
 		assert.Error(t, err)
 
-		_, err = p.ListAggregatesByStatus("x")
+		_, err = b.ListAggregatesByStatus("x")
 		assert.Error(t, err)
 
-		_, err = p.ListAggregatesByTag("v")
+		_, err = b.ListAggregatesByTag("v")
 		assert.Error(t, err)
 
 	})
 }
 
-func TestNewPersistenceInvalidURL(t *testing.T) {
-	_, err := postgres.NewPersistence(postgres.Config{
+func TestOpenInvalidURL(t *testing.T) {
+	_, err := postgres.Open(postgres.Config{
 		URL:      "://",
 		Prefix:   "test",
 		MaxConns: 4,

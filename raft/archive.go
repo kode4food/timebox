@@ -11,9 +11,9 @@ import (
 )
 
 // Archive archives an aggregate and removes it from active storage
-func (p *Persistence) Archive(id timebox.AggregateID) error {
-	propID := p.newProposalID()
-	_, err := p.applyWithTimeout(
+func (b *Backend) Archive(id timebox.AggregateID) error {
+	propID := b.newProposalID()
+	_, err := b.applyWithTimeout(
 		context.Background(),
 		MakeArchiveCommand(propID, &ArchiveCommand{ID: id}),
 		propID,
@@ -23,7 +23,7 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 }
 
 // ConsumeArchive blocks until one archive record is available or ctx is done
-func (p *Persistence) ConsumeArchive(
+func (b *Backend) ConsumeArchive(
 	ctx context.Context, h timebox.ArchiveHandler,
 ) error {
 	if h == nil {
@@ -31,7 +31,7 @@ func (p *Persistence) ConsumeArchive(
 	}
 
 	for {
-		rec, err := p.nextArchive()
+		rec, err := b.nextArchive()
 		if err != nil {
 			return err
 		}
@@ -39,25 +39,25 @@ func (p *Persistence) ConsumeArchive(
 			if err := h(ctx, rec); err != nil {
 				return err
 			}
-			return p.consumeArchive(ctx, rec.StreamID)
+			return b.consumeArchive(ctx, rec.StreamID)
 		}
 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-p.stopCh:
-			if err, ok := p.stopErr.Load().(error); ok && err != nil {
+		case <-b.stopCh:
+			if err, ok := b.stopErr.Load().(error); ok && err != nil {
 				return err
 			}
 			return raft.ErrStopped
-		case <-p.archiveCh:
+		case <-b.archiveCh:
 		}
 	}
 }
 
-func (p *Persistence) nextArchive() (*timebox.ArchiveRecord, error) {
+func (b *Backend) nextArchive() (*timebox.ArchiveRecord, error) {
 	var rec *timebox.ArchiveRecord
-	err := p.db.View(func(tx *kvTx) error {
+	err := b.db.View(func(tx *kvTx) error {
 		var err error
 		rec, err = nextArchiveTx(tx.Bucket(bucketName))
 		return err
@@ -68,11 +68,11 @@ func (p *Persistence) nextArchive() (*timebox.ArchiveRecord, error) {
 	return rec, nil
 }
 
-func (p *Persistence) consumeArchive(
+func (b *Backend) consumeArchive(
 	ctx context.Context, streamID string,
 ) error {
-	propID := p.newProposalID()
-	_, err := p.applyWithTimeout(
+	propID := b.newProposalID()
+	_, err := b.applyWithTimeout(
 		ctx,
 		MakeConsumeArchiveCommand(propID, &ConsumeArchiveCommand{
 			StreamID: streamID,
@@ -83,9 +83,9 @@ func (p *Persistence) consumeArchive(
 	return err
 }
 
-func (p *Persistence) notifyArchive() {
+func (b *Backend) notifyArchive() {
 	select {
-	case p.archiveCh <- struct{}{}:
+	case b.archiveCh <- struct{}{}:
 	default:
 	}
 }

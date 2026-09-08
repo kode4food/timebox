@@ -23,22 +23,21 @@ func TestStore(t *testing.T) {
 				addr:    freeAddr(t),
 				dataDir: t.TempDir(),
 			})
-			pCfg.Timebox = testRaftTimeboxConfig(nodeConfig{
-				indexer:    cfg.Indexer,
-				trimEvents: cfg.TrimEvents,
-			})
 
-			p, err := raft.NewPersistence(pCfg)
+			p, err := raft.Open(pCfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}
 
-			store, err := timebox.NewStore(p)
+			store, err := timebox.NewStore(p, testRaftTimeboxConfig(nodeConfig{
+				indexer:    cfg.Indexer,
+				trimEvents: cfg.TrimEvents,
+			}))
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}
 			t.Cleanup(func() {
-				_ = store.Close()
+				_ = p.Close()
 			})
 			return p, store
 		},

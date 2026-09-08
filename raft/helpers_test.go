@@ -22,10 +22,10 @@ import (
 
 type (
 	node struct {
-		id          string
-		addr        string
-		persistence *raft.Persistence
-		store       *timebox.Store
+		id      string
+		addr    string
+		backend *raft.Backend
+		store   *timebox.Store
 	}
 
 	nodeConfig struct {
@@ -63,27 +63,26 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 		dataDir:   dataDir,
 		publisher: cfg.publisher,
 	})
-	pCfg.Timebox = testRaftTimeboxConfig(cfg)
 
-	persistence, err := raft.NewPersistence(pCfg)
+	backend, err := raft.Open(pCfg)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
 
-	store, err := timebox.NewStore(persistence)
+	store, err := timebox.NewStore(backend, testRaftTimeboxConfig(cfg))
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
 
 	n := &node{
-		id:          cfg.id,
-		addr:        addr,
-		persistence: persistence,
-		store:       store,
+		id:      cfg.id,
+		addr:    addr,
+		backend: backend,
+		store:   store,
 	}
 	t.Cleanup(func() {
 		if n.store != nil {
-			_ = n.store.Close()
+			_ = n.backend.Close()
 		}
 	})
 	return n
@@ -118,27 +117,26 @@ func newClusterNode(t *testing.T, cfg nodeConfig, srvs []raft.Server) *node {
 		publisher: cfg.publisher,
 	})
 	pCfg.Servers = srvs
-	pCfg.Timebox = testRaftTimeboxConfig(cfg)
 
-	p, err := raft.NewPersistence(pCfg)
+	p, err := raft.Open(pCfg)
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
 
-	store, err := timebox.NewStore(p)
+	store, err := timebox.NewStore(p, testRaftTimeboxConfig(cfg))
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
 
 	n := &node{
-		id:          cfg.id,
-		addr:        cfg.addr,
-		persistence: p,
-		store:       store,
+		id:      cfg.id,
+		addr:    cfg.addr,
+		backend: p,
+		store:   store,
 	}
 	t.Cleanup(func() {
 		if n.store != nil {
-			_ = n.store.Close()
+			_ = n.backend.Close()
 		}
 	})
 	return n
@@ -150,7 +148,7 @@ func closeNode(t *testing.T, n *node) {
 	if n == nil || n.store == nil {
 		return
 	}
-	assert.NoError(t, n.store.Close())
+	assert.NoError(t, n.backend.Close())
 	n.store = nil
 }
 
@@ -353,11 +351,11 @@ func waitReady(t *testing.T, n *node) {
 
 	err := n.store.WaitReady(ctx)
 	if err != nil {
-		addr, leaderID := n.persistence.LeaderWithID()
+		addr, leaderID := n.backend.LeaderWithID()
 		t.Logf(
 			"node %s state=%s leader=%s/%s readyErr=%v",
 			n.id,
-			n.persistence.State(),
+			n.backend.State(),
 			leaderID,
 			addr,
 			err,
@@ -459,7 +457,7 @@ func findLeader(t *testing.T, nodes []*node) *node {
 	var leader *node
 	if !assert.Eventually(t, func() bool {
 		for _, n := range nodes {
-			if n.persistence.State() == raft.StateLeader {
+			if n.backend.State() == raft.StateLeader {
 				leader = n
 				return true
 			}

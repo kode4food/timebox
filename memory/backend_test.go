@@ -14,55 +14,54 @@ import (
 
 func TestNewStore(t *testing.T) {
 	t.Run("Config", func(t *testing.T) {
-		s, err := memory.NewStore(timebox.Config{MaxRetries: 3})
+		s, err := memory.Open().NewStore(timebox.Config{MaxRetries: 3})
 		if !assert.NoError(t, err) {
 			return
 		}
-		defer func() { _ = s.Close() }()
 		assert.Equal(t, 3, s.Config().MaxRetries)
 	})
 
 	t.Run("Invalid", func(t *testing.T) {
-		s, err := memory.NewStore(timebox.Config{MaxRetries: -1})
+		s, err := memory.Open().NewStore(timebox.Config{MaxRetries: -1})
 		assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
 		assert.Nil(t, s)
 	})
 }
 
 func TestClosedMethods(t *testing.T) {
-	p := memory.NewPersistence()
-	assert.NoError(t, p.Close())
+	b := memory.Open()
+	assert.NoError(t, b.Close())
 
-	_, err := p.LoadEvents(timebox.LoadEventsRequest{
+	_, err := b.LoadEvents(timebox.LoadEventsRequest{
 		ID:      timebox.NewAggregateID("order", "1"),
 		FromSeq: 0,
 	})
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	err = p.ConsumeArchive(context.Background(),
+	err = b.ConsumeArchive(context.Background(),
 		func(_ context.Context, _ *timebox.ArchiveRecord) error {
 			return nil
 		},
 	)
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	err = p.Append(timebox.AppendRequest{
+	err = b.Append(timebox.AppendRequest{
 		ID:               timebox.NewAggregateID("order", "1"),
 		ExpectedSequence: 0,
 		Events:           testEvents("created"),
 	})
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = p.GetAggregateStatus(timebox.NewAggregateID("order", "1"))
+	_, err = b.GetAggregateStatus(timebox.NewAggregateID("order", "1"))
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = p.ListAggregatesByStatus("active")
+	_, err = b.ListAggregatesByStatus("active")
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = p.ListAggregatesByTag("prod")
+	_, err = b.ListAggregatesByTag("prod")
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = p.ListAggregates("")
+	_, err = b.ListAggregates("")
 	assert.ErrorIs(t, err, memory.ErrClosed)
 }
 

@@ -21,9 +21,8 @@ func TestCorruptEvents(t *testing.T) {
 		cfg.Prefix = "corrupt"
 	})
 
-	store, err := tbredis.NewStore(cfg)
+	store, err := newStore(t, cfg)
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
 	eventsKey := cfg.Prefix + ":" + joinAggregateID(id) + ":events"

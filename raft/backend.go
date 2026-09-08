@@ -13,9 +13,9 @@ import (
 )
 
 type (
-	// Persistence applies Timebox writes through Raft and serves reads from
+	// Backend applies Timebox writes through Raft and serves reads from
 	// local materialized state
-	Persistence struct {
+	Backend struct {
 		cfg Config
 
 		db  *kvDB
@@ -82,11 +82,11 @@ const (
 	snapshotDirName   = "snapshots"
 )
 
-var _ timebox.Backend = (*Persistence)(nil)
-var _ timebox.Archiver = (*Persistence)(nil)
+var _ timebox.Backend = (*Backend)(nil)
+var _ timebox.Archiver = (*Backend)(nil)
 
-// NewPersistence opens one Raft persistence node
-func NewPersistence(cfgs ...Config) (*Persistence, error) {
+// Open opens one Raft Backend node
+func Open(cfgs ...Config) (*Backend, error) {
 	cfg := timebox.Configure(DefaultConfig(), cfgs...)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -94,42 +94,28 @@ func NewPersistence(cfgs ...Config) (*Persistence, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, err
 	}
-	return openPersistence(cfg)
+	return openBackend(cfg)
 }
 
-// NewStore opens Raft persistence and creates a Store
-func NewStore(cfgs ...Config) (*timebox.Store, error) {
-	p, err := NewPersistence(cfgs...)
-	if err != nil {
-		return nil, err
-	}
-	s, err := timebox.NewStore(p)
-	if err != nil {
-		_ = p.Close()
-		return nil, err
-	}
-	return s, nil
-}
-
-// Config returns the backend's Timebox configuration
-func (p *Persistence) Config() timebox.Config {
-	return p.cfg.Timebox
+// NewStore creates a Store using the current Raft Backend
+func (b *Backend) NewStore(cfgs ...timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(b, cfgs...)
 }
 
 // Close stops raft and closes local durable state
-func (p *Persistence) Close() error {
+func (b *Backend) Close() error {
 	var errs []error
 
-	p.stop(nil)
-	p.notifyArchive()
-	errs = append(errs, p.transport.Close())
-	p.bgWG.Wait()
-	errs = append(errs, p.raftLog.Close())
-	errs = append(errs, p.db.Close())
+	b.stop(nil)
+	b.notifyArchive()
+	errs = append(errs, b.transport.Close())
+	b.bgWG.Wait()
+	errs = append(errs, b.raftLog.Close())
+	errs = append(errs, b.db.Close())
 	return errors.Join(errs...)
 }
 
-func openPersistence(cfg Config) (*Persistence, error) {
+func openBackend(cfg Config) (*Backend, error) {
 	projectionExists := pathExists(
 		kvPath(cfg.DataDir, projectionDirName, projectionDBName),
 	)
@@ -151,7 +137,7 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		return nil, err
 	}
 
-	p := &Persistence{
+	b := &Backend{
 		cfg:          cfg,
 		db:           db,
 		raftLog:      log,
@@ -170,20 +156,20 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		snapIn:  map[uint64]string{},
 	}
 	if cfg.Publisher != nil {
-		p.publishQ = newPublishQueue()
+		b.publishQ = newPublishQueue()
 	}
-	p.fsm = newFSM(db)
-	p.flushBatch = p.flushBatchNoPublish
-	log.snapshotFn = p.captureSnapshot
+	b.fsm = newFSM(db)
+	b.flushBatch = b.flushBatchNoPublish
+	log.snapshotFn = b.captureSnapshot
 
-	if err := p.restoreMaterializedState(log, projectionExists); err != nil {
-		if err := rebuildProjection(p, cfg.DataDir, log); err != nil {
+	if err := b.restoreMaterializedState(log, projectionExists); err != nil {
+		if err := rebuildProjection(b, cfg.DataDir, log); err != nil {
 			_ = tr.Close()
 			_ = log.Close()
 			_ = db.Close()
 			return nil, err
 		}
-		db = p.db
+		db = b.db
 	}
 	applied, err := loadLastApplied(db)
 	if err != nil {
@@ -192,20 +178,20 @@ func openPersistence(cfg Config) (*Persistence, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	p.appliedIndex.Store(applied)
+	b.appliedIndex.Store(applied)
 
 	nodeCfg := newRaftNodeConfig(
 		nodeID(cfg.LocalID), log, applied,
 	)
 	switch {
 	case stateExists:
-		p.node = raft.RestartNode(nodeCfg)
+		b.node = raft.RestartNode(nodeCfg)
 	default:
-		p.node = raft.StartNode(nodeCfg, bootstrapPeers(cfg, tr))
+		b.node = raft.StartNode(nodeCfg, bootstrapPeers(cfg, tr))
 	}
 
-	p.startLoops()
-	return p, nil
+	b.startLoops()
+	return b, nil
 }
 
 func bootstrapPeers(cfg Config, tr *raftTransport) []raft.Peer {

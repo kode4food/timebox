@@ -22,14 +22,14 @@ type archivePayload struct {
 // DefaultMinIdle is the idle duration before pending archive work is reclaimed
 const DefaultMinIdle = 30 * time.Second
 
-func (p *Persistence) Archive(id timebox.AggregateID) error {
-	snapKey := p.buildKey(id, snapshotValSuffix)
-	snapSeqKey := p.buildKey(id, snapshotSeqSuffix)
-	eventsKey := p.buildKey(id, eventsSuffix)
-	statusKey := p.buildStatusHashKey()
-	tagStateKey := p.buildTagStateKey(id)
-	tagRootKey := p.buildTagRootKey()
-	streamKey := p.archiveStreamKey()
+func (b *Backend) Archive(id timebox.AggregateID) error {
+	snapKey := b.buildKey(id, snapshotValSuffix)
+	snapSeqKey := b.buildKey(id, snapshotSeqSuffix)
+	eventsKey := b.buildKey(id, eventsSuffix)
+	statusKey := b.buildStatusHashKey()
+	tagStateKey := b.buildTagStateKey(id)
+	tagRootKey := b.buildTagRootKey()
+	streamKey := b.archiveStreamKey()
 
 	keys := []string{
 		snapKey, snapSeqKey, eventsKey, streamKey, statusKey, tagStateKey,
@@ -37,8 +37,8 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	}
 	args := []any{joinAggregateID(id)}
 
-	result, err := p.publishArchive.Run(
-		context.Background(), p.client, keys, args...,
+	result, err := b.publishArchive.Run(
+		context.Background(), b.client, keys, args...,
 	).Result()
 	if err != nil {
 		return err
@@ -53,38 +53,38 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 	return nil
 }
 
-func (p *Persistence) ConsumeArchive(
+func (b *Backend) ConsumeArchive(
 	ctx context.Context, handler timebox.ArchiveHandler,
 ) error {
 	if handler == nil {
 		return timebox.ErrArchiveHandlerMissing
 	}
 
-	streamKey := p.archiveStreamKey()
-	group := p.archiveGroup()
-	if err := p.ensureArchiveGroup(ctx, streamKey, group); err != nil {
+	streamKey := b.archiveStreamKey()
+	group := b.archiveGroup()
+	if err := b.ensureArchiveGroup(ctx, streamKey, group); err != nil {
 		return err
 	}
 
-	rec, err := p.resumeArchive(ctx, handler)
+	rec, err := b.resumeArchive(ctx, handler)
 	if err != nil || rec {
 		return err
 	}
 
-	rec, err = p.recoverArchive(ctx, handler)
+	rec, err = b.recoverArchive(ctx, handler)
 	if err != nil || rec {
 		return err
 	}
 
-	return p.pollNewArchive(ctx, handler)
+	return b.pollNewArchive(ctx, handler)
 }
 
-func (p *Persistence) pollNewArchive(
+func (b *Backend) pollNewArchive(
 	ctx context.Context, handler timebox.ArchiveHandler,
 ) error {
-	streamKey := p.archiveStreamKey()
-	group := p.archiveGroup()
-	consumer := p.archiveConsumer()
+	streamKey := b.archiveStreamKey()
+	group := b.archiveGroup()
+	consumer := b.archiveConsumer()
 	for {
 		block := archiveReadBlock(ctx)
 		args := &redis.XReadGroupArgs{
@@ -95,7 +95,7 @@ func (p *Persistence) pollNewArchive(
 			Block:    block,
 		}
 
-		streams, err := p.client.XReadGroup(ctx, args).Result()
+		streams, err := b.client.XReadGroup(ctx, args).Result()
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
@@ -113,18 +113,18 @@ func (p *Persistence) pollNewArchive(
 			continue
 		}
 
-		return p.handleArchive(ctx,
+		return b.handleArchive(ctx,
 			streamKey, group, streams[0].Messages[0], handler,
 		)
 	}
 }
 
-func (p *Persistence) resumeArchive(
+func (b *Backend) resumeArchive(
 	ctx context.Context, handler timebox.ArchiveHandler,
 ) (bool, error) {
-	stream := p.archiveStreamKey()
-	group := p.archiveGroup()
-	consumer := p.archiveConsumer()
+	stream := b.archiveStreamKey()
+	group := b.archiveGroup()
+	consumer := b.archiveConsumer()
 	args := &redis.XReadGroupArgs{
 		Group:    group,
 		Consumer: consumer,
@@ -132,7 +132,7 @@ func (p *Persistence) resumeArchive(
 		Count:    1,
 	}
 
-	streams, err := p.client.XReadGroup(ctx, args).Result()
+	streams, err := b.client.XReadGroup(ctx, args).Result()
 	if errors.Is(err, redis.Nil) {
 		return false, nil
 	}
@@ -143,17 +143,17 @@ func (p *Persistence) resumeArchive(
 		return false, nil
 	}
 
-	return true, p.handleArchive(ctx,
+	return true, b.handleArchive(ctx,
 		stream, group, streams[0].Messages[0], handler,
 	)
 }
 
-func (p *Persistence) recoverArchive(
+func (b *Backend) recoverArchive(
 	ctx context.Context, handler timebox.ArchiveHandler,
 ) (bool, error) {
-	stream := p.archiveStreamKey()
-	group := p.archiveGroup()
-	consumer := p.archiveConsumer()
+	stream := b.archiveStreamKey()
+	group := b.archiveGroup()
+	consumer := b.archiveConsumer()
 	args := &redis.XAutoClaimArgs{
 		Stream:   stream,
 		Group:    group,
@@ -163,19 +163,19 @@ func (p *Persistence) recoverArchive(
 		Count:    1,
 	}
 
-	msgs, _, err := p.client.XAutoClaim(ctx, args).Result()
+	msgs, _, err := b.client.XAutoClaim(ctx, args).Result()
 	if err != nil || len(msgs) == 0 {
 		return false, err
 	}
 
-	return true, p.handleArchive(ctx, stream, group, msgs[0], handler)
+	return true, b.handleArchive(ctx, stream, group, msgs[0], handler)
 }
 
-func (p *Persistence) handleArchive(
+func (b *Backend) handleArchive(
 	ctx context.Context, stream, group string, msg redis.XMessage,
 	handler timebox.ArchiveHandler,
 ) error {
-	record, err := p.parseArchiveRecord(msg)
+	record, err := b.parseArchiveRecord(msg)
 	if err != nil {
 		return err
 	}
@@ -184,13 +184,13 @@ func (p *Persistence) handleArchive(
 		return err
 	}
 
-	_, err = p.consumeArchive.Run(
-		ctx, p.client, []string{stream}, group, msg.ID,
+	_, err = b.consumeArchive.Run(
+		ctx, b.client, []string{stream}, group, msg.ID,
 	).Result()
 	return err
 }
 
-func (p *Persistence) parseArchiveRecord(
+func (b *Backend) parseArchiveRecord(
 	msg redis.XMessage,
 ) (*timebox.ArchiveRecord, error) {
 	payloadRaw, ok := msg.Values["payload"]
@@ -231,10 +231,10 @@ func (p *Persistence) parseArchiveRecord(
 	return record, nil
 }
 
-func (p *Persistence) ensureArchiveGroup(
+func (b *Backend) ensureArchiveGroup(
 	ctx context.Context, streamKey, group string,
 ) error {
-	err := p.client.XGroupCreateMkStream(ctx, streamKey, group, "0-0").Err()
+	err := b.client.XGroupCreateMkStream(ctx, streamKey, group, "0-0").Err()
 	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
 		return err
 	}

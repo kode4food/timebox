@@ -15,8 +15,7 @@ import (
 )
 
 func TestBasicIncrement(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "1")
 
@@ -31,8 +30,7 @@ func TestBasicIncrement(t *testing.T) {
 }
 
 func TestMultipleOperations(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "1")
 
@@ -71,8 +69,7 @@ func TestMultipleOperations(t *testing.T) {
 }
 
 func TestConcurrentWrites(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "concurrent")
 
@@ -92,7 +89,6 @@ func TestConcurrentWrites(t *testing.T) {
 
 func TestSequenceHandling(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "seq-test")
 
@@ -165,8 +161,7 @@ func TestSequenceHandling(t *testing.T) {
 }
 
 func TestRaiseMarksCommittedEvents(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "raised")
 
@@ -185,7 +180,6 @@ func TestRaiseMarksCommittedEvents(t *testing.T) {
 
 func TestConflictRetry(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	assert.Equal(t, store, executor.GetStore())
 
@@ -230,7 +224,6 @@ func TestMaxRetriesOverride(t *testing.T) {
 		timebox.Config{MaxRetries: 2},
 		timebox.Config{MaxRetries: 1},
 	)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "retry-override")
 
@@ -263,7 +256,6 @@ func TestMaxRetriesInherited(t *testing.T) {
 		timebox.Config{MaxRetries: 2},
 		timebox.Config{},
 	)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "retry-inherited")
 
@@ -296,7 +288,6 @@ func TestCacheEviction(t *testing.T) {
 	store := setupExecutorStore(
 		t, timebox.Config{CacheSize: 1}, timebox.Config{},
 	)
-	defer func() { _ = store.Close() }()
 
 	executor := store.Executor(newCounterState, appliers)
 
@@ -321,28 +312,25 @@ func TestCacheEviction(t *testing.T) {
 }
 
 func TestCacheSizeOverride(t *testing.T) {
-	store, executor, count := setupExecutorWithCacheConfigs(t,
+	_, executor, count := setupExecutorWithCacheConfigs(t,
 		timebox.Config{CacheSize: 2},
 		timebox.Config{CacheSize: 1},
 	)
-	defer func() { _ = store.Close() }()
 
 	assertCacheEviction(t, executor, count)
 }
 
 func TestCacheSizeInherited(t *testing.T) {
-	store, executor, count := setupExecutorWithCacheConfigs(t,
+	_, executor, count := setupExecutorWithCacheConfigs(t,
 		timebox.Config{CacheSize: 1},
 		timebox.Config{},
 	)
-	defer func() { _ = store.Close() }()
 
 	assertCacheEviction(t, executor, count)
 }
 
 func TestCommandError(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "err")
 
@@ -356,8 +344,7 @@ func TestCommandError(t *testing.T) {
 }
 
 func TestNoOpCommand(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "noop")
 
@@ -373,8 +360,7 @@ func TestNoOpCommand(t *testing.T) {
 }
 
 func TestAppliesEvent(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	// Test with event types that have appliers
 	incremented := &timebox.Event{Type: EventIncremented}
@@ -392,8 +378,7 @@ func TestAppliesEvent(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "get")
 
@@ -415,7 +400,6 @@ func TestGet(t *testing.T) {
 
 func TestNoOpCommandRetriesOnConflict(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "noop-conflict")
 
@@ -452,8 +436,7 @@ func TestNoOpCommandRetriesOnConflict(t *testing.T) {
 }
 
 func TestRaiseError(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.AggregateID{Type: "raise", Key: "error"}
 	_, err := executor.Exec(id,
@@ -473,7 +456,6 @@ func TestZeroCacheSize(t *testing.T) {
 
 func TestOnSuccessCallbacks(t *testing.T) {
 	store, _ := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
@@ -553,8 +535,7 @@ func TestOnSuccessCallbacks(t *testing.T) {
 }
 
 func TestOnSuccessNoOp(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "on-success-noop")
 
@@ -578,7 +559,6 @@ func TestOnSuccessNoOp(t *testing.T) {
 
 func TestOnSuccessDefaultsOnly(t *testing.T) {
 	store, _ := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "on-success-default")
 	called := false
@@ -605,8 +585,7 @@ func TestOnSuccessDefaultsOnly(t *testing.T) {
 }
 
 func TestOnSuccessError(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	_, executor := setupTestExecutor(t)
 
 	id := timebox.NewAggregateID("counter", "on-success-error")
 
@@ -689,7 +668,7 @@ func setupExecutorStore(
 	t.Helper()
 
 	cfg := timebox.Configure(base, override)
-	store, err := memory.NewStore(cfg)
+	store, err := memory.Open().NewStore(cfg)
 	assert.NoError(t, err)
 
 	return store

@@ -1,14 +1,9 @@
 package postgres
 
-import (
-	"errors"
+import "errors"
 
-	"github.com/kode4food/timebox"
-)
-
-// Config contains PostgreSQL connection settings and Timebox configuration
+// Config configures a Postgres Backend
 type Config struct {
-	Timebox  timebox.Config
 	URL      string
 	Prefix   string
 	MaxConns int32
@@ -39,7 +34,6 @@ var (
 // DefaultConfig returns a Config populated with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Timebox:  timebox.DefaultConfig(),
 		URL:      DefaultURL,
 		Prefix:   DefaultPrefix,
 		MaxConns: DefaultMaxConns,
@@ -48,7 +42,6 @@ func DefaultConfig() Config {
 
 // With overlays the non-zero values from other onto cfg
 func (cfg Config) With(other Config) Config {
-	cfg.Timebox = timebox.Configure(cfg.Timebox, other.Timebox)
 	if other.URL != "" {
 		cfg.URL = other.URL
 	}

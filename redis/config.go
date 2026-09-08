@@ -4,13 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/kode4food/timebox"
 )
 
-// Config contains Redis connection settings and Timebox configuration
+// Config configures a Redis Backend
 type Config struct {
-	Timebox  timebox.Config
 	Addr     string
 	Password string
 	Prefix   string
@@ -40,16 +37,14 @@ var (
 // DefaultConfig returns a Config populated with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Timebox: timebox.DefaultConfig(),
-		Addr:    DefaultEndpoint,
-		Prefix:  DefaultPrefix,
-		DB:      DefaultDB,
+		Addr:   DefaultEndpoint,
+		Prefix: DefaultPrefix,
+		DB:     DefaultDB,
 	}
 }
 
 // With overlays the non-zero values from other onto cfg
 func (cfg Config) With(other Config) Config {
-	cfg.Timebox = timebox.Configure(cfg.Timebox, other.Timebox)
 	if other.Addr != "" {
 		cfg.Addr = other.Addr
 	}

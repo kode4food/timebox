@@ -104,7 +104,6 @@ func TestStoreIndexer(t *testing.T) {
 					}
 				},
 			)
-			defer func() { _ = store.Close() }()
 
 			id := timebox.NewAggregateID("counter", "indexed")
 
@@ -145,7 +144,7 @@ func setupTestExecutorWithConfig(
 		mutate(&cfg)
 	}
 
-	store, err := memory.NewStore(cfg)
+	store, err := memory.Open().NewStore(cfg)
 	assert.NoError(t, err)
 
 	executor := store.Executor(newCounterState, appliers)

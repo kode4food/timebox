@@ -18,15 +18,15 @@ func TestStore(t *testing.T) {
 		) (timebox.Backend, *timebox.Store) {
 			t.Helper()
 
-			p := memory.NewPersistence(cfg)
-			store, err := timebox.NewStore(p)
+			b := memory.Open()
+			store, err := timebox.NewStore(b, cfg)
 			if !assert.NoError(t, err) {
 				t.FailNow()
 			}
 			t.Cleanup(func() {
-				_ = store.Close()
+				_ = b.Close()
 			})
-			return p, store
+			return b, store
 		},
 	})
 }

@@ -24,20 +24,19 @@ func TestStore(t *testing.T) {
 
 				pCfg := cfg
 				pCfg.Prefix = storeSuitePrefix(t)
-				pCfg.Timebox = tc
-				p, err := postgres.NewPersistence(pCfg)
+				b, err := postgres.Open(pCfg)
 				if !assert.NoError(t, err) {
 					t.FailNow()
 				}
 
-				store, err := timebox.NewStore(p)
+				store, err := timebox.NewStore(b, tc)
 				if !assert.NoError(t, err) {
 					t.FailNow()
 				}
 				t.Cleanup(func() {
-					_ = store.Close()
+					_ = b.Close()
 				})
-				return p, store
+				return b, store
 			},
 		})
 	})

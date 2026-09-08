@@ -10,13 +10,13 @@ import (
 	"github.com/kode4food/timebox/postgres"
 )
 
-func TestPersistenceSchema(t *testing.T) {
+func TestBackendSchema(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, cfg postgres.Config) {
-		p, err := postgres.NewPersistence(cfg)
+		b, err := postgres.Open(cfg)
 		if !assert.NoError(t, err) {
 			return
 		}
-		defer func() { _ = p.Close() }()
+		defer func() { _ = b.Close() }()
 
 		pool, err := pgxpool.New(ctx, cfg.URL)
 		if !assert.NoError(t, err) {

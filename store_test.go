@@ -13,13 +13,12 @@ import (
 )
 
 type (
-	fakePersistence struct {
+	fakeBackend struct {
 		timebox.AlwaysReady
-		config timebox.Config
 	}
 
-	fakeReadyPersistence struct {
-		fakePersistence
+	fakeReadyBackend struct {
+		fakeBackend
 		readyCh chan struct{}
 	}
 )
@@ -37,17 +36,15 @@ func TestVersionConflictError(t *testing.T) {
 }
 
 func TestNewStoreValidate(t *testing.T) {
-	store, err := timebox.NewStore(&fakePersistence{})
+	store, err := timebox.NewStore(&fakeBackend{})
 	assert.NoError(t, err)
 	assert.NotNil(t, store)
-	assert.NoError(t, store.Close())
 }
 
 func TestStoreReadyDefault(t *testing.T) {
-	store, err := timebox.NewStore(&fakePersistence{})
+	store, err := timebox.NewStore(&fakeBackend{})
 	assert.NoError(t, err)
 	assert.NotNil(t, store)
-	defer func() { _ = store.Close() }()
 
 	select {
 	case <-store.Ready():
@@ -57,11 +54,10 @@ func TestStoreReadyDefault(t *testing.T) {
 }
 
 func TestStoreWaitReady(t *testing.T) {
-	p := &fakeReadyPersistence{readyCh: make(chan struct{})}
+	p := &fakeReadyBackend{readyCh: make(chan struct{})}
 	store, err := timebox.NewStore(p)
 	assert.NoError(t, err)
 	assert.NotNil(t, store)
-	defer func() { _ = store.Close() }()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
@@ -79,10 +75,9 @@ func TestStoreConfigAndStatus(t *testing.T) {
 		MaxRetries: 3,
 		CacheSize:  5,
 	}
-	p := memory.NewPersistence(cfg)
-	store, err := timebox.NewStore(p)
+	p := memory.Open()
+	store, err := timebox.NewStore(p, cfg)
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	assert.Equal(t, 3, store.Config().MaxRetries)
 
@@ -107,9 +102,8 @@ func TestStoreConfigAndStatus(t *testing.T) {
 }
 
 func TestStore(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("test", "1")
 
@@ -130,9 +124,8 @@ func TestStore(t *testing.T) {
 }
 
 func TestAppendCopy(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
 	other := timebox.NewAggregateID("other", "2")
@@ -192,7 +185,7 @@ func TestNewStoreInvalidConfig(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			store, err := timebox.NewStore(&fakePersistence{config: tc.cfg})
+			store, err := timebox.NewStore(&fakeBackend{}, tc.cfg)
 			assert.ErrorIs(t, err, tc.err)
 			assert.Nil(t, store)
 		})
@@ -200,9 +193,8 @@ func TestNewStoreInvalidConfig(t *testing.T) {
 }
 
 func TestAppendConflict(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
 
@@ -216,9 +208,8 @@ func TestAppendConflict(t *testing.T) {
 }
 
 func TestAppendConflictWithNoEvents(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "noop-conflict")
 	ev := &timebox.Event{
@@ -241,14 +232,13 @@ func TestAppendConflictWithNoEvents(t *testing.T) {
 
 func TestEmptyAppendSkipsIndexer(t *testing.T) {
 	calls := 0
-	store, err := memory.NewStore(timebox.Config{
+	store, err := memory.Open().NewStore(timebox.Config{
 		Indexer: func([]*timebox.Event) []*timebox.Index {
 			calls++
 			return nil
 		},
 	})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "empty-skip")
 
@@ -269,10 +259,9 @@ func TestEmptyAppendSkipsIndexer(t *testing.T) {
 }
 
 func TestArchiveUnsupported(t *testing.T) {
-	store, err := timebox.NewStore(&fakePersistence{})
+	store, err := timebox.NewStore(&fakeBackend{})
 	assert.NoError(t, err)
 	assert.NotNil(t, store)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
 
@@ -289,9 +278,8 @@ func TestArchiveUnsupported(t *testing.T) {
 }
 
 func TestListAggregates(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id1 := timebox.NewAggregateID("order", "1")
 	id2 := timebox.NewAggregateID("order", "2")
@@ -314,9 +302,8 @@ func TestListAggregates(t *testing.T) {
 }
 
 func TestGetEventsEmpty(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	events, err := store.GetEvents(timebox.NewAggregateID("counter", "1"), 0)
 	assert.NoError(t, err)
@@ -324,11 +311,10 @@ func TestGetEventsEmpty(t *testing.T) {
 }
 
 func TestStoreTrimmedPlainAppend(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{
+	store, err := memory.Open().NewStore(timebox.Config{
 		TrimEvents: true,
 	})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
 	ev := &timebox.Event{
@@ -383,12 +369,11 @@ func withIndexedMemoryStore(
 ) {
 	t.Helper()
 
-	store, err := memory.NewStore(timebox.Config{
+	store, err := memory.Open().NewStore(timebox.Config{
 		TrimEvents: trimEvents,
 		Indexer:    indexer,
 	})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	fn(context.Background(), store)
 }
@@ -433,58 +418,54 @@ func combinedIndexer(events []*timebox.Event) []*timebox.Index {
 	return res
 }
 
-func (f *fakePersistence) Close() error {
+func (f *fakeBackend) Close() error {
 	return nil
 }
 
-func (f *fakePersistence) Config() timebox.Config {
-	return f.config
-}
-
-func (f *fakePersistence) Append(...timebox.AppendRequest) error {
+func (f *fakeBackend) Append(...timebox.AppendRequest) error {
 	return nil
 }
 
-func (f *fakePersistence) LoadEvents(
+func (f *fakeBackend) LoadEvents(
 	timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
 	return &timebox.EventsResult{}, nil
 }
 
-func (f *fakePersistence) LoadSnapshot(
+func (f *fakeBackend) LoadSnapshot(
 	timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	return &timebox.SnapshotRecord{}, nil
 }
 
-func (f *fakePersistence) SaveSnapshot(timebox.SnapshotRequest) error {
+func (f *fakeBackend) SaveSnapshot(timebox.SnapshotRequest) error {
 	return nil
 }
 
-func (f *fakePersistence) ListAggregates(
+func (f *fakeBackend) ListAggregates(
 	timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	return nil, nil
 }
 
-func (f *fakePersistence) GetAggregateStatus(
+func (f *fakeBackend) GetAggregateStatus(
 	timebox.AggregateID,
 ) (string, error) {
 	return "", nil
 }
 
-func (f *fakePersistence) ListAggregatesByStatus(
+func (f *fakeBackend) ListAggregatesByStatus(
 	string,
 ) ([]timebox.StatusEntry, error) {
 	return nil, nil
 }
 
-func (f *fakePersistence) ListAggregatesByTag(
+func (f *fakeBackend) ListAggregatesByTag(
 	string,
 ) ([]timebox.AggregateID, error) {
 	return nil, nil
 }
 
-func (f *fakeReadyPersistence) Ready() <-chan struct{} {
+func (f *fakeReadyBackend) Ready() <-chan struct{} {
 	return f.readyCh
 }

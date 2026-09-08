@@ -20,8 +20,8 @@ func openProjectionDB(dataDir string) (*kvDB, error) {
 }
 
 // State returns the current local Raft role
-func (p *Persistence) State() State {
-	switch p.node.Status().RaftState {
+func (b *Backend) State() State {
+	switch b.node.Status().RaftState {
 	case raft.StateLeader:
 		return StateLeader
 	case raft.StateCandidate, raft.StatePreCandidate:
@@ -32,23 +32,23 @@ func (p *Persistence) State() State {
 }
 
 // Ready closes once the node is ready to serve leader-directed traffic
-func (p *Persistence) Ready() <-chan struct{} {
-	return p.readyCh
+func (b *Backend) Ready() <-chan struct{} {
+	return b.readyCh
 }
 
 // LeaderWithID returns the current leader address and server ID
-func (p *Persistence) LeaderWithID() (ServerAddress, ServerID) {
-	lead := p.node.Status().Lead
+func (b *Backend) LeaderWithID() (ServerAddress, ServerID) {
+	lead := b.node.Status().Lead
 	if lead == 0 {
 		return "", ""
 	}
-	peer := p.peers[lead]
+	peer := b.peers[lead]
 	return peer.RaftAddr, peer.ID
 }
 
-func (p *Persistence) compactBound() uint64 {
-	applied := p.appliedIndex.Load()
-	st := p.node.Status()
+func (b *Backend) compactBound() uint64 {
+	applied := b.appliedIndex.Load()
+	st := b.node.Status()
 	if st.RaftState != raft.StateLeader {
 		return applied
 	}
@@ -61,9 +61,9 @@ func (p *Persistence) compactBound() uint64 {
 	return bound
 }
 
-func (p *Persistence) captureSnapshot() ([]byte, uint64, error) {
+func (b *Backend) captureSnapshot() ([]byte, uint64, error) {
 	var applied uint64
-	err := p.db.View(func(tx *kvTx) error {
+	err := b.db.View(func(tx *kvTx) error {
 		var err error
 		applied, err = loadLastAppliedTx(tx.Bucket(bucketName))
 		return err
@@ -72,7 +72,7 @@ func (p *Persistence) captureSnapshot() ([]byte, uint64, error) {
 		return nil, 0, err
 	}
 
-	ref, path, err := p.newSnapshotRef()
+	ref, path, err := b.newSnapshotRef()
 	if err != nil {
 		return nil, 0, err
 	}
@@ -83,7 +83,7 @@ func (p *Persistence) captureSnapshot() ([]byte, uint64, error) {
 	defer func() {
 		_ = f.Close()
 	}()
-	if err := backupKVDBTo(p.db, f); err != nil {
+	if err := backupKVDBTo(b.db, f); err != nil {
 		_ = os.Remove(path)
 		return nil, 0, err
 	}
@@ -92,18 +92,18 @@ func (p *Persistence) captureSnapshot() ([]byte, uint64, error) {
 		return nil, 0, err
 	}
 
-	p.storeOutgoingSnapshot(ref, path)
+	b.storeOutgoingSnapshot(ref, path)
 	return encodeSnapshotRef(ref), applied, nil
 }
 
-func (p *Persistence) applySnapshot(snap *raftpb.Snapshot) error {
-	_ = p.db.Close()
+func (b *Backend) applySnapshot(snap *raftpb.Snapshot) error {
+	_ = b.db.Close()
 
 	data := snap.GetData()
 	meta := snap.GetMetadata()
-	path := filepath.Join(p.cfg.DataDir, projectionDirName, projectionDBName)
+	path := filepath.Join(b.cfg.DataDir, projectionDirName, projectionDBName)
 	if ref, ok := decodeSnapshotRef(data); ok {
-		src, ok := p.takeIncomingSnapshot(ref)
+		src, ok := b.takeIncomingSnapshot(ref)
 		if !ok {
 			return raft.ErrSnapshotTemporarilyUnavailable
 		}
@@ -123,26 +123,26 @@ func (p *Persistence) applySnapshot(snap *raftpb.Snapshot) error {
 		if err != nil {
 			return err
 		}
-		p.db = db
-		p.fsm = newFSM(db)
-		p.appliedIndex.Store(meta.GetIndex())
-		return p.raftLog.ApplySnapshot(meta)
+		b.db = db
+		b.fsm = newFSM(db)
+		b.appliedIndex.Store(meta.GetIndex())
+		return b.raftLog.ApplySnapshot(meta)
 	}
 
 	db, err := replaceKVDBFrom(path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
-	p.db = db
-	p.fsm = newFSM(db)
-	p.appliedIndex.Store(meta.GetIndex())
-	return p.raftLog.ApplySnapshot(meta)
+	b.db = db
+	b.fsm = newFSM(db)
+	b.appliedIndex.Store(meta.GetIndex())
+	return b.raftLog.ApplySnapshot(meta)
 }
 
-func (p *Persistence) restoreMaterializedState(
+func (b *Backend) restoreMaterializedState(
 	log *raftLog, fastForward bool,
 ) error {
-	applied, err := loadLastApplied(p.db)
+	applied, err := loadLastApplied(b.db)
 	if err != nil {
 		return err
 	}
@@ -153,79 +153,79 @@ func (p *Persistence) restoreMaterializedState(
 		if !fastForward {
 			return raft.ErrCompacted
 		}
-		if err := p.markAppliedEntry(compacted); err != nil {
+		if err := b.markAppliedEntry(compacted); err != nil {
 			return err
 		}
 		applied = compacted
 	}
-	return log.ReplayCommitted(applied, p.applyStartupEntries)
+	return log.ReplayCommitted(applied, b.applyStartupEntries)
 }
 
-func (p *Persistence) newSnapshotRef() (uint64, string, error) {
-	dir := filepath.Join(p.cfg.DataDir, snapshotDirName)
+func (b *Backend) newSnapshotRef() (uint64, string, error) {
+	dir := filepath.Join(b.cfg.DataDir, snapshotDirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return 0, "", err
 	}
-	ref := p.nextSnap.Add(1)
+	ref := b.nextSnap.Add(1)
 	return ref, filepath.Join(dir, snapshotFileName(ref)), nil
 }
 
-func (p *Persistence) storeOutgoingSnapshot(ref uint64, path string) {
-	p.snapMu.Lock()
-	defer p.snapMu.Unlock()
-	p.snapOut[ref] = path
+func (b *Backend) storeOutgoingSnapshot(ref uint64, path string) {
+	b.snapMu.Lock()
+	defer b.snapMu.Unlock()
+	b.snapOut[ref] = path
 }
 
-func (p *Persistence) outgoingSnapshot(ref uint64) (string, bool) {
-	p.snapMu.Lock()
-	defer p.snapMu.Unlock()
-	path, ok := p.snapOut[ref]
+func (b *Backend) outgoingSnapshot(ref uint64) (string, bool) {
+	b.snapMu.Lock()
+	defer b.snapMu.Unlock()
+	path, ok := b.snapOut[ref]
 	return path, ok
 }
 
-func (p *Persistence) releaseOutgoingSnapshot(ref uint64) {
-	p.snapMu.Lock()
-	path, ok := p.snapOut[ref]
+func (b *Backend) releaseOutgoingSnapshot(ref uint64) {
+	b.snapMu.Lock()
+	path, ok := b.snapOut[ref]
 	if ok {
-		delete(p.snapOut, ref)
+		delete(b.snapOut, ref)
 	}
-	p.snapMu.Unlock()
+	b.snapMu.Unlock()
 	if ok {
 		_ = os.Remove(path)
 	}
 }
 
-func (p *Persistence) storeIncomingSnapshot(ref uint64, path string) {
-	p.snapMu.Lock()
-	defer p.snapMu.Unlock()
-	if prev, ok := p.snapIn[ref]; ok {
+func (b *Backend) storeIncomingSnapshot(ref uint64, path string) {
+	b.snapMu.Lock()
+	defer b.snapMu.Unlock()
+	if prev, ok := b.snapIn[ref]; ok {
 		_ = os.Remove(prev)
 	}
-	p.snapIn[ref] = path
+	b.snapIn[ref] = path
 }
 
-func (p *Persistence) takeIncomingSnapshot(ref uint64) (string, bool) {
-	p.snapMu.Lock()
-	defer p.snapMu.Unlock()
-	path, ok := p.snapIn[ref]
+func (b *Backend) takeIncomingSnapshot(ref uint64) (string, bool) {
+	b.snapMu.Lock()
+	defer b.snapMu.Unlock()
+	path, ok := b.snapIn[ref]
 	if ok {
-		delete(p.snapIn, ref)
+		delete(b.snapIn, ref)
 	}
 	return path, ok
 }
 
-func (p *Persistence) writeSnapshotStream(w io.Writer, ref uint64) error {
-	path, ok := p.outgoingSnapshot(ref)
+func (b *Backend) writeSnapshotStream(w io.Writer, ref uint64) error {
+	path, ok := b.outgoingSnapshot(ref)
 	if !ok {
 		return raft.ErrSnapshotTemporarilyUnavailable
 	}
 	return writeSnapshotFile(w, path)
 }
 
-func (p *Persistence) readSnapshotStream(
+func (b *Backend) readSnapshotStream(
 	r io.Reader, ref uint64, size uint64,
 ) error {
-	_, path, err := p.newSnapshotRef()
+	_, path, err := b.newSnapshotRef()
 	if err != nil {
 		return err
 	}
@@ -244,12 +244,12 @@ func (p *Persistence) readSnapshotStream(
 		_ = os.Remove(path)
 		return err
 	}
-	p.storeIncomingSnapshot(ref, path)
+	b.storeIncomingSnapshot(ref, path)
 	return nil
 }
 
-func rebuildProjection(p *Persistence, dataDir string, log *raftLog) error {
-	_ = p.db.Close()
+func rebuildProjection(b *Backend, dataDir string, log *raftLog) error {
+	_ = b.db.Close()
 	path := kvPath(dataDir, projectionDirName, projectionDBName)
 	if err := removeKVPath(path); err != nil && !os.IsNotExist(err) {
 		return err
@@ -259,9 +259,9 @@ func rebuildProjection(p *Persistence, dataDir string, log *raftLog) error {
 	if err != nil {
 		return err
 	}
-	p.db = db
-	p.fsm = newFSM(db)
-	return p.restoreMaterializedState(log, false)
+	b.db = db
+	b.fsm = newFSM(db)
+	return b.restoreMaterializedState(log, false)
 }
 
 func pathExists(path string) bool {

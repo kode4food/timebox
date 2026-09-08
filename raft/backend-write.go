@@ -8,7 +8,7 @@ import (
 )
 
 // Append proposes every append mutation through the local Raft node
-func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
+func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if err := check.Distinct(reqs); err != nil {
 		return err
 	}
@@ -16,7 +16,7 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 	var events []*timebox.Event
 	mutates := false
 	for _, req := range reqs {
-		if err := p.checkConflict(req.ID, req.ExpectedSequence); err != nil {
+		if err := b.checkConflict(req.ID, req.ExpectedSequence); err != nil {
 			return err
 		}
 		if check.Mutates(req) {
@@ -28,12 +28,12 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 		return nil
 	}
 
-	propID := p.newProposalID()
+	propID := b.newProposalID()
 	cmd, err := MakeAppendCommand(propID, reqs)
 	if err != nil {
 		return err
 	}
-	res, err := p.applyWithTimeout(
+	res, err := b.applyWithTimeout(
 		context.Background(), cmd, propID, events,
 	)
 	if err != nil {
@@ -43,15 +43,15 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 }
 
 // SaveSnapshot proposes one Timebox snapshot mutation through Raft
-func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
-	propID := p.newProposalID()
-	_, err := p.applyWithTimeout(
+func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
+	propID := b.newProposalID()
+	_, err := b.applyWithTimeout(
 		context.Background(),
 		MakeSnapshotCommand(propID, &SnapshotCommand{
 			ID:         req.ID,
 			Data:       req.Data,
 			Sequence:   req.Sequence,
-			TrimEvents: p.cfg.Timebox.TrimEvents,
+			TrimEvents: req.TrimEvents,
 		}),
 		propID,
 		nil,

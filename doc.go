@@ -4,7 +4,7 @@
 // append-time indexing into a library that can be embedded into services
 //
 // Typical usage looks like:
-//   - Open backend persistence and create a Store from it
+//   - Open a Backend and create a Store from it
 //   - Define Appliers that fold events into your aggregate state
 //   - Optionally define an Indexer to project current status or tag indexes
 //   - Use an Executor to run Commands that raise events on an Aggregator

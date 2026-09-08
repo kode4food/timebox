@@ -12,8 +12,8 @@ import (
 	"github.com/kode4food/timebox/memory"
 )
 
-type inlineSnapshotPersistence struct {
-	fakePersistence
+type inlineSnapshotBackend struct {
+	fakeBackend
 	saveErr      error
 	rec          *timebox.SnapshotRecord
 	saveData     []byte
@@ -24,7 +24,6 @@ type inlineSnapshotPersistence struct {
 
 func TestSequenceWithSnapshot(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snap-seq-test")
 
@@ -69,7 +68,6 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 			cfg.TrimEvents = true
 		},
 	)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "trim-events")
 
@@ -118,7 +116,6 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 
 func TestSnapshotLargeBatch(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "large-batch")
 
@@ -181,9 +178,8 @@ func TestSnapshotLargeBatch(t *testing.T) {
 }
 
 func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snapshot")
 	ev := &timebox.Event{
@@ -220,7 +216,6 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 			cfg.SnapshotRatio = 100
 		},
 	)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "snapshot-ratio")
 	_, err := setupExecutor.Exec(id,
@@ -264,7 +259,6 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 
 func TestSaveSnapshotError(t *testing.T) {
 	store, _ := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	type BadState struct {
 		Value chan int
@@ -281,7 +275,6 @@ func TestSaveSnapshotError(t *testing.T) {
 
 func TestSaveSnapshot(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("save", "snapshot")
 
@@ -307,7 +300,6 @@ func TestSaveSnapshot(t *testing.T) {
 
 func TestSaveSnapshotColdCache(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "cold-snapshot")
 
@@ -345,21 +337,21 @@ func TestSaveSnapshotColdCache(t *testing.T) {
 }
 
 func TestSaveSnapshotLoadError(t *testing.T) {
-	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
+	p := memory.Open()
+	store, err := p.NewStore()
+	assert.NoError(t, err)
 
+	executor := store.Executor(newCounterState, appliers)
 	id := timebox.NewAggregateID("save", "snapshot-error")
 
-	_ = store.Close()
+	_ = p.Close()
 
-	err := executor.SaveSnapshot(id)
-	assert.Error(t, err)
+	assert.Error(t, executor.SaveSnapshot(id))
 }
 
 func TestGetSnapshotEmpty(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	var state CounterState
 	snap, err := store.GetSnapshot(
@@ -378,7 +370,7 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 	recData, err := json.Marshal(&CounterState{Value: 10})
 	assert.NoError(t, err)
 
-	p := &inlineSnapshotPersistence{
+	p := &inlineSnapshotBackend{
 		rec: &timebox.SnapshotRecord{
 			Data:     recData,
 			Sequence: 1,
@@ -391,7 +383,6 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 	}
 	store, err := timebox.NewStore(p)
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	executor := store.Executor(newCounterState, appliers)
 	id := timebox.NewAggregateID("counter", "inline-save-error")
@@ -427,7 +418,7 @@ func inlineSnapshotEvent(t *testing.T, delta int) *timebox.Event {
 	}
 }
 
-func (p *inlineSnapshotPersistence) LoadSnapshot(
+func (p *inlineSnapshotBackend) LoadSnapshot(
 	timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	return &timebox.SnapshotRecord{
@@ -437,7 +428,7 @@ func (p *inlineSnapshotPersistence) LoadSnapshot(
 	}, nil
 }
 
-func (p *inlineSnapshotPersistence) SaveSnapshot(
+func (p *inlineSnapshotBackend) SaveSnapshot(
 	req timebox.SnapshotRequest,
 ) error {
 	p.saveID = req.ID

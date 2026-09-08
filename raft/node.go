@@ -86,60 +86,60 @@ func newPeerQueue() *peerQueue {
 	}
 }
 
-func (p *Persistence) startLoops() {
-	p.servePublish()
-	p.servePeerSends()
-	p.serveTransport()
-	p.serveTicks()
-	p.serveReady()
+func (b *Backend) startLoops() {
+	b.servePublish()
+	b.servePeerSends()
+	b.serveTransport()
+	b.serveTicks()
+	b.serveReady()
 }
 
-func (p *Persistence) servePublish() {
-	if p.publishQ == nil {
+func (b *Backend) servePublish() {
+	if b.publishQ == nil {
 		return
 	}
-	p.bgWG.Go(func() {
+	b.bgWG.Go(func() {
 		for {
 			select {
-			case <-p.stopCh:
+			case <-b.stopCh:
 				for {
-					events, ok := p.publishQ.Pop()
+					events, ok := b.publishQ.Pop()
 					if !ok {
 						return
 					}
-					p.cfg.Publisher(events...)
+					b.cfg.Publisher(events...)
 				}
-			case <-p.publishQ.Ready():
+			case <-b.publishQ.Ready():
 				for {
-					events, ok := p.publishQ.Pop()
+					events, ok := b.publishQ.Pop()
 					if !ok {
 						break
 					}
-					p.cfg.Publisher(events...)
+					b.cfg.Publisher(events...)
 				}
 			}
 		}
 	})
 }
 
-func (p *Persistence) servePeerSends() {
-	localID := nodeID(p.cfg.LocalID)
-	for id, peer := range p.peers {
+func (b *Backend) servePeerSends() {
+	localID := nodeID(b.cfg.LocalID)
+	for id, peer := range b.peers {
 		if id == localID || peer.RaftAddr == "" {
 			continue
 		}
 		q := newPeerQueue()
-		p.peerQueues[id] = q
+		b.peerQueues[id] = q
 
 		id := id
 		peer := peer
-		p.bgWG.Go(func() {
-			p.servePeerSend(id, peer, q)
+		b.bgWG.Go(func() {
+			b.servePeerSend(id, peer, q)
 		})
 	}
 }
 
-func (p *Persistence) queueMessages(msgs []*raftpb.Message) error {
+func (b *Backend) queueMessages(msgs []*raftpb.Message) error {
 	for _, msg := range msgs {
 		to := msg.GetTo()
 		if to == 0 {
@@ -147,12 +147,12 @@ func (p *Persistence) queueMessages(msgs []*raftpb.Message) error {
 		}
 
 		typ := msg.GetType()
-		q := p.peerQueues[to]
+		q := b.peerQueues[to]
 		if q == nil {
 			if typ == raftpb.MsgSnap {
-				p.node.ReportSnapshot(to, raft.SnapshotFailure)
+				b.node.ReportSnapshot(to, raft.SnapshotFailure)
 			}
-			p.node.ReportUnreachable(to)
+			b.node.ReportUnreachable(to)
 			continue
 		}
 
@@ -179,22 +179,22 @@ func (p *Persistence) queueMessages(msgs []*raftpb.Message) error {
 	return nil
 }
 
-func (p *Persistence) servePeerSend(id uint64, peer peerInfo, q *peerQueue) {
+func (b *Backend) servePeerSend(id uint64, peer peerInfo, q *peerQueue) {
 	for {
 		select {
-		case <-p.stopCh:
+		case <-b.stopCh:
 			return
 		case <-q.Ready():
-			err := p.sendPeerQueue(id, peer, q)
+			err := b.sendPeerQueue(id, peer, q)
 			if err != nil {
-				p.node.ReportUnreachable(id)
+				b.node.ReportUnreachable(id)
 				q.Signal()
 			}
 		}
 	}
 }
 
-func (p *Persistence) sendPeerQueue(
+func (b *Backend) sendPeerQueue(
 	id uint64, peer peerInfo, q *peerQueue,
 ) error {
 	var (
@@ -202,7 +202,7 @@ func (p *Persistence) sendPeerQueue(
 		sent    []uint64
 	)
 
-	err := p.transport.WithPeer(
+	err := b.transport.WithPeer(
 		peer.RaftAddr,
 		func(w *bufio.Writer) error {
 			for {
@@ -217,7 +217,7 @@ func (p *Persistence) sendPeerQueue(
 					return err
 				}
 				if msg.snap {
-					if err := p.writeSnapshotStream(w, msg.snapRef); err != nil {
+					if err := b.writeSnapshotStream(w, msg.snapRef); err != nil {
 						return err
 					}
 					sent = append(sent, msg.snapRef)
@@ -228,39 +228,39 @@ func (p *Persistence) sendPeerQueue(
 	)
 	if err != nil {
 		if hadSnap {
-			p.node.ReportSnapshot(id, raft.SnapshotFailure)
+			b.node.ReportSnapshot(id, raft.SnapshotFailure)
 		}
 		return err
 	}
 	for _, ref := range sent {
-		p.releaseOutgoingSnapshot(ref)
+		b.releaseOutgoingSnapshot(ref)
 	}
 	if hadSnap {
-		p.node.ReportSnapshot(id, raft.SnapshotFinish)
+		b.node.ReportSnapshot(id, raft.SnapshotFinish)
 	}
 	return nil
 }
 
-func (p *Persistence) serveTicks() {
+func (b *Backend) serveTicks() {
 	t := time.NewTicker(tickInterval)
-	p.bgWG.Go(func() {
+	b.bgWG.Go(func() {
 		defer t.Stop()
 
 		for {
 			select {
-			case <-p.stopCh:
+			case <-b.stopCh:
 				return
 			case <-t.C:
-				p.node.Tick()
+				b.node.Tick()
 			}
 		}
 	})
 }
 
-func (p *Persistence) serveTransport() {
-	p.bgWG.Go(func() {
+func (b *Backend) serveTransport() {
+	b.bgWG.Go(func() {
 		for {
-			conn, err := p.transport.Accept()
+			conn, err := b.transport.Accept()
 			if err != nil {
 				if errors.Is(err, ErrTransportClosed) ||
 					errors.Is(err, net.ErrClosed) {
@@ -269,33 +269,33 @@ func (p *Persistence) serveTransport() {
 				continue
 			}
 
-			p.bgWG.Go(func() {
-				p.handleTransportConn(conn)
+			b.bgWG.Go(func() {
+				b.handleTransportConn(conn)
 			})
 		}
 	})
 }
 
-func (p *Persistence) handleTransportConn(conn net.Conn) {
+func (b *Backend) handleTransportConn(conn net.Conn) {
 	defer func() {
-		p.transport.releaseConn(conn)
+		b.transport.releaseConn(conn)
 		_ = conn.Close()
 	}()
 
 	rd := bufio.NewReader(conn)
 	for {
-		msg, err := p.readTransportMessage(rd)
+		msg, err := b.readTransportMessage(rd)
 		if err != nil {
 			return
 		}
-		err = p.node.Step(context.Background(), msg)
+		err = b.node.Step(context.Background(), msg)
 		if err != nil && !errors.Is(err, raft.ErrStopped) {
 			return
 		}
 	}
 }
 
-func (p *Persistence) readTransportMessage(
+func (b *Backend) readTransportMessage(
 	r *bufio.Reader,
 ) (*raftpb.Message, error) {
 	data, err := readFrame(r)
@@ -317,29 +317,29 @@ func (p *Persistence) readTransportMessage(
 	if err != nil {
 		return nil, err
 	}
-	if err := p.readSnapshotStream(r, ref, size); err != nil {
+	if err := b.readSnapshotStream(r, ref, size); err != nil {
 		return nil, err
 	}
 	return msg, nil
 }
 
-func (p *Persistence) serveReady() {
-	p.bgWG.Go(func() {
+func (b *Backend) serveReady() {
+	b.bgWG.Go(func() {
 		for {
 			select {
-			case <-p.stopCh:
+			case <-b.stopCh:
 				return
-			case rd, ok := <-p.node.Ready():
+			case rd, ok := <-b.node.Ready():
 				if !ok {
 					return
 				}
-				if err := p.handleReady(rd); err != nil {
+				if err := b.handleReady(rd); err != nil {
 					slog.Error(
 						"Raft ready loop stopped",
-						slog.String("local_id", p.cfg.LocalID),
+						slog.String("local_id", b.cfg.LocalID),
 						slog.Any("error", err),
 					)
-					p.stop(internalError(err))
+					b.stop(internalError(err))
 					return
 				}
 			}
@@ -347,14 +347,14 @@ func (p *Persistence) serveReady() {
 	})
 }
 
-func (p *Persistence) stop(err error) {
+func (b *Backend) stop(err error) {
 	if err == nil {
 		err = raft.ErrStopped
 	}
-	p.stopOnce.Do(func() {
-		p.stopErr.Store(err)
-		close(p.stopCh)
-		p.node.Stop()
+	b.stopOnce.Do(func() {
+		b.stopErr.Store(err)
+		close(b.stopCh)
+		b.node.Stop()
 	})
 }
 

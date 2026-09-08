@@ -10,11 +10,11 @@ import (
 )
 
 // GetAggregateStatus returns the current derived status for one aggregate
-func (p *Persistence) GetAggregateStatus(
+func (b *Backend) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
 	var status string
-	err := p.db.View(func(tx *kvTx) error {
+	err := b.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		meta, ok, err := loadMetaTx(b, encodeAggregateID(id))
 		if err != nil {
@@ -29,12 +29,12 @@ func (p *Persistence) GetAggregateStatus(
 }
 
 // ListAggregatesByStatus lists aggregates currently indexed by status
-func (p *Persistence) ListAggregatesByStatus(
+func (b *Backend) ListAggregatesByStatus(
 	status string,
 ) ([]timebox.StatusEntry, error) {
 	var res []timebox.StatusEntry
 
-	err := p.db.View(func(tx *kvTx) error {
+	err := b.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
 		defer func() { _ = c.Close() }()
@@ -68,12 +68,12 @@ func (p *Persistence) ListAggregatesByStatus(
 }
 
 // ListAggregatesByTag lists aggregates currently indexed by tag
-func (p *Persistence) ListAggregatesByTag(
+func (b *Backend) ListAggregatesByTag(
 	tag string,
 ) ([]timebox.AggregateID, error) {
 	var ids []timebox.AggregateID
 
-	err := p.db.View(func(tx *kvTx) error {
+	err := b.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
 		defer func() { _ = c.Close() }()

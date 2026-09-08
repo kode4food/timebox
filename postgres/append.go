@@ -83,23 +83,23 @@ const checkSequenceQuery = `
 `
 
 // Append appends every request's events if each expected sequence matches
-func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
+func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if err := check.Distinct(reqs); err != nil {
 		return err
 	}
 
 	ctx := context.Background()
-	tx, err := p.pool.Begin(ctx)
+	tx, err := b.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := p.lockAppends(ctx, tx, reqs); err != nil {
+	if err := b.lockAppends(ctx, tx, reqs); err != nil {
 		return err
 	}
 	for _, req := range reqs {
-		if err := p.appendOne(ctx, tx, req); err != nil {
+		if err := b.appendOne(ctx, tx, req); err != nil {
 			return err
 		}
 	}
@@ -107,7 +107,7 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 }
 
 // Lock in ID order, but append in request order to report the first conflict
-func (p *Persistence) lockAppends(
+func (b *Backend) lockAppends(
 	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
 ) error {
 	ordered := slices.Clone(reqs)
@@ -120,7 +120,7 @@ func (p *Persistence) lockAppends(
 	for _, req := range ordered {
 		key, parts := aggregateKey(req.ID)
 		if req.ExpectedSequence == 0 && check.Mutates(req) {
-			if err := p.insertAggregate(ctx, tx, key, parts); err != nil {
+			if err := b.insertAggregate(ctx, tx, key, parts); err != nil {
 				return err
 			}
 		}
@@ -128,7 +128,7 @@ func (p *Persistence) lockAppends(
 			SELECT 1 FROM timebox_statuses
 			WHERE store = $1 AND aggregate_key = $2
 			FOR UPDATE
-		`, p.cfg.Prefix, key)
+		`, b.cfg.Prefix, key)
 		if err != nil {
 			return err
 		}
@@ -136,12 +136,12 @@ func (p *Persistence) lockAppends(
 	return nil
 }
 
-func (p *Persistence) appendOne(
+func (b *Backend) appendOne(
 	ctx context.Context, q querier, req timebox.AppendRequest,
 ) error {
 	key, parts := aggregateKey(req.ID)
 	if !check.Mutates(req) {
-		return p.checkConflict(ctx, q, req.ID, key, req.ExpectedSequence)
+		return b.checkConflict(ctx, q, req.ID, key, req.ExpectedSequence)
 	}
 	evAts, evTypes, evData := encodeAppendEvents(req.Events)
 	tags, tagAdds := encodeTags(req.Tags)
@@ -160,23 +160,23 @@ func (p *Persistence) appendOne(
 	switch {
 	case req.Status != nil && len(req.Tags) > 0:
 		err = q.QueryRow(ctx, appendStatusTagsQuery,
-			p.cfg.Prefix, key, parts, req.ExpectedSequence,
+			b.cfg.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, tags, tagAdds,
 			evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	case req.Status != nil:
 		err = q.QueryRow(ctx, appendStatusQuery,
-			p.cfg.Prefix, key, parts, req.ExpectedSequence,
+			b.cfg.Prefix, key, parts, req.ExpectedSequence,
 			status, statusAt, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	case len(req.Tags) > 0:
 		err = q.QueryRow(ctx, appendTagsQuery,
-			p.cfg.Prefix, key, parts, req.ExpectedSequence,
+			b.cfg.Prefix, key, parts, req.ExpectedSequence,
 			tags, tagAdds, evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	default:
 		err = q.QueryRow(ctx, appendPlainQuery,
-			p.cfg.Prefix, key, parts, req.ExpectedSequence,
+			b.cfg.Prefix, key, parts, req.ExpectedSequence,
 			evAts, evTypes, evData,
 		).Scan(&success, &actualSeq)
 	}
@@ -186,7 +186,7 @@ func (p *Persistence) appendOne(
 	if success {
 		return nil
 	}
-	evs, err := p.loadEvents(ctx, q, req.ID, key, req.ExpectedSequence)
+	evs, err := b.loadEvents(ctx, q, req.ID, key, req.ExpectedSequence)
 	if err != nil {
 		return err
 	}
@@ -198,13 +198,13 @@ func (p *Persistence) appendOne(
 	}
 }
 
-func (p *Persistence) checkConflict(
+func (b *Backend) checkConflict(
 	ctx context.Context, q querier, id timebox.AggregateID, key string,
 	expected int64,
 ) error {
 	var actual int64
 	if err := q.QueryRow(
-		ctx, checkSequenceQuery, p.cfg.Prefix, key,
+		ctx, checkSequenceQuery, b.cfg.Prefix, key,
 	).Scan(&actual); err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (p *Persistence) checkConflict(
 	var evs []*timebox.Event
 	if expected < actual {
 		var err error
-		evs, err = p.loadEvents(ctx, q, id, key, expected)
+		evs, err = b.loadEvents(ctx, q, id, key, expected)
 		if err != nil {
 			return err
 		}

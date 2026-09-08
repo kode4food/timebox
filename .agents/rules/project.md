@@ -26,13 +26,13 @@ examples/        # Usage examples (own go.mod)
 
 Multi-node consensus backend. Each node runs etcd raft + bbolt. Followers propose directly via `node.Propose()` — raft handles forwarding internally.
 
-Key types: `Persistence`, `Config`, `Server`
+Key types: `Backend`, `Config`, `Server`
 
 ### redis/
 
 Single-node Redis backend with Lua-scripted atomic appends, archiving support, and indexed queries.
 
-Key types: `Persistence`, `Config`
+Key types: `Backend`, `Config`
 
 ## Before Committing
 

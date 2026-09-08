@@ -129,7 +129,7 @@ func (t *Transaction) commit() error {
 	if len(reqs) == 0 {
 		return nil
 	}
-	return t.store.persistence.Append(reqs...)
+	return t.store.backend.Append(reqs...)
 }
 
 // reset refreshes cached projections after a failed commit attempt. Only the

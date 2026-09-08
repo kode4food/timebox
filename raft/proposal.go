@@ -10,31 +10,31 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-func (p *Persistence) propose(
+func (b *Backend) propose(
 	ctx context.Context, data []byte, proposalID uint64,
 	events []*timebox.Event,
 ) (*ApplyResult, error) {
 	select {
-	case <-p.stopCh:
-		if err, ok := p.stopErr.Load().(error); ok && err != nil {
+	case <-b.stopCh:
+		if err, ok := b.stopErr.Load().(error); ok && err != nil {
 			return nil, err
 		}
 		return nil, raft.ErrStopped
 	default:
 	}
 
-	st := p.registerProposal(proposalID, data, events)
-	defer p.unregisterProposal(proposalID, st)
+	st := b.registerProposal(proposalID, data, events)
+	defer b.unregisterProposal(proposalID, st)
 
-	if err := p.node.Propose(ctx, data); err != nil {
+	if err := b.node.Propose(ctx, data); err != nil {
 		return nil, err
 	}
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-p.stopCh:
-		if err, ok := p.stopErr.Load().(error); ok && err != nil {
+	case <-b.stopCh:
+		if err, ok := b.stopErr.Load().(error); ok && err != nil {
 			return nil, err
 		}
 		return nil, raft.ErrStopped
@@ -46,7 +46,7 @@ func (p *Persistence) propose(
 	}
 }
 
-func (p *Persistence) registerProposal(
+func (b *Backend) registerProposal(
 	id uint64, data []byte, events []*timebox.Event,
 ) proposalState {
 	st := proposalState{
@@ -54,74 +54,74 @@ func (p *Persistence) registerProposal(
 		cmd:    append(Command(nil), data...),
 		events: append([]*timebox.Event(nil), events...),
 	}
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	p.pending[id] = st
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	b.pending[id] = st
 	return st
 }
 
-func (p *Persistence) unregisterProposal(id uint64, st proposalState) {
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	if cur, ok := p.pending[id]; ok && cur.ch == st.ch {
-		delete(p.pending, id)
+func (b *Backend) unregisterProposal(id uint64, st proposalState) {
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	if cur, ok := b.pending[id]; ok && cur.ch == st.ch {
+		delete(b.pending, id)
 	}
 }
 
-func (p *Persistence) resolveProposal(
+func (b *Backend) resolveProposal(
 	proposalID uint64, cmd Command, res *ApplyResult,
 ) {
 	if proposalID == 0 {
 		return
 	}
-	p.pendingMu.Lock()
-	st, ok := p.pending[proposalID]
+	b.pendingMu.Lock()
+	st, ok := b.pending[proposalID]
 	if ok && proposalMatches(st, cmd) {
-		delete(p.pending, proposalID)
+		delete(b.pending, proposalID)
 	} else {
 		ok = false
 	}
-	p.pendingMu.Unlock()
+	b.pendingMu.Unlock()
 	if ok {
 		st.ch <- res
 	}
 }
 
-func (p *Persistence) proposalEvents(
+func (b *Backend) proposalEvents(
 	proposalID uint64, cmd Command,
 ) []*timebox.Event {
 	if proposalID == 0 {
 		return nil
 	}
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	st, ok := p.pending[proposalID]
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	st, ok := b.pending[proposalID]
 	if !ok || !proposalMatches(st, cmd) || len(st.events) == 0 {
 		return nil
 	}
 	evs := st.events
 	st.events = nil
-	p.pending[proposalID] = st
+	b.pending[proposalID] = st
 	return evs
 }
 
-func (p *Persistence) applyWithTimeout(
+func (b *Backend) applyWithTimeout(
 	ctx context.Context, data []byte, proposalID uint64,
 	events []*timebox.Event,
 ) (*ApplyResult, error) {
-	timeout, err := p.commandTimeout(ctx)
+	timeout, err := b.commandTimeout(ctx)
 	if err != nil {
 		return nil, err
 	}
 	proposeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return p.propose(proposeCtx, data, proposalID, events)
+	return b.propose(proposeCtx, data, proposalID, events)
 }
 
-func (p *Persistence) commandTimeout(
+func (b *Backend) commandTimeout(
 	ctx context.Context,
 ) (time.Duration, error) {
-	timeout := p.applyTimeout
+	timeout := b.applyTimeout
 	if dl, ok := ctx.Deadline(); ok {
 		if rem := time.Until(dl); rem < timeout {
 			timeout = rem
@@ -133,8 +133,8 @@ func (p *Persistence) commandTimeout(
 	return timeout, nil
 }
 
-func (p *Persistence) newProposalID() uint64 {
-	return p.nextProposal.Add(1)
+func (b *Backend) newProposalID() uint64 {
+	return b.nextProposal.Add(1)
 }
 
 func proposalMatches(st proposalState, cmd Command) bool {

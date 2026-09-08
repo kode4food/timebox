@@ -13,8 +13,8 @@ import (
 	tbredis "github.com/kode4food/timebox/redis"
 )
 
-func TestNewPersistenceBadConfig(t *testing.T) {
-	_, err := tbredis.NewPersistence(tbredis.Config{DB: -1})
+func TestOpenBadConfig(t *testing.T) {
+	_, err := tbredis.Open(tbredis.Config{DB: -1})
 	assert.ErrorIs(t, err, tbredis.ErrInvalidDB)
 }
 
@@ -23,19 +23,19 @@ func TestNewStoreBadTimeboxConfig(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := tbredis.NewStore(tbredis.Config{
-		Addr:    server.Addr(),
-		Timebox: timebox.Config{MaxRetries: -1},
-	})
+	store, err := newStore(t,
+		tbredis.Config{Addr: server.Addr()},
+		timebox.Config{MaxRetries: -1},
+	)
 	assert.ErrorIs(t, err, timebox.ErrInvalidMaxRetries)
 	assert.Nil(t, store)
 }
 
 func TestAppendWithoutStore(t *testing.T) {
-	withPersistence(t, nil,
-		func(_ context.Context, p *tbredis.Persistence, _ *redis.Client) {
+	withBackend(t, nil,
+		func(_ context.Context, b *tbredis.Backend, _ *redis.Client) {
 			id := timebox.NewAggregateID("order", "standalone")
-			err := p.Append(timebox.AppendRequest{
+			err := b.Append(timebox.AppendRequest{
 				ID: id,
 				Events: []*timebox.Event{{
 					AggregateID: id,
@@ -51,12 +51,12 @@ func TestConsumeArchiveServerDown(t *testing.T) {
 	assert.NoError(t, err)
 	addr := server.Addr()
 
-	p, err := tbredis.NewPersistence(tbredis.Config{Addr: addr})
+	b, err := tbredis.Open(tbredis.Config{Addr: addr})
 	assert.NoError(t, err)
-	defer func() { _ = p.Close() }()
+	defer func() { _ = b.Close() }()
 
 	server.Close()
-	err = p.ConsumeArchive(context.Background(),
+	err = b.ConsumeArchive(context.Background(),
 		func(_ context.Context, _ *timebox.ArchiveRecord) error {
 			return nil
 		},
@@ -64,22 +64,22 @@ func TestConsumeArchiveServerDown(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestNewPersistencePingError(t *testing.T) {
+func TestOpenPingError(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	addr := server.Addr()
 	server.Close()
 
-	p, err := tbredis.NewPersistence(tbredis.Config{Addr: addr})
+	b, err := tbredis.Open(tbredis.Config{Addr: addr})
 	assert.Error(t, err)
-	assert.Nil(t, p)
+	assert.Nil(t, b)
 }
 
-func TestPersistenceCorruptEvents(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
+func TestBackendCorruptEvents(t *testing.T) {
+	withBackend(t, func(cfg *tbredis.Config) {
 		cfg.Prefix = "corrupt"
 	}, func(
-		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
+		ctx context.Context, b *tbredis.Backend, client *redis.Client,
 	) {
 		id := timebox.NewAggregateID("order", "1")
 		err := client.RPush(ctx,
@@ -87,7 +87,7 @@ func TestPersistenceCorruptEvents(t *testing.T) {
 		).Err()
 		assert.NoError(t, err)
 
-		_, err = p.LoadEvents(timebox.LoadEventsRequest{
+		_, err = b.LoadEvents(timebox.LoadEventsRequest{
 			ID:      id,
 			FromSeq: 0,
 		})
@@ -96,10 +96,10 @@ func TestPersistenceCorruptEvents(t *testing.T) {
 }
 
 func TestCorruptSnapshot(t *testing.T) {
-	withPersistence(t, func(cfg *tbredis.Config) {
+	withBackend(t, func(cfg *tbredis.Config) {
 		cfg.Prefix = "corrupt-snapshot"
 	}, func(
-		ctx context.Context, p *tbredis.Persistence, client *redis.Client,
+		ctx context.Context, b *tbredis.Backend, client *redis.Client,
 	) {
 		id := timebox.NewAggregateID("order", "1")
 		err := client.Set(ctx,
@@ -109,7 +109,7 @@ func TestCorruptSnapshot(t *testing.T) {
 		).Err()
 		assert.NoError(t, err)
 
-		snap, err := p.LoadSnapshot(timebox.LoadSnapshotRequest{
+		snap, err := b.LoadSnapshot(timebox.LoadSnapshotRequest{
 			ID: id,
 		})
 		assert.NoError(t, err)

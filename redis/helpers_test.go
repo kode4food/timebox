@@ -25,9 +25,22 @@ func testConfig(addr string, mutate func(*tbredis.Config)) tbredis.Config {
 	return cfg
 }
 
-func withPersistence(
+func newStore(
+	t *testing.T, cfg tbredis.Config, tbCfgs ...timebox.Config,
+) (*timebox.Store, error) {
+	t.Helper()
+
+	b, err := tbredis.Open(cfg)
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	return b.NewStore(tbCfgs...)
+}
+
+func withBackend(
 	t *testing.T, mutate func(*tbredis.Config),
-	fn func(context.Context, *tbredis.Persistence, *redis.Client),
+	fn func(context.Context, *tbredis.Backend, *redis.Client),
 ) {
 	t.Helper()
 
@@ -35,12 +48,12 @@ func withPersistence(
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	p, err := tbredis.NewPersistence(testConfig(server.Addr(), mutate))
+	b, err := tbredis.Open(testConfig(server.Addr(), mutate))
 	assert.NoError(t, err)
-	defer func() { _ = p.Close() }()
+	defer func() { _ = b.Close() }()
 
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	defer func() { _ = client.Close() }()
 
-	fn(context.Background(), p, client)
+	fn(context.Background(), b, client)
 }

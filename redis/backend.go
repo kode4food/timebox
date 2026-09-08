@@ -14,8 +14,8 @@ import (
 	"github.com/kode4food/timebox/internal/check"
 )
 
-// Persistence implements timebox.Persistence using Redis/Valkey
-type Persistence struct {
+// Backend implements timebox.Backend using Redis/Valkey
+type Backend struct {
 	timebox.AlwaysReady
 	cfg Config
 
@@ -54,37 +54,23 @@ var (
 	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
 )
 
-var _ timebox.Backend = (*Persistence)(nil)
+var _ timebox.Backend = (*Backend)(nil)
 
-// NewPersistence creates Redis-backed Persistence
-func NewPersistence(cfgs ...Config) (*Persistence, error) {
+// Open opens Redis-backed Backend
+func Open(cfgs ...Config) (*Backend, error) {
 	cfg := timebox.Configure(DefaultConfig(), cfgs...)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return newPersistence(cfg)
+	return newBackend(cfg)
 }
 
-// NewStore opens Redis persistence and creates a Store
-func NewStore(cfgs ...Config) (*timebox.Store, error) {
-	p, err := NewPersistence(cfgs...)
-	if err != nil {
-		return nil, err
-	}
-	s, err := timebox.NewStore(p)
-	if err != nil {
-		_ = p.Close()
-		return nil, err
-	}
-	return s, nil
+// NewStore creates a Store using the current Redis Backend
+func (b *Backend) NewStore(cfgs ...timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(b, cfgs...)
 }
 
-// Config returns the backend's Timebox configuration
-func (p *Persistence) Config() timebox.Config {
-	return p.cfg.Timebox
-}
-
-func newPersistence(cfg Config) (*Persistence, error) {
+func newBackend(cfg Config) (*Backend, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
@@ -100,7 +86,7 @@ func newPersistence(cfg Config) (*Persistence, error) {
 		return nil, err
 	}
 
-	return &Persistence{
+	return &Backend{
 		cfg:          cfg,
 		client:       client,
 		prefix:       buildStorePrefix(cfg),
@@ -123,12 +109,12 @@ func newPersistence(cfg Config) (*Persistence, error) {
 }
 
 // Close closes the Redis client
-func (p *Persistence) Close() error {
-	return p.client.Close()
+func (b *Backend) Close() error {
+	return b.client.Close()
 }
 
 // Append appends every request's events if each expected sequence matches
-func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
+func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if len(reqs) == 0 {
 		return nil
 	}
@@ -143,18 +129,19 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 		if err != nil {
 			return err
 		}
-		keys, args = p.appendLuaCall(keys, args, luaAppendInput{
+		keys, args = b.appendLuaCall(keys, args, luaAppendInput{
 			id:       req.ID,
 			atSeq:    req.ExpectedSequence,
 			status:   req.Status,
 			statusAt: req.StatusAt,
 			tags:     req.Tags,
 			events:   evs,
+			trim:     req.TrimEvents,
 		})
 	}
 
-	result, err := p.appendScript.Run(
-		context.Background(), p.client, keys, args...,
+	result, err := b.appendScript.Run(
+		context.Background(), b.client, keys, args...,
 	).Result()
 	if err != nil {
 		return err
@@ -163,19 +150,19 @@ func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
 }
 
 // LoadEvents loads events starting at fromSeq
-func (p *Persistence) LoadEvents(
+func (b *Backend) LoadEvents(
 	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
-	trimEvents := p.cfg.Timebox.TrimEvents
-	eventsKey := p.buildKey(req.ID, eventsSuffix)
+	trimEvents := req.TrimEvents
+	eventsKey := b.buildKey(req.ID, eventsSuffix)
 	keys := []string{eventsKey}
 	if trimEvents {
-		keys = append(keys, p.buildKey(req.ID, snapshotSeqSuffix))
+		keys = append(keys, b.buildKey(req.ID, snapshotSeqSuffix))
 	}
 	args := []any{req.FromSeq}
 
-	result, err := p.getEvents[trimEvents].Run(
-		context.Background(), p.client, keys, args...,
+	result, err := b.getEvents[trimEvents].Run(
+		context.Background(), b.client, keys, args...,
 	).Result()
 	if err != nil {
 		return nil, err
@@ -217,16 +204,16 @@ func (p *Persistence) LoadEvents(
 }
 
 // LoadSnapshot loads the snapshot and trailing events for an aggregate
-func (p *Persistence) LoadSnapshot(
+func (b *Backend) LoadSnapshot(
 	req timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
-	snapKey := p.buildKey(req.ID, snapshotValSuffix)
-	snapSeqKey := p.buildKey(req.ID, snapshotSeqSuffix)
-	eventsKey := p.buildKey(req.ID, eventsSuffix)
+	snapKey := b.buildKey(req.ID, snapshotValSuffix)
+	snapSeqKey := b.buildKey(req.ID, snapshotSeqSuffix)
+	eventsKey := b.buildKey(req.ID, eventsSuffix)
 	keys := []string{snapKey, snapSeqKey, eventsKey}
 
-	result, err := p.getSnapshot[p.cfg.Timebox.TrimEvents].Run(
-		context.Background(), p.client, keys,
+	result, err := b.getSnapshot[req.TrimEvents].Run(
+		context.Background(), b.client, keys,
 	).Result()
 	if err != nil {
 		return nil, err
@@ -266,40 +253,40 @@ func (p *Persistence) LoadSnapshot(
 }
 
 // SaveSnapshot saves a snapshot if the provided sequence is not older
-func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
-	trimEvents := p.cfg.Timebox.TrimEvents
-	snapKey := p.buildKey(req.ID, snapshotValSuffix)
-	snapSeqKey := p.buildKey(req.ID, snapshotSeqSuffix)
+func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
+	trimEvents := req.TrimEvents
+	snapKey := b.buildKey(req.ID, snapshotValSuffix)
+	snapSeqKey := b.buildKey(req.ID, snapshotSeqSuffix)
 	keys := []string{snapKey, snapSeqKey}
 	if trimEvents {
-		keys = []string{snapKey, snapSeqKey, p.buildKey(req.ID, eventsSuffix)}
+		keys = []string{snapKey, snapSeqKey, b.buildKey(req.ID, eventsSuffix)}
 	}
 
-	_, err := p.putSnapshot[trimEvents].Run(
-		context.Background(), p.client, keys, string(req.Data), req.Sequence,
+	_, err := b.putSnapshot[trimEvents].Run(
+		context.Background(), b.client, keys, string(req.Data), req.Sequence,
 	).Result()
 	return err
 }
 
 // ListAggregates lists aggregate IDs of the given type, or of every type when
 // it is empty
-func (p *Persistence) ListAggregates(
+func (b *Backend) ListAggregates(
 	typ timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	searchKeys := []string{
-		p.listAggregateKey(eventsSuffix),
-		p.listAggregateKey(snapshotSeqSuffix),
+		b.listAggregateKey(eventsSuffix),
+		b.listAggregateKey(snapshotSeqSuffix),
 	}
 
 	seen := map[timebox.AggregateID]struct{}{}
 	for _, searchKey := range searchKeys {
-		keys, err := p.client.Keys(context.Background(), searchKey).Result()
+		keys, err := b.client.Keys(context.Background(), searchKey).Result()
 		if err != nil {
 			return nil, err
 		}
 
 		for _, key := range keys {
-			aid := p.parseAggregateIDFromKey(key)
+			aid := b.parseAggregateIDFromKey(key)
 			if typ == "" || aid.Type == typ {
 				seen[aid] = struct{}{}
 			}
@@ -313,36 +300,36 @@ func (p *Persistence) ListAggregates(
 	return ids, nil
 }
 
-func (p *Persistence) listAggregateKey(suffix string) string {
-	return fmt.Sprintf("%s:*:%s", p.prefix, suffix)
+func (b *Backend) listAggregateKey(suffix string) string {
+	return fmt.Sprintf("%s:*:%s", b.prefix, suffix)
 }
 
-func (p *Persistence) buildKey(id timebox.AggregateID, suffix string) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, joinAggregateID(id), suffix)
+func (b *Backend) buildKey(id timebox.AggregateID, suffix string) string {
+	return fmt.Sprintf("%s:%s:%s", b.prefix, joinAggregateID(id), suffix)
 }
 
-func (p *Persistence) buildTagStateKey(id timebox.AggregateID) string {
-	return fmt.Sprintf("%s:%s:%s", p.prefix, joinAggregateID(id), tagsSuffix)
+func (b *Backend) buildTagStateKey(id timebox.AggregateID) string {
+	return fmt.Sprintf("%s:%s:%s", b.prefix, joinAggregateID(id), tagsSuffix)
 }
 
-func (p *Persistence) buildTagRootKey() string {
-	return fmt.Sprintf("%s:%s", p.prefix, tagSuffix)
+func (b *Backend) buildTagRootKey() string {
+	return fmt.Sprintf("%s:%s", b.prefix, tagSuffix)
 }
 
-func (p *Persistence) archiveStreamKey() string {
-	return fmt.Sprintf("%s:%s", p.prefix, archiveStreamSuffix)
+func (b *Backend) archiveStreamKey() string {
+	return fmt.Sprintf("%s:%s", b.prefix, archiveStreamSuffix)
 }
 
-func (p *Persistence) archiveGroup() string {
-	return fmt.Sprintf("%s:%s", p.prefix, archiveGroupSuffix)
+func (b *Backend) archiveGroup() string {
+	return fmt.Sprintf("%s:%s", b.prefix, archiveGroupSuffix)
 }
 
-func (p *Persistence) archiveConsumer() string {
-	return fmt.Sprintf("%s:%s", p.prefix, archiveConsumerSuffix)
+func (b *Backend) archiveConsumer() string {
+	return fmt.Sprintf("%s:%s", b.prefix, archiveConsumerSuffix)
 }
 
-func (p *Persistence) parseAggregateIDFromKey(key string) timebox.AggregateID {
-	str, _ := strings.CutPrefix(key, p.prefix+":")
+func (b *Backend) parseAggregateIDFromKey(key string) timebox.AggregateID {
+	str, _ := strings.CutPrefix(key, b.prefix+":")
 
 	for _, suffix := range [...]string{
 		":" + eventsSuffix,

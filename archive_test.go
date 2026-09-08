@@ -13,7 +13,7 @@ import (
 )
 
 func TestArchiveToStream(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{
+	store, err := memory.Open().NewStore(timebox.Config{
 		TrimEvents: true,
 		Indexer: func([]*timebox.Event) []*timebox.Index {
 			return []*timebox.Index{{
@@ -23,7 +23,6 @@ func TestArchiveToStream(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "1")
@@ -70,9 +69,8 @@ func TestArchiveToStream(t *testing.T) {
 }
 
 func TestConsumeArchive(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	id := timebox.NewAggregateID("order", "consume")
@@ -102,18 +100,16 @@ func TestConsumeArchive(t *testing.T) {
 }
 
 func TestConsumeArchiveNoHandler(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	err = store.ConsumeArchive(context.Background(), nil)
 	assert.ErrorIs(t, err, timebox.ErrArchiveHandlerMissing)
 }
 
 func TestConsumeArchiveNoMessages(t *testing.T) {
-	store, err := memory.NewStore(timebox.Config{})
+	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	called := false
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)

@@ -14,6 +14,7 @@ type (
 		id       timebox.AggregateID
 		events   [][]byte
 		atSeq    int64
+		trim     bool
 	}
 
 	// luaAppendSpec records which projections a request needs, and so which
@@ -40,16 +41,16 @@ const (
 
 // appendLuaCall adds one request's keys and args in the order the script's
 // cursors claim them
-func (p *Persistence) appendLuaCall(
+func (b *Backend) appendLuaCall(
 	keys []string, args []any, in luaAppendInput,
 ) ([]string, []any) {
 	ops := newLuaAppendOps(in.tags)
 	spec := luaAppendSpec{
-		trim:   p.cfg.Timebox.TrimEvents,
+		trim:   in.trim,
 		status: in.status != nil,
 		tags:   len(ops) > 0,
 	}
-	keys = append(keys, p.buildLuaAppendKeys(in.id, spec)...)
+	keys = append(keys, b.buildLuaAppendKeys(in.id, spec)...)
 	args = append(args, buildLuaAppendArgs(
 		joinAggregateID(in.id), in, ops, spec,
 	)...)
@@ -58,19 +59,19 @@ func (p *Persistence) appendLuaCall(
 
 // buildLuaAppendKeys lists a request's keys in the order the script's key
 // cursor claims them
-func (p *Persistence) buildLuaAppendKeys(
+func (b *Backend) buildLuaAppendKeys(
 	id timebox.AggregateID, spec luaAppendSpec,
 ) []string {
-	keys := []string{p.buildKey(id, eventsSuffix)}
+	keys := []string{b.buildKey(id, eventsSuffix)}
 	if spec.status {
-		keys = append(keys, p.buildStatusHashKey())
+		keys = append(keys, b.buildStatusHashKey())
 	}
 	if spec.tags {
-		keys = append(keys, p.buildTagStateKey(id))
-		keys = append(keys, p.buildTagRootKey())
+		keys = append(keys, b.buildTagStateKey(id))
+		keys = append(keys, b.buildTagRootKey())
 	}
 	if spec.trim {
-		keys = append(keys, p.buildKey(id, snapshotSeqSuffix))
+		keys = append(keys, b.buildKey(id, snapshotSeqSuffix))
 	}
 	return keys
 }

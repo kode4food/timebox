@@ -14,14 +14,15 @@ import (
 
 func TestTagRow(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, cfg postgres.Config) {
-		cfg.Timebox.Indexer = statusEnvIndexer(t)
-		p, err := postgres.NewPersistence(cfg)
+		b, err := postgres.Open(cfg)
 		if !assert.NoError(t, err) {
 			return
 		}
-		defer func() { _ = p.Close() }()
+		defer func() { _ = b.Close() }()
 
-		store, err := timebox.NewStore(p)
+		store, err := timebox.NewStore(b, timebox.Config{
+			Indexer: statusEnvIndexer(t),
+		})
 		if !assert.NoError(t, err) {
 			return
 		}

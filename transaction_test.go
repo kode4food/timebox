@@ -14,7 +14,6 @@ type otherState struct{}
 
 func TestTransactionCommitsBothAggregates(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	child := timebox.NewAggregateID("counter", "child")
 	parent := timebox.NewAggregateID("counter", "parent")
@@ -42,7 +41,6 @@ func TestTransactionCommitsBothAggregates(t *testing.T) {
 
 func TestTransactionRollsBackOnConflict(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	contended := timebox.NewAggregateID("counter", "contended")
 	partner := timebox.NewAggregateID("counter", "partner")
@@ -75,7 +73,6 @@ func TestTransactionRollsBackOnConflict(t *testing.T) {
 
 func TestTransactionDiscardsOnError(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "discarded")
 	boom := errors.New("boom")
@@ -92,7 +89,6 @@ func TestTransactionDiscardsOnError(t *testing.T) {
 
 func TestTransactionJoinsSameAggregateTwice(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "twice")
 
@@ -120,7 +116,6 @@ func TestTransactionJoinsSameAggregateTwice(t *testing.T) {
 
 func TestTransactionSuccessActionsRunAfterCommit(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("counter", "success")
 	ran := 0
@@ -143,10 +138,8 @@ func TestTransactionSuccessActionsRunAfterCommit(t *testing.T) {
 
 func TestTransactionRejectsForeignExecutor(t *testing.T) {
 	store, _ := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
-	otherStore, otherExec := setupTestExecutor(t)
-	defer func() { _ = otherStore.Close() }()
+	_, otherExec := setupTestExecutor(t)
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
 		_, err := tx.Exec(otherExec,
@@ -176,7 +169,6 @@ func assertEventCount(
 
 func TestTransactionRejectsConflictingStateTypes(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	// a second executor over the same Store with a different state type
 	other := store.Executor(
@@ -202,7 +194,6 @@ func TestTransactionRejectsConflictingStateTypes(t *testing.T) {
 
 func TestAggregatorTransaction(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	first := timebox.NewAggregateID("counter", "holder")
 	second := timebox.NewAggregateID("counter", "enlisted")
@@ -238,7 +229,6 @@ func TestAggregatorTransaction(t *testing.T) {
 // Aggregator is a real participant, not a separate commit
 func TestAggregatorTransactionRollsBack(t *testing.T) {
 	store, executor := setupTestExecutor(t)
-	defer func() { _ = store.Close() }()
 
 	holder := timebox.NewAggregateID("counter", "holder")
 	enlisted := timebox.NewAggregateID("counter", "enlisted")

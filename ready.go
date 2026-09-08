@@ -1,6 +1,6 @@
 package timebox
 
-// AlwaysReady can be embedded in a Persistence to provide a Ready()
+// AlwaysReady can be embedded in a Backend to provide a Ready()
 // implementation for backends that are immediately available
 type AlwaysReady struct{}
 

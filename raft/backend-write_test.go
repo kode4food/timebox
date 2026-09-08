@@ -77,7 +77,7 @@ func TestAppendClosed(t *testing.T) {
 	n := newNode(t, cfg)
 	waitForWrite(t, n.store)
 
-	p := n.persistence
+	p := n.backend
 	closeNode(t, n)
 
 	id := timebox.NewAggregateID("order", "append-closed")

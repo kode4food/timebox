@@ -13,10 +13,9 @@ import (
 )
 
 type (
-	// Persistence keeps store state in memory for semantic tests
-	Persistence struct {
+	// Backend keeps store state in memory for semantic tests
+	Backend struct {
 		timebox.AlwaysReady
-		config timebox.Config
 
 		closed    bool
 		nextID    int64
@@ -41,83 +40,70 @@ type (
 )
 
 var (
-	// ErrClosed indicates the in-memory persistence has been closed
-	ErrClosed = errors.New("memory persistence is closed")
+	// ErrClosed indicates the in-memory Backend has been closed
+	ErrClosed = errors.New("memory backend is closed")
 )
 
-var _ timebox.Backend = (*Persistence)(nil)
+var _ timebox.Backend = (*Backend)(nil)
 
-// NewPersistence creates a new in-memory Persistence
-func NewPersistence(cfgs ...timebox.Config) *Persistence {
-	cfg := timebox.Configure(timebox.DefaultConfig(), cfgs...)
-	return &Persistence{
-		config:    cfg,
+// Open opens a new in-memory Backend
+func Open() *Backend {
+	return &Backend{
 		aggs:      map[timebox.AggregateID]*aggregate{},
 		archive:   []*timebox.ArchiveRecord{},
 		archiveCh: make(chan struct{}, 1),
 	}
 }
 
-// NewStore opens in-memory persistence and creates a Store
-func NewStore(cfgs ...timebox.Config) (*timebox.Store, error) {
-	p := NewPersistence(cfgs...)
-	s, err := timebox.NewStore(p)
-	if err != nil {
-		_ = p.Close()
-		return nil, err
-	}
-	return s, nil
+// NewStore creates a Store using the current in-memory Backend
+func (b *Backend) NewStore(cfgs ...timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(b, cfgs...)
 }
 
-// Config returns the backend's Timebox configuration
-func (p *Persistence) Config() timebox.Config {
-	return p.config
-}
+// Close closes the in-memory Backend
+func (b *Backend) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-// Close closes the in-memory Persistence
-func (p *Persistence) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.closed = true
-	p.notifyArchive()
+	b.closed = true
+	b.notifyArchive()
 	return nil
 }
 
 // Append appends every request's events if each expected sequence matches
-func (p *Persistence) Append(reqs ...timebox.AppendRequest) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return err
 	}
 	if err := check.Distinct(reqs); err != nil {
 		return err
 	}
 	for _, req := range reqs {
-		if err := p.checkSequence(req); err != nil {
+		if err := b.checkSequence(req); err != nil {
 			return err
 		}
 	}
 	for _, req := range reqs {
-		p.applyAppend(req)
+		b.applyAppend(req)
 	}
 	return nil
 }
 
 // LoadEvents loads events starting at fromSeq
-func (p *Persistence) LoadEvents(
+func (b *Backend) LoadEvents(
 	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return nil, err
 	}
 
-	a, ok := p.aggs[req.ID]
+	a, ok := b.aggs[req.ID]
 	if !ok {
 		return &timebox.EventsResult{
 			StartSequence: req.FromSeq,
@@ -134,17 +120,17 @@ func (p *Persistence) LoadEvents(
 }
 
 // LoadSnapshot loads the snapshot and trailing events for an aggregate
-func (p *Persistence) LoadSnapshot(
+func (b *Backend) LoadSnapshot(
 	req timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return nil, err
 	}
 
-	a, ok := p.aggs[req.ID]
+	a, ok := b.aggs[req.ID]
 	if !ok {
 		return &timebox.SnapshotRecord{}, nil
 	}
@@ -159,22 +145,22 @@ func (p *Persistence) LoadSnapshot(
 }
 
 // SaveSnapshot saves a snapshot if the sequence is not older
-func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return err
 	}
 
-	a := p.aggregate(req.ID)
+	a := b.aggregate(req.ID)
 	if req.Sequence < a.snapshotSeq {
 		return nil
 	}
 
 	a.snapshotData = req.Data
 	a.snapshotSeq = req.Sequence
-	if p.config.TrimEvents && req.Sequence > a.baseSeq {
+	if req.TrimEvents && req.Sequence > a.baseSeq {
 		trim := min(req.Sequence-a.baseSeq, int64(len(a.events)))
 		a.events = a.events[trim:]
 		a.baseSeq += trim
@@ -184,18 +170,18 @@ func (p *Persistence) SaveSnapshot(req timebox.SnapshotRequest) error {
 
 // ListAggregates lists aggregate IDs of the given type, or of every type when
 // it is empty
-func (p *Persistence) ListAggregates(
+func (b *Backend) ListAggregates(
 	typ timebox.ID,
 ) ([]timebox.AggregateID, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return nil, err
 	}
 
 	var res []timebox.AggregateID
-	for id := range p.aggs {
+	for id := range b.aggs {
 		if typ == "" || id.Type == typ {
 			res = append(res, id)
 		}
@@ -204,17 +190,17 @@ func (p *Persistence) ListAggregates(
 }
 
 // GetAggregateStatus gets the current status for an aggregate
-func (p *Persistence) GetAggregateStatus(
+func (b *Backend) GetAggregateStatus(
 	id timebox.AggregateID,
 ) (string, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return "", err
 	}
 
-	a, ok := p.aggs[id]
+	a, ok := b.aggs[id]
 	if !ok {
 		return "", nil
 	}
@@ -222,18 +208,18 @@ func (p *Persistence) GetAggregateStatus(
 }
 
 // ListAggregatesByStatus lists aggregates for the given status
-func (p *Persistence) ListAggregatesByStatus(
+func (b *Backend) ListAggregatesByStatus(
 	status string,
 ) ([]timebox.StatusEntry, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return nil, err
 	}
 
 	var res []timebox.StatusEntry
-	for _, a := range p.aggs {
+	for _, a := range b.aggs {
 		if a.status != status {
 			continue
 		}
@@ -258,18 +244,18 @@ func firstEventIndex(evs []*timebox.Event, seq int64) int {
 }
 
 // ListAggregatesByTag lists aggregates for a tag
-func (p *Persistence) ListAggregatesByTag(
+func (b *Backend) ListAggregatesByTag(
 	tag string,
 ) ([]timebox.AggregateID, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return nil, err
 	}
 
 	var res []timebox.AggregateID
-	for _, a := range p.aggs {
+	for _, a := range b.aggs {
 		if a.tags[tag] {
 			res = append(res, a.id)
 		}
@@ -278,19 +264,19 @@ func (p *Persistence) ListAggregatesByTag(
 }
 
 // Archive archives an aggregate and removes it from active storage
-func (p *Persistence) Archive(id timebox.AggregateID) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (b *Backend) Archive(id timebox.AggregateID) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return err
 	}
-	a, ok := p.aggs[id]
+	a, ok := b.aggs[id]
 	if !ok {
 		return nil
 	}
 
-	p.nextID++
+	b.nextID++
 	rec := &timebox.ArchiveRecord{
 		StreamID:         time.Now().UTC().Format(time.RFC3339Nano),
 		AggregateID:      a.id,
@@ -298,18 +284,18 @@ func (p *Persistence) Archive(id timebox.AggregateID) error {
 		SnapshotSequence: a.snapshotSeq,
 		Events:           a.events,
 	}
-	if p.nextID > 0 {
-		rec.StreamID = rec.StreamID + "-" + time.Duration(p.nextID).String()
+	if b.nextID > 0 {
+		rec.StreamID = rec.StreamID + "-" + time.Duration(b.nextID).String()
 	}
 
-	p.archive = append(p.archive, rec)
-	delete(p.aggs, id)
-	p.notifyArchive()
+	b.archive = append(b.archive, rec)
+	delete(b.aggs, id)
+	b.notifyArchive()
 	return nil
 }
 
 // ConsumeArchive blocks until one archive record is available or ctx is done
-func (p *Persistence) ConsumeArchive(
+func (b *Backend) ConsumeArchive(
 	ctx context.Context, h timebox.ArchiveHandler,
 ) error {
 	if h == nil {
@@ -317,7 +303,7 @@ func (p *Persistence) ConsumeArchive(
 	}
 
 	for {
-		rec, err := p.nextArchive()
+		rec, err := b.nextArchive()
 		if err != nil {
 			return err
 		}
@@ -325,19 +311,19 @@ func (p *Persistence) ConsumeArchive(
 			if err := h(ctx, rec); err != nil {
 				return err
 			}
-			return p.consumeArchive(rec.StreamID)
+			return b.consumeArchive(rec.StreamID)
 		}
 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-p.archiveCh:
+		case <-b.archiveCh:
 		}
 	}
 }
 
-func (p *Persistence) checkSequence(req timebox.AppendRequest) error {
-	a, ok := p.aggs[req.ID]
+func (b *Backend) checkSequence(req timebox.AppendRequest) error {
+	a, ok := b.aggs[req.ID]
 	if !ok {
 		if req.ExpectedSequence == 0 {
 			return nil
@@ -361,8 +347,8 @@ func (p *Persistence) checkSequence(req timebox.AppendRequest) error {
 	}
 }
 
-func (p *Persistence) applyAppend(req timebox.AppendRequest) {
-	a := p.aggregate(req.ID)
+func (b *Backend) applyAppend(req timebox.AppendRequest) {
+	a := b.aggregate(req.ID)
 	a.events = append(a.events, req.Events...)
 	if req.Status != nil {
 		a.status = *req.Status
@@ -377,55 +363,55 @@ func (p *Persistence) applyAppend(req timebox.AppendRequest) {
 	}
 }
 
-func (p *Persistence) aggregate(id timebox.AggregateID) *aggregate {
-	a, ok := p.aggs[id]
+func (b *Backend) aggregate(id timebox.AggregateID) *aggregate {
+	a, ok := b.aggs[id]
 	if !ok {
 		a = &aggregate{
 			id:     id,
 			events: []*timebox.Event{},
 			tags:   map[string]bool{},
 		}
-		p.aggs[id] = a
+		b.aggs[id] = a
 	}
 	return a
 }
 
-func (p *Persistence) nextArchive() (*timebox.ArchiveRecord, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func (b *Backend) nextArchive() (*timebox.ArchiveRecord, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return nil, err
 	}
-	if len(p.archive) == 0 {
+	if len(b.archive) == 0 {
 		return nil, nil
 	}
-	return p.archive[0], nil
+	return b.archive[0], nil
 }
 
-func (p *Persistence) consumeArchive(id string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (b *Backend) consumeArchive(id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	if err := p.checkClosed(); err != nil {
+	if err := b.checkClosed(); err != nil {
 		return err
 	}
-	if len(p.archive) == 0 || p.archive[0].StreamID != id {
+	if len(b.archive) == 0 || b.archive[0].StreamID != id {
 		return nil
 	}
-	p.archive = p.archive[1:]
+	b.archive = b.archive[1:]
 	return nil
 }
 
-func (p *Persistence) notifyArchive() {
+func (b *Backend) notifyArchive() {
 	select {
-	case p.archiveCh <- struct{}{}:
+	case b.archiveCh <- struct{}{}:
 	default:
 	}
 }
 
-func (p *Persistence) checkClosed() error {
-	if p.closed {
+func (b *Backend) checkClosed() error {
+	if b.closed {
 		return ErrClosed
 	}
 	return nil

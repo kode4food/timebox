@@ -33,7 +33,7 @@ func TestCorruptMeta(t *testing.T) {
 	closeNode(t, n)
 	corruptMetaFile(t, cfg.dataDir)
 
-	p, err := raft.NewPersistence(testRaftConfig(cfg))
+	p, err := raft.Open(testRaftConfig(cfg))
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -61,7 +61,7 @@ func TestCorruptBoltDB(t *testing.T) {
 		addr:    freeAddr(t),
 		dataDir: dataDir,
 	}
-	_, err := raft.NewPersistence(testRaftConfig(cfg))
+	_, err := raft.Open(testRaftConfig(cfg))
 	assert.Error(t, err)
 }
 
@@ -78,7 +78,7 @@ func TestBadRaftLogPath(t *testing.T) {
 		addr:    freeAddr(t),
 		dataDir: dataDir,
 	}
-	_, err := raft.NewPersistence(testRaftConfig(cfg))
+	_, err := raft.Open(testRaftConfig(cfg))
 	assert.Error(t, err)
 }
 
@@ -98,7 +98,7 @@ func TestBusyRaftAddr(t *testing.T) {
 		addr:    addr,
 		dataDir: t.TempDir(),
 	}
-	_, err = raft.NewPersistence(testRaftConfig(cfg))
+	_, err = raft.Open(testRaftConfig(cfg))
 	assert.Error(t, err)
 }
 
@@ -123,7 +123,7 @@ func TestCorruptRaftLog(t *testing.T) {
 	closeNode(t, n)
 	corruptRaftLogFile(t, cfg.dataDir)
 
-	_, err = raft.NewPersistence(testRaftConfig(cfg))
+	_, err = raft.Open(testRaftConfig(cfg))
 	assert.Error(t, err)
 }
 
@@ -152,7 +152,7 @@ func TestBrokenRaftLog(t *testing.T) {
 	closeNode(t, n)
 	corruptRaftLogFile(t, cfg.dataDir)
 
-	_, err := raft.NewPersistence(testRaftConfig(cfg))
+	_, err := raft.Open(testRaftConfig(cfg))
 	assert.Error(t, err)
 }
 

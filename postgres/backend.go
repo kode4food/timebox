@@ -16,8 +16,8 @@ import (
 )
 
 type (
-	// Persistence implements timebox.Persistence using Postgres
-	Persistence struct {
+	// Backend implements timebox.Backend using Postgres
+	Backend struct {
 		timebox.AlwaysReady
 		cfg  Config
 		pool *pgxpool.Pool
@@ -33,37 +33,23 @@ type (
 
 const defaultConnectTimeout = 5 * time.Second
 
-var _ timebox.Backend = (*Persistence)(nil)
+var _ timebox.Backend = (*Backend)(nil)
 
-// NewPersistence creates Postgres-backed Persistence
-func NewPersistence(cfgs ...Config) (*Persistence, error) {
+// Open opens Postgres-backed Backend
+func Open(cfgs ...Config) (*Backend, error) {
 	cfg := timebox.Configure(DefaultConfig(), cfgs...)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return newPersistence(cfg)
+	return newBackend(cfg)
 }
 
-// NewStore opens Postgres persistence and creates a Store
-func NewStore(cfgs ...Config) (*timebox.Store, error) {
-	p, err := NewPersistence(cfgs...)
-	if err != nil {
-		return nil, err
-	}
-	s, err := timebox.NewStore(p)
-	if err != nil {
-		_ = p.Close()
-		return nil, err
-	}
-	return s, nil
+// NewStore creates a Store using the current Postgres Backend
+func (b *Backend) NewStore(cfgs ...timebox.Config) (*timebox.Store, error) {
+	return timebox.NewStore(b, cfgs...)
 }
 
-// Config returns the backend's Timebox configuration
-func (p *Persistence) Config() timebox.Config {
-	return p.cfg.Timebox
-}
-
-func newPersistence(cfg Config) (*Persistence, error) {
+func newBackend(cfg Config) (*Backend, error) {
 	ctx, cancel := context.WithTimeout(
 		context.Background(), defaultConnectTimeout,
 	)
@@ -96,20 +82,20 @@ func newPersistence(cfg Config) (*Persistence, error) {
 		return nil, err
 	}
 
-	return &Persistence{
+	return &Backend{
 		cfg:  cfg,
 		pool: pool,
 	}, nil
 }
 
 // Close closes the Postgres connection pool
-func (p *Persistence) Close() error {
-	p.pool.Close()
+func (b *Backend) Close() error {
+	b.pool.Close()
 	return nil
 }
 
 // LoadEvents loads events starting at fromSeq
-func (p *Persistence) LoadEvents(
+func (b *Backend) LoadEvents(
 	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
 	ctx := context.Background()
@@ -117,11 +103,11 @@ func (p *Persistence) LoadEvents(
 
 	var baseSeq int64
 	var err error
-	err = p.pool.QueryRow(ctx, `
+	err = b.pool.QueryRow(ctx, `
 		SELECT base_seq
 		FROM timebox_snapshots
 		WHERE store = $1 AND aggregate_key = $2
-	`, p.cfg.Prefix, key).Scan(&baseSeq)
+	`, b.cfg.Prefix, key).Scan(&baseSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		baseSeq = 0
 	} else if err != nil {
@@ -129,7 +115,7 @@ func (p *Persistence) LoadEvents(
 	}
 
 	start := max(req.FromSeq, baseSeq)
-	evs, err := p.loadEvents(ctx, p.pool, req.ID, key, start)
+	evs, err := b.loadEvents(ctx, b.pool, req.ID, key, start)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +127,7 @@ func (p *Persistence) LoadEvents(
 
 // LoadSnapshot loads the snapshot and trailing events for an
 // aggregate
-func (p *Persistence) LoadSnapshot(
+func (b *Backend) LoadSnapshot(
 	req timebox.LoadSnapshotRequest,
 ) (*timebox.SnapshotRecord, error) {
 	ctx := context.Background()
@@ -150,11 +136,11 @@ func (p *Persistence) LoadSnapshot(
 	var snapData string
 	var snapSeq int64
 	var err error
-	err = p.pool.QueryRow(ctx, `
+	err = b.pool.QueryRow(ctx, `
 		SELECT snapshot_data, snapshot_seq
 		FROM timebox_snapshots
 		WHERE store = $1 AND aggregate_key = $2
-	`, p.cfg.Prefix, key).Scan(&snapData, &snapSeq)
+	`, b.cfg.Prefix, key).Scan(&snapData, &snapSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		snapData = ""
 		snapSeq = 0
@@ -162,7 +148,7 @@ func (p *Persistence) LoadSnapshot(
 		return nil, err
 	}
 
-	evs, err := p.loadEvents(ctx, p.pool, req.ID, key, snapSeq)
+	evs, err := b.loadEvents(ctx, b.pool, req.ID, key, snapSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -175,30 +161,30 @@ func (p *Persistence) LoadSnapshot(
 
 // SaveSnapshot saves a snapshot if the provided sequence is not
 // older
-func (p *Persistence) SaveSnapshot(
+func (b *Backend) SaveSnapshot(
 	req timebox.SnapshotRequest,
 ) error {
 	ctx := context.Background()
 	key, parts := aggregateKey(req.ID)
 	var err error
-	tx, err := p.pool.Begin(ctx)
+	tx, err := b.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var baseSeq, snapSeq, nextSeq int64
-	found, err := p.loadSnapshotState(
+	found, err := b.loadSnapshotState(
 		ctx, tx, key, &baseSeq, &snapSeq, &nextSeq,
 	)
 	if err != nil {
 		return err
 	}
 	if !found {
-		if err := p.insertAggregate(ctx, tx, key, parts); err != nil {
+		if err := b.insertAggregate(ctx, tx, key, parts); err != nil {
 			return err
 		}
-		found, err = p.loadSnapshotState(
+		found, err = b.loadSnapshotState(
 			ctx, tx, key, &baseSeq, &snapSeq, &nextSeq,
 		)
 		if err != nil {
@@ -215,7 +201,7 @@ func (p *Persistence) SaveSnapshot(
 	}
 
 	newBase := baseSeq
-	if p.cfg.Timebox.TrimEvents && req.Sequence > baseSeq {
+	if req.TrimEvents && req.Sequence > baseSeq {
 		newBase = min(req.Sequence, nextSeq)
 		if newBase > baseSeq {
 			if _, err := tx.Exec(ctx, `
@@ -223,7 +209,7 @@ func (p *Persistence) SaveSnapshot(
 				WHERE store = $1
 				  AND aggregate_key = $2
 				  AND sequence < $3
-			`, p.cfg.Prefix, key, newBase); err != nil {
+			`, b.cfg.Prefix, key, newBase); err != nil {
 				return err
 			}
 		}
@@ -238,7 +224,7 @@ func (p *Persistence) SaveSnapshot(
 		SET base_seq = EXCLUDED.base_seq,
 		    snapshot_seq = EXCLUDED.snapshot_seq,
 		    snapshot_data = EXCLUDED.snapshot_data
-	`, p.cfg.Prefix, key, newBase, req.Sequence, req.Data); err != nil {
+	`, b.cfg.Prefix, key, newBase, req.Sequence, req.Data); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -246,7 +232,7 @@ func (p *Persistence) SaveSnapshot(
 
 // ListAggregates lists aggregate IDs of the given type, or of every type when
 // it is empty
-func (p *Persistence) ListAggregates(
+func (b *Backend) ListAggregates(
 	typ timebox.ID,
 ) ([]timebox.AggregateID, error) {
 	ctx := context.Background()
@@ -254,17 +240,17 @@ func (p *Persistence) ListAggregates(
 	var rows pgx.Rows
 	var err error
 	if typ == "" {
-		rows, err = p.pool.Query(ctx, `
+		rows, err = b.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
 			WHERE store = $1
-		`, p.cfg.Prefix)
+		`, b.cfg.Prefix)
 	} else {
-		rows, err = p.pool.Query(ctx, `
+		rows, err = b.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
 			WHERE store = $1 AND aggregate_parts[1] = $2
-		`, p.cfg.Prefix, string(typ))
+		`, b.cfg.Prefix, string(typ))
 	}
 	if err != nil {
 		return nil, err
@@ -286,7 +272,7 @@ func (p *Persistence) ListAggregates(
 	return res, rows.Err()
 }
 
-func (p *Persistence) loadSnapshotState(
+func (b *Backend) loadSnapshotState(
 	ctx context.Context, tx pgx.Tx, key string,
 	baseSeq, snapSeq, nextSeq *int64,
 ) (bool, error) {
@@ -307,7 +293,7 @@ func (p *Persistence) loadSnapshotState(
 		  AND s.aggregate_key = i.aggregate_key
 		WHERE i.store = $1 AND i.aggregate_key = $2
 		FOR UPDATE OF i
-	`, p.cfg.Prefix, key).Scan(baseSeq, snapSeq, nextSeq)
+	`, b.cfg.Prefix, key).Scan(baseSeq, snapSeq, nextSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -317,7 +303,7 @@ func (p *Persistence) loadSnapshotState(
 	return true, nil
 }
 
-func (p *Persistence) insertAggregate(
+func (b *Backend) insertAggregate(
 	ctx context.Context, tx pgx.Tx, key string, parts []string,
 ) error {
 	_, err := tx.Exec(ctx, `
@@ -325,11 +311,11 @@ func (p *Persistence) insertAggregate(
 			store, aggregate_key, aggregate_parts
 		) VALUES ($1, $2, $3)
 		ON CONFLICT (store, aggregate_key) DO NOTHING
-	`, p.cfg.Prefix, key, parts)
+	`, b.cfg.Prefix, key, parts)
 	return err
 }
 
-func (p *Persistence) loadEvents(
+func (b *Backend) loadEvents(
 	ctx context.Context, q querier, id timebox.AggregateID, key string,
 	fromSeq int64,
 ) ([]*timebox.Event, error) {
@@ -340,7 +326,7 @@ func (p *Persistence) loadEvents(
 		  AND aggregate_key = $2
 		  AND sequence >= $3
 		ORDER BY sequence
-	`, p.cfg.Prefix, key, fromSeq)
+	`, b.cfg.Prefix, key, fromSeq)
 	if err != nil {
 		return nil, err
 	}

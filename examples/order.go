@@ -69,6 +69,7 @@ type (
 
 	orderExample struct {
 		ctx      context.Context
+		backend  *redis.Backend
 		store    *timebox.Store
 		executor *OrderExecutor
 		orderID  timebox.AggregateID
@@ -98,7 +99,7 @@ const (
 
 func main() {
 	ex := setupExample()
-	defer func() { _ = ex.store.Close() }()
+	defer func() { _ = ex.backend.Close() }()
 
 	ex.createOrder()
 	ex.addShippingAddress()
@@ -110,15 +111,21 @@ func main() {
 }
 
 func setupExample() *orderExample {
-	store, err := redis.NewStore(redis.Config{
+	backend, err := redis.Open(redis.Config{
 		Prefix: "example",
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	store, err := backend.NewStore()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return &orderExample{
 		ctx:      context.Background(),
+		backend:  backend,
 		store:    store,
 		executor: createExecutor(store),
 		orderID:  timebox.NewAggregateID("order", "ORD-12345"),

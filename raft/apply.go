@@ -10,44 +10,44 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-func (p *Persistence) handleReady(rd raft.Ready) error {
+func (b *Backend) handleReady(rd raft.Ready) error {
 	if !raft.IsEmptySnap(rd.Snapshot) {
-		if err := p.applySnapshot(rd.Snapshot); err != nil {
+		if err := b.applySnapshot(rd.Snapshot); err != nil {
 			return err
 		}
 	}
-	if err := p.raftLog.Save(rd, p.compactBound()); err != nil {
+	if err := b.raftLog.Save(rd, b.compactBound()); err != nil {
 		return err
 	}
-	if err := p.queueMessages(rd.Messages); err != nil {
+	if err := b.queueMessages(rd.Messages); err != nil {
 		return err
 	}
 	if len(rd.CommittedEntries) != 0 {
-		p.lastCommitAt = time.Now()
+		b.lastCommitAt = time.Now()
 	}
-	if err := p.applyCommittedEntries(rd.CommittedEntries); err != nil {
+	if err := b.applyCommittedEntries(rd.CommittedEntries); err != nil {
 		return err
 	}
-	if p.State() == StateLeader {
-		p.markReady()
+	if b.State() == StateLeader {
+		b.markReady()
 	} else if len(rd.CommittedEntries) == 0 {
-		p.markReadyFollower()
+		b.markReadyFollower()
 	}
-	p.node.Advance()
+	b.node.Advance()
 	return nil
 }
 
-func (p *Persistence) applyCommittedEntries(ents []*raftpb.Entry) error {
-	return p.applyEntries(ents, p.applyConfChange)
+func (b *Backend) applyCommittedEntries(ents []*raftpb.Entry) error {
+	return b.applyEntries(ents, b.applyConfChange)
 }
 
-func (p *Persistence) applyStartupEntries(ents []*raftpb.Entry) error {
-	return p.applyEntries(ents, func(ent *raftpb.Entry) error {
-		return p.markAppliedEntry(ent.GetIndex())
+func (b *Backend) applyStartupEntries(ents []*raftpb.Entry) error {
+	return b.applyEntries(ents, func(ent *raftpb.Entry) error {
+		return b.markAppliedEntry(ent.GetIndex())
 	})
 }
 
-func (p *Persistence) applyEntries(
+func (b *Backend) applyEntries(
 	ents []*raftpb.Entry, confChange func(*raftpb.Entry) error,
 ) error {
 	if len(ents) == 0 {
@@ -58,7 +58,7 @@ func (p *Persistence) applyEntries(
 	var propIDs []uint64
 
 	flushAndReset := func() error {
-		if err := p.flushBatch(batch, propIDs); err != nil {
+		if err := b.flushBatch(batch, propIDs); err != nil {
 			return err
 		}
 		batch = batch[:0]
@@ -82,7 +82,7 @@ func (p *Persistence) applyEntries(
 				if err := flushAndReset(); err != nil {
 					return err
 				}
-				if err := p.markAppliedEntry(ent.GetIndex()); err != nil {
+				if err := b.markAppliedEntry(ent.GetIndex()); err != nil {
 					return err
 				}
 				continue
@@ -101,51 +101,51 @@ func (p *Persistence) applyEntries(
 			if err := flushAndReset(); err != nil {
 				return err
 			}
-			if err := p.markAppliedEntry(ent.GetIndex()); err != nil {
+			if err := b.markAppliedEntry(ent.GetIndex()); err != nil {
 				return err
 			}
 		}
 	}
-	return p.flushBatch(batch, propIDs)
+	return b.flushBatch(batch, propIDs)
 }
 
-func (p *Persistence) flushBatchNoPublish(
+func (b *Backend) flushBatchNoPublish(
 	batch []decodedEntry, propIDs []uint64,
 ) error {
 	if len(batch) == 0 {
 		return nil
 	}
-	results, err := p.fsm.applyEntries(batch)
+	results, err := b.fsm.applyEntries(batch)
 	if err != nil {
 		return err
 	}
 	for i := range batch {
-		p.resolveProposal(propIDs[i], batch[i].cmd, results[i])
-		p.notifyAppliedArchive(batch[i].cmd, results[i])
+		b.resolveProposal(propIDs[i], batch[i].cmd, results[i])
+		b.notifyAppliedArchive(batch[i].cmd, results[i])
 	}
-	p.appliedIndex.Store(batch[len(batch)-1].index)
+	b.appliedIndex.Store(batch[len(batch)-1].index)
 	return nil
 }
 
-func (p *Persistence) flushBatchPublish(
+func (b *Backend) flushBatchPublish(
 	batch []decodedEntry, propIDs []uint64,
 ) error {
 	if len(batch) == 0 {
 		return nil
 	}
-	results, err := p.fsm.applyEntries(batch)
+	results, err := b.fsm.applyEntries(batch)
 	if err != nil {
 		return err
 	}
 	var published []*timebox.Event
 	for i := range batch {
 		res := results[i]
-		p.resolveProposal(propIDs[i], batch[i].cmd, res)
-		p.notifyAppliedArchive(batch[i].cmd, res)
+		b.resolveProposal(propIDs[i], batch[i].cmd, res)
+		b.notifyAppliedArchive(batch[i].cmd, res)
 		if res.Error != nil {
 			continue
 		}
-		if evs := p.proposalEvents(propIDs[i], batch[i].cmd); len(evs) > 0 {
+		if evs := b.proposalEvents(propIDs[i], batch[i].cmd); len(evs) > 0 {
 			published = append(published, evs...)
 		} else {
 			for _, req := range res.Appends {
@@ -153,65 +153,65 @@ func (p *Persistence) flushBatchPublish(
 			}
 		}
 	}
-	p.appliedIndex.Store(batch[len(batch)-1].index)
+	b.appliedIndex.Store(batch[len(batch)-1].index)
 	if len(published) != 0 {
-		p.publishQ.Put(published)
+		b.publishQ.Put(published)
 	}
 	return nil
 }
 
-func (p *Persistence) notifyAppliedArchive(cmd Command, res *ApplyResult) {
+func (b *Backend) notifyAppliedArchive(cmd Command, res *ApplyResult) {
 	if res.Error != nil {
 		return
 	}
 	switch cmd.Type() {
 	case CmdTypeArchive, CmdTypeConsumeArchive:
-		p.notifyArchive()
+		b.notifyArchive()
 	}
 }
 
-func (p *Persistence) applyConfChange(ent *raftpb.Entry) error {
+func (b *Backend) applyConfChange(ent *raftpb.Entry) error {
 	data := ent.GetData()
 	if len(data) == 0 {
-		return p.markAppliedEntry(ent.GetIndex())
+		return b.markAppliedEntry(ent.GetIndex())
 	}
 	var cc raftpb.ConfChange
 	if err := proto.Unmarshal(data, &cc); err != nil {
 		return err
 	}
-	cs := p.node.ApplyConfChange(&cc)
-	if err := p.raftLog.SetConfState(cs); err != nil {
+	cs := b.node.ApplyConfChange(&cc)
+	if err := b.raftLog.SetConfState(cs); err != nil {
 		return err
 	}
-	return p.markAppliedEntry(ent.GetIndex())
+	return b.markAppliedEntry(ent.GetIndex())
 }
 
-func (p *Persistence) markReady() {
-	if p.cfg.Publisher != nil {
-		p.flushBatch = p.flushBatchPublish
+func (b *Backend) markReady() {
+	if b.cfg.Publisher != nil {
+		b.flushBatch = b.flushBatchPublish
 	}
-	p.readyOnce.Do(func() {
-		close(p.readyCh)
+	b.readyOnce.Do(func() {
+		close(b.readyCh)
 	})
 }
 
-func (p *Persistence) markReadyFollower() {
-	if !p.lastCommitAt.IsZero() && time.Since(p.lastCommitAt) < readySettle {
+func (b *Backend) markReadyFollower() {
+	if !b.lastCommitAt.IsZero() && time.Since(b.lastCommitAt) < readySettle {
 		return
 	}
-	addr, _ := p.LeaderWithID()
-	if addr != "" && p.appliedIndex.Load() >= p.raftLog.CommitIndex() {
-		p.markReady()
+	addr, _ := b.LeaderWithID()
+	if addr != "" && b.appliedIndex.Load() >= b.raftLog.CommitIndex() {
+		b.markReady()
 	}
 }
 
-func (p *Persistence) markAppliedEntry(index uint64) error {
-	err := p.db.Update(func(tx *kvTx) error {
+func (b *Backend) markAppliedEntry(index uint64) error {
+	err := b.db.Update(func(tx *kvTx) error {
 		return markApplied(tx.Bucket(bucketName), index)
 	})
 	if err != nil {
 		return err
 	}
-	p.appliedIndex.Store(index)
+	b.appliedIndex.Store(index)
 	return nil
 }

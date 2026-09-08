@@ -12,8 +12,8 @@ type (
 	// Store persists, queries, and snapshots aggregate events
 	Store struct {
 		Queries
-		persistence Persistence
-		config      Config
+		backend Backend
+		config  Config
 	}
 
 	// VersionConflictError is returned when AppendEvents encounters a sequence
@@ -36,20 +36,16 @@ type (
 )
 
 // NewStore creates a Store backed by the supplied Backend
-func NewStore(b Backend) (*Store, error) {
-	cfg := Configure(DefaultConfig(), b.Config())
+func NewStore(b Backend, cfgs ...Config) (*Store, error) {
+	cfg := Configure(DefaultConfig(), cfgs...)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return newStore(cfg, b), nil
-}
-
-func newStore(cfg Config, b Backend) *Store {
 	return &Store{
-		Queries:     b,
-		persistence: b,
-		config:      cfg,
-	}
+		Queries: b,
+		backend: b,
+		config:  cfg,
+	}, nil
 }
 
 // Config returns the Store configuration
@@ -57,12 +53,12 @@ func (s *Store) Config() Config {
 	return s.config
 }
 
-// Ready reports when the underlying persistence can serve requests
+// Ready reports when the underlying Backend can serve requests
 func (s *Store) Ready() <-chan struct{} {
-	return s.persistence.Ready()
+	return s.backend.Ready()
 }
 
-// WaitReady blocks until the underlying persistence can serve requests
+// WaitReady blocks until the underlying Backend can serve requests
 func (s *Store) WaitReady(ctx context.Context) error {
 	select {
 	case <-s.Ready():
@@ -72,22 +68,18 @@ func (s *Store) WaitReady(ctx context.Context) error {
 	}
 }
 
-// Close closes the underlying persistence
-func (s *Store) Close() error {
-	return s.persistence.Close()
-}
-
 // AppendEvents atomically appends events for an aggregate if the expected
 // sequence matches the current log sequence
 func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
-	return s.persistence.Append(s.appendRequest(id, atSeq, evs))
+	return s.backend.Append(s.appendRequest(id, atSeq, evs))
 }
 
 // GetEvents returns all events for an aggregate starting at fromSeq
 func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
-	res, err := s.persistence.LoadEvents(LoadEventsRequest{
-		ID:      id,
-		FromSeq: fromSeq,
+	res, err := s.backend.LoadEvents(LoadEventsRequest{
+		ID:         id,
+		FromSeq:    fromSeq,
+		TrimEvents: s.config.TrimEvents,
 	})
 	if err != nil {
 		return nil, err
@@ -103,8 +95,9 @@ func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
 func (s *Store) GetSnapshot(
 	id AggregateID, target any,
 ) (*SnapshotResult, error) {
-	rec, err := s.persistence.LoadSnapshot(LoadSnapshotRequest{
-		ID: id,
+	rec, err := s.backend.LoadSnapshot(LoadSnapshotRequest{
+		ID:         id,
+		TrimEvents: s.config.TrimEvents,
 	})
 	if err != nil {
 		return nil, err
@@ -136,16 +129,17 @@ func (s *Store) PutSnapshot(id AggregateID, value any, sequence int64) error {
 	if err != nil {
 		return err
 	}
-	return s.persistence.SaveSnapshot(SnapshotRequest{
-		ID:       id,
-		Data:     data,
-		Sequence: sequence,
+	return s.backend.SaveSnapshot(SnapshotRequest{
+		ID:         id,
+		Data:       data,
+		Sequence:   sequence,
+		TrimEvents: s.config.TrimEvents,
 	})
 }
 
 // Archive moves aggregate artifacts to persistent archive storage
 func (s *Store) Archive(id AggregateID) error {
-	archiver, ok := s.persistence.(Archiver)
+	archiver, ok := s.backend.(Archiver)
 	if !ok {
 		return ErrArchivingDisabled
 	}
@@ -156,7 +150,7 @@ func (s *Store) Archive(id AggregateID) error {
 func (s *Store) ConsumeArchive(
 	ctx context.Context, handler ArchiveHandler,
 ) error {
-	archiver, ok := s.persistence.(Archiver)
+	archiver, ok := s.backend.(Archiver)
 	if !ok {
 		return ErrArchivingDisabled
 	}
@@ -205,6 +199,7 @@ func (s *Store) appendRequest(
 		StatusAt:         statusAt,
 		Tags:             tags,
 		Events:           evs,
+		TrimEvents:       s.config.TrimEvents,
 	}
 }
 

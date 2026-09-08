@@ -19,13 +19,12 @@ func TestStoreDefaultKeys(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := tbredis.NewStore(
+	store, err := newStore(t,
 		testConfig(server.Addr(), func(cfg *tbredis.Config) {
 			cfg.Prefix = "noslot"
 		}),
 	)
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
 	ev := &timebox.Event{
@@ -53,13 +52,12 @@ func TestStoreShardKeys(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { server.Close() }()
 
-	store, err := tbredis.NewStore(
+	store, err := newStore(t,
 		testConfig(server.Addr(), func(cfg *tbredis.Config) {
 			cfg.Shard = "blue"
 		}),
 	)
 	assert.NoError(t, err)
-	defer func() { _ = store.Close() }()
 
 	id := timebox.NewAggregateID("order", "1")
 	ev := &timebox.Event{
@@ -92,7 +90,7 @@ func TestNewStorePingError(t *testing.T) {
 	addr := server.Addr()
 	server.Close()
 
-	store, err := tbredis.NewStore(tbredis.Config{Addr: addr})
+	store, err := newStore(t, tbredis.Config{Addr: addr})
 	assert.Error(t, err)
 	assert.Nil(t, store)
 }
