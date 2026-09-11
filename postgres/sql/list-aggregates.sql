@@ -1,0 +1,2 @@
+SELECT aggregate_parts
+FROM timebox_statuses
