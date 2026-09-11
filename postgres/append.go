@@ -23,156 +23,6 @@ type (
 	}
 )
 
-const appendQuery = `
-	SELECT success, actual_sequence
-	FROM timebox_append(
-		$1, $2, $3, $4, $5, $6::text[], $7::boolean[],
-		$8::bigint[], $9::text[], $10::bytea[]
-	)
-`
-
-const (
-	lockKeyQuery = `
-		SELECT 1 FROM timebox_statuses
-		WHERE aggregate_key = $1
-		FOR UPDATE
-	`
-
-	// COLLATE "C" matches the Go sort, so both agree on lock order
-	lockKeysQuery = `
-		SELECT 1 FROM timebox_statuses
-		WHERE aggregate_key = ANY($1)
-		ORDER BY aggregate_key COLLATE "C"
-		FOR UPDATE
-	`
-)
-
-// checkSequenceQuery asserts a sequence without mutating, shaped like
-// timebox_append so both scan the same way
-const checkSequenceQuery = `
-	SELECT $2::bigint = seq AS success, seq AS actual_sequence
-	FROM (
-		SELECT GREATEST(
-			COALESCE((
-				SELECT e.sequence + 1
-				FROM timebox_events e
-				WHERE e.aggregate_key = $1
-				ORDER BY e.sequence DESC
-				LIMIT 1
-			), 0),
-			COALESCE((
-				SELECT s.snapshot_seq
-				FROM timebox_snapshots s
-				WHERE s.aggregate_key = $1
-			), 0)
-		) AS seq
-	) t
-`
-const appendFunctionSQL = `
-CREATE OR REPLACE FUNCTION timebox_append(
-	p_aggregate_key TEXT,
-	p_aggregate_parts TEXT[],
-	p_expected_sequence BIGINT,
-	p_status TEXT,
-	p_status_at BIGINT,
-	p_tags TEXT[],
-	p_tag_adds BOOLEAN[],
-	p_event_ats BIGINT[],
-	p_event_types TEXT[],
-	p_event_data BYTEA[]
-) RETURNS TABLE(
-	success BOOLEAN,
-	actual_sequence BIGINT
-) AS $$
-DECLARE
-	v_base_seq BIGINT := 0;
-	v_snapshot_seq BIGINT := 0;
-	v_next_seq BIGINT := 0;
-	v_current_seq BIGINT := 0;
-	v_event_count BIGINT := COALESCE(array_length(p_event_data, 1), 0);
-BEGIN
-	IF p_expected_sequence = 0 THEN
-		INSERT INTO timebox_statuses (
-			aggregate_key, aggregate_parts
-		) VALUES (
-			p_aggregate_key, p_aggregate_parts
-		)
-		ON CONFLICT (aggregate_key) DO NOTHING;
-	END IF;
-
-	SELECT COALESCE(s.base_seq, 0),
-	       COALESCE(s.snapshot_seq, 0),
-	       COALESCE((
-	           SELECT e.sequence + 1
-	           FROM timebox_events e
-	           WHERE e.aggregate_key = p_aggregate_key
-	           ORDER BY e.sequence DESC
-	           LIMIT 1
-	       ), COALESCE(s.base_seq, 0))
-	INTO v_base_seq, v_snapshot_seq, v_next_seq
-	FROM timebox_statuses i
-	LEFT JOIN timebox_snapshots s
-	  ON s.aggregate_key = i.aggregate_key
-	WHERE i.aggregate_key = p_aggregate_key
-	FOR UPDATE OF i;
-
-	IF NOT FOUND THEN
-		success := FALSE;
-		actual_sequence := 0;
-		RETURN NEXT;
-		RETURN;
-	END IF;
-
-	v_current_seq := GREATEST(v_next_seq, v_snapshot_seq);
-	IF p_expected_sequence <> v_current_seq THEN
-		success := FALSE;
-		actual_sequence := v_current_seq;
-		RETURN NEXT;
-		RETURN;
-	END IF;
-
-	INSERT INTO timebox_events (
-		aggregate_key, sequence, event_at, event_type, data
-	)
-	SELECT p_aggregate_key,
-		p_expected_sequence + ev.ord - 1,
-		ev.event_at, ev.event_type, ev.data
-	FROM unnest(
-		COALESCE(p_event_ats, ARRAY[]::BIGINT[]),
-		COALESCE(p_event_types, ARRAY[]::TEXT[]),
-		COALESCE(p_event_data, ARRAY[]::BYTEA[])
-	) WITH ORDINALITY AS ev(event_at, event_type, data, ord);
-
-	IF p_status IS NOT NULL THEN
-		UPDATE timebox_statuses
-		SET status = p_status,
-		    status_at = COALESCE(p_status_at, 0)
-		WHERE aggregate_key = p_aggregate_key;
-	END IF;
-
-	IF COALESCE(array_length(p_tags, 1), 0) > 0 THEN
-		DELETE FROM timebox_tags ti
-		USING unnest(p_tags, p_tag_adds) AS item(tag, enabled)
-		WHERE ti.aggregate_key = p_aggregate_key
-		  AND ti.tag = item.tag
-		  AND NOT item.enabled;
-
-		INSERT INTO timebox_tags (
-			aggregate_key, tag
-		)
-		SELECT p_aggregate_key, item.tag
-		FROM unnest(p_tags, p_tag_adds) AS item(tag, enabled)
-		WHERE item.enabled
-		ON CONFLICT (aggregate_key, tag) DO NOTHING;
-	END IF;
-
-	success := TRUE;
-	actual_sequence := v_current_seq + v_event_count;
-	RETURN NEXT;
-END;
-$$ LANGUAGE plpgsql
-`
-
 // Append appends every request's events if each expected sequence matches
 func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if err := check.Distinct(reqs); err != nil {
@@ -197,8 +47,7 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	return tx.Commit(ctx)
 }
 
-// Lock in key order, but append in request order to report the first
-// conflict
+// Lock in key order, but append in request order to report the first conflict
 func (b *Backend) lockAppends(
 	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
 ) error {
@@ -223,9 +72,9 @@ func (b *Backend) lockAppends(
 		}
 	}
 
-	q, arg := lockKeysQuery, any(keys)
+	q, arg := sqlLockKeys, any(keys)
 	if len(keys) == 1 {
-		q, arg = lockKeyQuery, any(keys[0])
+		q, arg = sqlLockKey, any(keys[0])
 	}
 	_, err := tx.Exec(ctx, q, arg)
 	return err
@@ -293,7 +142,7 @@ func (b *Backend) versionConflict(
 func appendCall(req timebox.AppendRequest) (string, []any) {
 	key, parts := aggregateKey(req.ID)
 	if !check.Mutates(req) {
-		return checkSequenceQuery, []any{key, req.ExpectedSequence}
+		return sqlCheckSequence, []any{key, req.ExpectedSequence}
 	}
 	evs := encodeAppendEvents(req.Events)
 	tags, tagAdds := encodeTags(req.Tags)
@@ -305,7 +154,7 @@ func appendCall(req timebox.AppendRequest) (string, []any) {
 		statusAt = req.StatusAt.UnixMilli()
 	}
 
-	return appendQuery, []any{
+	return sqlAppend, []any{
 		key, parts, req.ExpectedSequence,
 		status, statusAt, tags, tagAdds,
 		evs.ats, evs.types, evs.data,

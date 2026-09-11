@@ -18,11 +18,7 @@ func (b *Backend) GetAggregateStatus(
 	key, _ := aggregateKey(id)
 
 	var status string
-	err := b.pool.QueryRow(ctx, `
-		SELECT status
-		FROM timebox_statuses
-		WHERE aggregate_key = $1
-	`, key).Scan(&status)
+	err := b.pool.QueryRow(ctx, sqlGetStatus, key).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -33,12 +29,7 @@ func (b *Backend) GetAggregateStatus(
 func (b *Backend) ListAggregatesByStatus(
 	status string,
 ) ([]timebox.StatusEntry, error) {
-	rows, err := b.pool.Query(context.Background(), `
-		SELECT aggregate_parts, status_at
-		FROM timebox_statuses
-		WHERE status = $1
-		ORDER BY status_at
-	`, status)
+	rows, err := b.pool.Query(context.Background(), sqlListByStatus, status)
 	if err != nil {
 		return nil, err
 	}
@@ -67,13 +58,7 @@ func (b *Backend) ListAggregatesByStatus(
 func (b *Backend) ListAggregatesByTag(
 	tag string,
 ) ([]timebox.AggregateID, error) {
-	rows, err := b.pool.Query(context.Background(), `
-		SELECT i.aggregate_parts
-		FROM timebox_tags ti
-		JOIN timebox_statuses i
-		  ON i.aggregate_key = ti.aggregate_key
-		WHERE ti.tag = $1
-	`, tag)
+	rows, err := b.pool.Query(context.Background(), sqlListByTag, tag)
 	if err != nil {
 		return nil, err
 	}

@@ -113,11 +113,7 @@ func (b *Backend) LoadEvents(
 	key, _ := aggregateKey(req.ID)
 
 	var baseSeq int64
-	err := b.pool.QueryRow(ctx, `
-		SELECT base_seq
-		FROM timebox_snapshots
-		WHERE aggregate_key = $1
-	`, key).Scan(&baseSeq)
+	err := b.pool.QueryRow(ctx, sqlSnapshotBaseSeq, key).Scan(&baseSeq)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
@@ -147,11 +143,8 @@ func (b *Backend) LoadSnapshot(
 
 	var snapData []byte
 	var snapSeq int64
-	err := b.pool.QueryRow(ctx, `
-		SELECT snapshot_data, snapshot_seq
-		FROM timebox_snapshots
-		WHERE aggregate_key = $1
-	`, key).Scan(&snapData, &snapSeq)
+	err := b.pool.QueryRow(ctx, sqlGetSnapshot, key).
+		Scan(&snapData, &snapSeq)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
@@ -211,26 +204,16 @@ func (b *Backend) SaveSnapshot(
 	if req.TrimEvents && req.Sequence > state.baseSeq {
 		newBase = min(req.Sequence, state.nextSeq)
 		if newBase > state.baseSeq {
-			if _, err := tx.Exec(ctx, `
-				DELETE FROM timebox_events
-				WHERE aggregate_key = $1
-				  AND sequence < $2
-			`, key, newBase); err != nil {
+			_, err := tx.Exec(ctx, sqlTrimEvents, key, newBase)
+			if err != nil {
 				return err
 			}
 		}
 	}
 
-	if _, err = tx.Exec(ctx, `
-		INSERT INTO timebox_snapshots (
-			aggregate_key, base_seq,
-			snapshot_seq, snapshot_data
-		) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (aggregate_key) DO UPDATE
-		SET base_seq = EXCLUDED.base_seq,
-		    snapshot_seq = EXCLUDED.snapshot_seq,
-		    snapshot_data = EXCLUDED.snapshot_data
-	`, key, newBase, req.Sequence, req.Data); err != nil {
+	if _, err = tx.Exec(ctx, sqlPutSnapshot,
+		key, newBase, req.Sequence, req.Data,
+	); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -246,16 +229,9 @@ func (b *Backend) ListAggregates(
 	var rows pgx.Rows
 	var err error
 	if typ == "" {
-		rows, err = b.pool.Query(ctx, `
-			SELECT aggregate_parts
-			FROM timebox_statuses
-		`)
+		rows, err = b.pool.Query(ctx, sqlListAggregates)
 	} else {
-		rows, err = b.pool.Query(ctx, `
-			SELECT aggregate_parts
-			FROM timebox_statuses
-			WHERE aggregate_parts[1] = $1
-		`, string(typ))
+		rows, err = b.pool.Query(ctx, sqlListAggregatesByType, string(typ))
 	}
 	if err != nil {
 		return nil, err
@@ -281,22 +257,8 @@ func (b *Backend) loadSnapshotState(
 	ctx context.Context, tx pgx.Tx, key string,
 ) (snapshotState, bool, error) {
 	var res snapshotState
-	err := tx.QueryRow(ctx, `
-		SELECT COALESCE(s.base_seq, 0),
-		       COALESCE(s.snapshot_seq, 0),
-		       COALESCE((
-		           SELECT e.sequence + 1
-		           FROM timebox_events e
-		           WHERE e.aggregate_key = $1
-		           ORDER BY e.sequence DESC
-		           LIMIT 1
-		       ), COALESCE(s.base_seq, 0))
-		FROM timebox_statuses i
-		LEFT JOIN timebox_snapshots s
-		  ON s.aggregate_key = i.aggregate_key
-		WHERE i.aggregate_key = $1
-		FOR UPDATE OF i
-	`, key).Scan(&res.baseSeq, &res.snapSeq, &res.nextSeq)
+	err := tx.QueryRow(ctx, sqlSnapshotState, key).
+		Scan(&res.baseSeq, &res.snapSeq, &res.nextSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return snapshotState{}, false, nil
 	}
@@ -309,25 +271,14 @@ func (b *Backend) loadSnapshotState(
 func (b *Backend) insertAggregate(
 	ctx context.Context, tx pgx.Tx, key string, parts []string,
 ) error {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO timebox_statuses (
-			aggregate_key, aggregate_parts
-		) VALUES ($1, $2)
-		ON CONFLICT (aggregate_key) DO NOTHING
-	`, key, parts)
+	_, err := tx.Exec(ctx, sqlInsertAggregate, key, parts)
 	return err
 }
 
 func (b *Backend) loadEvents(
 	ctx context.Context, q querier, r eventRange,
 ) ([]*timebox.Event, error) {
-	rows, err := q.Query(ctx, `
-		SELECT sequence, event_at, event_type, data
-		FROM timebox_events
-		WHERE aggregate_key = $1
-		  AND sequence >= $2
-		ORDER BY sequence
-	`, r.key, r.fromSeq)
+	rows, err := q.Query(ctx, sqlGetEvents, r.key, r.fromSeq)
 	if err != nil {
 		return nil, err
 	}
