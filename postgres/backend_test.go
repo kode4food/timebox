@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
@@ -48,21 +47,17 @@ func TestEventRow(t *testing.T) {
 			return
 		}
 
-		pool, err := pgxpool.New(ctx, cfg.URL)
-		if !assert.NoError(t, err) {
-			return
-		}
+		pool := schemaPool(t, ctx, cfg)
 		defer pool.Close()
 
 		var seq int64
 		var at int64
 		var typ string
-		var data string
+		var data []byte
 		err = pool.QueryRow(ctx, `
 			SELECT sequence, event_at, event_type, data
 			FROM timebox_events
-			WHERE store = $1
-		`, cfg.Prefix).Scan(&seq, &at, &typ, &data)
+		`).Scan(&seq, &at, &typ, &data)
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -72,7 +67,7 @@ func TestEventRow(t *testing.T) {
 		if !assert.NoError(t, json.Unmarshal(ev.Data, &want)) {
 			return
 		}
-		if !assert.NoError(t, json.Unmarshal([]byte(data), &got)) {
+		if !assert.NoError(t, json.Unmarshal(data, &got)) {
 			return
 		}
 		assert.Equal(t, int64(0), seq)

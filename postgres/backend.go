@@ -19,7 +19,6 @@ type (
 	// Backend implements timebox.Backend using Postgres
 	Backend struct {
 		timebox.AlwaysReady
-		cfg  Config
 		pool *pgxpool.Pool
 	}
 
@@ -28,6 +27,18 @@ type (
 	querier interface {
 		Query(context.Context, string, ...any) (pgx.Rows, error)
 		QueryRow(context.Context, string, ...any) pgx.Row
+	}
+
+	snapshotState struct {
+		baseSeq int64
+		snapSeq int64
+		nextSeq int64
+	}
+
+	eventRange struct {
+		id      timebox.AggregateID
+		key     string
+		fromSeq int64
 	}
 )
 
@@ -63,6 +74,9 @@ func newBackend(cfg Config) (*Backend, error) {
 	poolCfg.ConnConfig.DefaultQueryExecMode =
 		pgx.QueryExecModeCacheStatement
 
+	poolCfg.ConnConfig.RuntimeParams["search_path"] =
+		pgx.Identifier{cfg.Prefix}.Sanitize()
+
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, err
@@ -77,15 +91,12 @@ func newBackend(cfg Config) (*Backend, error) {
 	)
 	defer cancel()
 
-	if err := initSchema(schemaCtx, pool); err != nil {
+	if err := initSchema(schemaCtx, pool, cfg.Prefix); err != nil {
 		pool.Close()
 		return nil, err
 	}
 
-	return &Backend{
-		cfg:  cfg,
-		pool: pool,
-	}, nil
+	return &Backend{pool: pool}, nil
 }
 
 // Close closes the Postgres connection pool
@@ -102,20 +113,21 @@ func (b *Backend) LoadEvents(
 	key, _ := aggregateKey(req.ID)
 
 	var baseSeq int64
-	var err error
-	err = b.pool.QueryRow(ctx, `
+	err := b.pool.QueryRow(ctx, `
 		SELECT base_seq
 		FROM timebox_snapshots
-		WHERE store = $1 AND aggregate_key = $2
-	`, b.cfg.Prefix, key).Scan(&baseSeq)
-	if errors.Is(err, pgx.ErrNoRows) {
-		baseSeq = 0
-	} else if err != nil {
+		WHERE aggregate_key = $1
+	`, key).Scan(&baseSeq)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 
 	start := max(req.FromSeq, baseSeq)
-	evs, err := b.loadEvents(ctx, b.pool, req.ID, key, start)
+	evs, err := b.loadEvents(ctx, b.pool, eventRange{
+		id:      req.ID,
+		key:     key,
+		fromSeq: start,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -133,22 +145,22 @@ func (b *Backend) LoadSnapshot(
 	ctx := context.Background()
 	key, _ := aggregateKey(req.ID)
 
-	var snapData string
+	var snapData []byte
 	var snapSeq int64
-	var err error
-	err = b.pool.QueryRow(ctx, `
+	err := b.pool.QueryRow(ctx, `
 		SELECT snapshot_data, snapshot_seq
 		FROM timebox_snapshots
-		WHERE store = $1 AND aggregate_key = $2
-	`, b.cfg.Prefix, key).Scan(&snapData, &snapSeq)
-	if errors.Is(err, pgx.ErrNoRows) {
-		snapData = ""
-		snapSeq = 0
-	} else if err != nil {
+		WHERE aggregate_key = $1
+	`, key).Scan(&snapData, &snapSeq)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 
-	evs, err := b.loadEvents(ctx, b.pool, req.ID, key, snapSeq)
+	evs, err := b.loadEvents(ctx, b.pool, eventRange{
+		id:      req.ID,
+		key:     key,
+		fromSeq: snapSeq,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -173,10 +185,7 @@ func (b *Backend) SaveSnapshot(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var baseSeq, snapSeq, nextSeq int64
-	found, err := b.loadSnapshotState(
-		ctx, tx, key, &baseSeq, &snapSeq, &nextSeq,
-	)
+	state, found, err := b.loadSnapshotState(ctx, tx, key)
 	if err != nil {
 		return err
 	}
@@ -184,9 +193,7 @@ func (b *Backend) SaveSnapshot(
 		if err := b.insertAggregate(ctx, tx, key, parts); err != nil {
 			return err
 		}
-		found, err = b.loadSnapshotState(
-			ctx, tx, key, &baseSeq, &snapSeq, &nextSeq,
-		)
+		state, found, err = b.loadSnapshotState(ctx, tx, key)
 		if err != nil {
 			return err
 		}
@@ -196,20 +203,19 @@ func (b *Backend) SaveSnapshot(
 			)
 		}
 	}
-	if req.Sequence < snapSeq {
+	if req.Sequence < state.snapSeq {
 		return nil
 	}
 
-	newBase := baseSeq
-	if req.TrimEvents && req.Sequence > baseSeq {
-		newBase = min(req.Sequence, nextSeq)
-		if newBase > baseSeq {
+	newBase := state.baseSeq
+	if req.TrimEvents && req.Sequence > state.baseSeq {
+		newBase = min(req.Sequence, state.nextSeq)
+		if newBase > state.baseSeq {
 			if _, err := tx.Exec(ctx, `
 				DELETE FROM timebox_events
-				WHERE store = $1
-				  AND aggregate_key = $2
-				  AND sequence < $3
-			`, b.cfg.Prefix, key, newBase); err != nil {
+				WHERE aggregate_key = $1
+				  AND sequence < $2
+			`, key, newBase); err != nil {
 				return err
 			}
 		}
@@ -217,14 +223,14 @@ func (b *Backend) SaveSnapshot(
 
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO timebox_snapshots (
-			store, aggregate_key, base_seq,
+			aggregate_key, base_seq,
 			snapshot_seq, snapshot_data
-		) VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (store, aggregate_key) DO UPDATE
+		) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (aggregate_key) DO UPDATE
 		SET base_seq = EXCLUDED.base_seq,
 		    snapshot_seq = EXCLUDED.snapshot_seq,
 		    snapshot_data = EXCLUDED.snapshot_data
-	`, b.cfg.Prefix, key, newBase, req.Sequence, req.Data); err != nil {
+	`, key, newBase, req.Sequence, req.Data); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -243,14 +249,13 @@ func (b *Backend) ListAggregates(
 		rows, err = b.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
-			WHERE store = $1
-		`, b.cfg.Prefix)
+		`)
 	} else {
 		rows, err = b.pool.Query(ctx, `
 			SELECT aggregate_parts
 			FROM timebox_statuses
-			WHERE store = $1 AND aggregate_parts[1] = $2
-		`, b.cfg.Prefix, string(typ))
+			WHERE aggregate_parts[1] = $1
+		`, string(typ))
 	}
 	if err != nil {
 		return nil, err
@@ -274,33 +279,31 @@ func (b *Backend) ListAggregates(
 
 func (b *Backend) loadSnapshotState(
 	ctx context.Context, tx pgx.Tx, key string,
-	baseSeq, snapSeq, nextSeq *int64,
-) (bool, error) {
+) (snapshotState, bool, error) {
+	var res snapshotState
 	err := tx.QueryRow(ctx, `
 		SELECT COALESCE(s.base_seq, 0),
 		       COALESCE(s.snapshot_seq, 0),
 		       COALESCE((
 		           SELECT e.sequence + 1
 		           FROM timebox_events e
-		           WHERE e.store = $1
-		             AND e.aggregate_key = $2
+		           WHERE e.aggregate_key = $1
 		           ORDER BY e.sequence DESC
 		           LIMIT 1
 		       ), COALESCE(s.base_seq, 0))
 		FROM timebox_statuses i
 		LEFT JOIN timebox_snapshots s
-		  ON s.store = i.store
-		  AND s.aggregate_key = i.aggregate_key
-		WHERE i.store = $1 AND i.aggregate_key = $2
+		  ON s.aggregate_key = i.aggregate_key
+		WHERE i.aggregate_key = $1
 		FOR UPDATE OF i
-	`, b.cfg.Prefix, key).Scan(baseSeq, snapSeq, nextSeq)
+	`, key).Scan(&res.baseSeq, &res.snapSeq, &res.nextSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return snapshotState{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return snapshotState{}, false, err
 	}
-	return true, nil
+	return res, true, nil
 }
 
 func (b *Backend) insertAggregate(
@@ -308,25 +311,23 @@ func (b *Backend) insertAggregate(
 ) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO timebox_statuses (
-			store, aggregate_key, aggregate_parts
-		) VALUES ($1, $2, $3)
-		ON CONFLICT (store, aggregate_key) DO NOTHING
-	`, b.cfg.Prefix, key, parts)
+			aggregate_key, aggregate_parts
+		) VALUES ($1, $2)
+		ON CONFLICT (aggregate_key) DO NOTHING
+	`, key, parts)
 	return err
 }
 
 func (b *Backend) loadEvents(
-	ctx context.Context, q querier, id timebox.AggregateID, key string,
-	fromSeq int64,
+	ctx context.Context, q querier, r eventRange,
 ) ([]*timebox.Event, error) {
 	rows, err := q.Query(ctx, `
 		SELECT sequence, event_at, event_type, data
 		FROM timebox_events
-		WHERE store = $1
-		  AND aggregate_key = $2
-		  AND sequence >= $3
+		WHERE aggregate_key = $1
+		  AND sequence >= $2
 		ORDER BY sequence
-	`, b.cfg.Prefix, key, fromSeq)
+	`, r.key, r.fromSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +338,7 @@ func (b *Backend) loadEvents(
 		var seq int64
 		var at int64
 		var typ string
-		var data string
+		var data []byte
 		if err := rows.Scan(&seq, &at, &typ, &data); err != nil {
 			return nil, err
 		}
@@ -345,7 +346,7 @@ func (b *Backend) loadEvents(
 			Timestamp:   time.Unix(0, at).UTC(),
 			Sequence:    seq,
 			Type:        timebox.EventType(typ),
-			AggregateID: id,
+			AggregateID: r.id,
 			Data:        json.RawMessage(data),
 		})
 	}

@@ -121,3 +121,23 @@ func testEvent(
 		Data:      data,
 	}
 }
+
+// schemaPool opens a pool whose search_path is the store's schema
+func schemaPool(
+	t *testing.T, ctx context.Context, cfg postgres.Config,
+) *pgxpool.Pool {
+	t.Helper()
+
+	poolCfg, err := pgxpool.ParseConfig(cfg.URL)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	poolCfg.ConnConfig.RuntimeParams["search_path"] =
+		pgx.Identifier{cfg.Prefix}.Sanitize()
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	return pool
+}

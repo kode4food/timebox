@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox"
@@ -35,18 +34,14 @@ func TestTagRow(t *testing.T) {
 			return
 		}
 
-		pool, err := pgxpool.New(ctx, cfg.URL)
-		if !assert.NoError(t, err) {
-			return
-		}
+		pool := schemaPool(t, ctx, cfg)
 		defer pool.Close()
 
 		var tag string
 		err = pool.QueryRow(ctx, `
 			SELECT tag
 			FROM timebox_tags
-			WHERE store = $1
-		`, cfg.Prefix).Scan(&tag)
+		`).Scan(&tag)
 		if !assert.NoError(t, err) {
 			return
 		}

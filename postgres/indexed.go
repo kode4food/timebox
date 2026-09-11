@@ -21,8 +21,8 @@ func (b *Backend) GetAggregateStatus(
 	err := b.pool.QueryRow(ctx, `
 		SELECT status
 		FROM timebox_statuses
-		WHERE store = $1 AND aggregate_key = $2
-	`, b.cfg.Prefix, key).Scan(&status)
+		WHERE aggregate_key = $1
+	`, key).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -36,9 +36,9 @@ func (b *Backend) ListAggregatesByStatus(
 	rows, err := b.pool.Query(context.Background(), `
 		SELECT aggregate_parts, status_at
 		FROM timebox_statuses
-		WHERE store = $1 AND status = $2
+		WHERE status = $1
 		ORDER BY status_at
-	`, b.cfg.Prefix, status)
+	`, status)
 	if err != nil {
 		return nil, err
 	}
@@ -71,11 +71,9 @@ func (b *Backend) ListAggregatesByTag(
 		SELECT i.aggregate_parts
 		FROM timebox_tags ti
 		JOIN timebox_statuses i
-		  ON i.store = ti.store
-		  AND i.aggregate_key = ti.aggregate_key
-		WHERE ti.store = $1
-		  AND ti.tag = $2
-	`, b.cfg.Prefix, tag)
+		  ON i.aggregate_key = ti.aggregate_key
+		WHERE ti.tag = $1
+	`, tag)
 	if err != nil {
 		return nil, err
 	}

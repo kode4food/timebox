@@ -4,69 +4,75 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const defaultSchemaTimeout = 60 * time.Second
 
-var schemaStatements = func() []string {
-	stmts := []string{
-		`
+var tableStatements = []string{
+	`
 CREATE TABLE IF NOT EXISTS timebox_statuses (
-	store TEXT NOT NULL,
 	aggregate_key TEXT NOT NULL,
 	aggregate_parts TEXT[] NOT NULL,
 	status TEXT NOT NULL DEFAULT '',
 	status_at BIGINT NOT NULL DEFAULT 0,
-	PRIMARY KEY (store, aggregate_key)
+	PRIMARY KEY (aggregate_key)
 )`,
-		`
-CREATE INDEX IF NOT EXISTS timebox_statuses_idx
+	`
+CREATE INDEX IF NOT EXISTS timebox_statuses_status_idx
 	ON timebox_statuses (
-		store, status, status_at, aggregate_key
+		status, status_at, aggregate_key
 	)
 `,
-		`
+	`
+CREATE INDEX IF NOT EXISTS timebox_statuses_type_idx
+	ON timebox_statuses (
+		(aggregate_parts[1]), aggregate_key
+	)
+`,
+	`
 CREATE TABLE IF NOT EXISTS timebox_tags (
-	store TEXT NOT NULL,
 	aggregate_key TEXT NOT NULL,
 	tag TEXT NOT NULL,
-	PRIMARY KEY (store, aggregate_key, tag)
+	PRIMARY KEY (aggregate_key, tag)
 )`,
-		`
+	`
 CREATE INDEX IF NOT EXISTS timebox_tags_lookup_idx
 	ON timebox_tags (
-		store, tag, aggregate_key
+		tag, aggregate_key
 	)
 `,
-		`
+	`
 CREATE TABLE IF NOT EXISTS timebox_events (
-	store TEXT NOT NULL,
 	aggregate_key TEXT NOT NULL,
 	sequence BIGINT NOT NULL,
 	event_at BIGINT NOT NULL,
 	event_type TEXT NOT NULL,
-	data TEXT NOT NULL,
-	PRIMARY KEY (store, aggregate_key, sequence)
+	data BYTEA NOT NULL,
+	PRIMARY KEY (aggregate_key, sequence)
 )`,
-		`
+	`
 CREATE TABLE IF NOT EXISTS timebox_snapshots (
-	store TEXT NOT NULL,
 	aggregate_key TEXT NOT NULL,
 	base_seq BIGINT NOT NULL DEFAULT 0,
 	snapshot_seq BIGINT NOT NULL DEFAULT 0,
-	snapshot_data TEXT NOT NULL DEFAULT '',
-	PRIMARY KEY (store, aggregate_key)
-		)`,
-	}
-	for _, spec := range appendFunctions {
-		stmts = append(stmts, buildAppendFunctionSQL(spec))
-	}
-	return stmts
-}()
+	snapshot_data BYTEA NOT NULL DEFAULT '',
+	PRIMARY KEY (aggregate_key)
+)`,
+	appendFunctionSQL,
+}
 
-func initSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	for _, stmt := range schemaStatements {
+func initSchema(
+	ctx context.Context, pool *pgxpool.Pool, schema string,
+) error {
+	_, err := pool.Exec(ctx,
+		"CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{schema}.Sanitize(),
+	)
+	if err != nil {
+		return err
+	}
+	for _, stmt := range tableStatements {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err
 		}

@@ -1,11 +1,8 @@
 package postgres
 
 import (
-	"cmp"
 	"context"
-	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -13,335 +10,110 @@ import (
 	"github.com/kode4food/timebox/internal/check"
 )
 
-type appendFunctionSpec struct {
-	name   string
-	status bool
-	tags   bool
-}
+type (
+	appendResult struct {
+		actualSeq int64
+		success   bool
+	}
 
-var appendFunctions = []appendFunctionSpec{
-	{name: "timebox_append_plain"},
-	{name: "timebox_append_status", status: true},
-	{name: "timebox_append_tags", tags: true},
-	{
-		name:   "timebox_append_status_tags",
-		status: true,
-		tags:   true,
-	},
-}
-
-const (
-	appendPlainQuery = `
-		SELECT success, actual_sequence
-		FROM timebox_append_plain(
-			$1, $2, $3, $4, $5::bigint[], $6::text[], $7::text[]
-		)
-	`
-
-	appendStatusQuery = `
-		SELECT success, actual_sequence
-		FROM timebox_append_status(
-			$1, $2, $3, $4, $5, $6,
-			$7::bigint[], $8::text[], $9::text[]
-		)
-	`
-
-	appendTagsQuery = `
-		SELECT success, actual_sequence
-		FROM timebox_append_tags(
-			$1, $2, $3, $4, $5::text[], $6::boolean[],
-			$7::bigint[], $8::text[], $9::text[]
-		)
-	`
-
-	appendStatusTagsQuery = `
-		SELECT success, actual_sequence
-		FROM timebox_append_status_tags(
-			$1, $2, $3, $4, $5, $6, $7::text[], $8::boolean[],
-			$9::bigint[], $10::text[], $11::text[]
-		)
-	`
+	encodedEvents struct {
+		ats   []int64
+		types []string
+		data  [][]byte
+	}
 )
 
-const checkSequenceQuery = `
-	SELECT GREATEST(
-		COALESCE((
-			SELECT e.sequence + 1
-			FROM timebox_events e
-			WHERE e.store = $1
-			  AND e.aggregate_key = $2
-			ORDER BY e.sequence DESC
-			LIMIT 1
-		), 0),
-		COALESCE((
-			SELECT s.snapshot_seq
-			FROM timebox_snapshots s
-			WHERE s.store = $1
-			  AND s.aggregate_key = $2
-		), 0)
+const appendQuery = `
+	SELECT success, actual_sequence
+	FROM timebox_append(
+		$1, $2, $3, $4, $5, $6::text[], $7::boolean[],
+		$8::bigint[], $9::text[], $10::bytea[]
 	)
 `
 
-// Append appends every request's events if each expected sequence matches
-func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
-	if err := check.Distinct(reqs); err != nil {
-		return err
-	}
+const (
+	lockKeyQuery = `
+		SELECT 1 FROM timebox_statuses
+		WHERE aggregate_key = $1
+		FOR UPDATE
+	`
 
-	ctx := context.Background()
-	tx, err := b.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	// COLLATE "C" matches the Go sort, so both agree on lock order
+	lockKeysQuery = `
+		SELECT 1 FROM timebox_statuses
+		WHERE aggregate_key = ANY($1)
+		ORDER BY aggregate_key COLLATE "C"
+		FOR UPDATE
+	`
+)
 
-	if err := b.lockAppends(ctx, tx, reqs); err != nil {
-		return err
-	}
-	for _, req := range reqs {
-		if err := b.appendOne(ctx, tx, req); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
-}
-
-// Lock in ID order, but append in request order to report the first conflict
-func (b *Backend) lockAppends(
-	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
-) error {
-	ordered := slices.Clone(reqs)
-	slices.SortFunc(ordered, func(a, b timebox.AppendRequest) int {
-		if n := cmp.Compare(a.ID.Type, b.ID.Type); n != 0 {
-			return n
-		}
-		return cmp.Compare(a.ID.Key, b.ID.Key)
-	})
-	for _, req := range ordered {
-		key, parts := aggregateKey(req.ID)
-		if req.ExpectedSequence == 0 && check.Mutates(req) {
-			if err := b.insertAggregate(ctx, tx, key, parts); err != nil {
-				return err
-			}
-		}
-		_, err := tx.Exec(ctx, `
-			SELECT 1 FROM timebox_statuses
-			WHERE store = $1 AND aggregate_key = $2
-			FOR UPDATE
-		`, b.cfg.Prefix, key)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (b *Backend) appendOne(
-	ctx context.Context, q querier, req timebox.AppendRequest,
-) error {
-	key, parts := aggregateKey(req.ID)
-	if !check.Mutates(req) {
-		return b.checkConflict(ctx, q, req.ID, key, req.ExpectedSequence)
-	}
-	evAts, evTypes, evData := encodeAppendEvents(req.Events)
-	tags, tagAdds := encodeTags(req.Tags)
-	var err error
-
-	var status any
-	var statusAt int64
-	if req.Status != nil {
-		status = *req.Status
-		statusAt = req.StatusAt.UnixMilli()
-	}
-
-	var success bool
-	var actualSeq int64
-
-	switch {
-	case req.Status != nil && len(req.Tags) > 0:
-		err = q.QueryRow(ctx, appendStatusTagsQuery,
-			b.cfg.Prefix, key, parts, req.ExpectedSequence,
-			status, statusAt, tags, tagAdds,
-			evAts, evTypes, evData,
-		).Scan(&success, &actualSeq)
-	case req.Status != nil:
-		err = q.QueryRow(ctx, appendStatusQuery,
-			b.cfg.Prefix, key, parts, req.ExpectedSequence,
-			status, statusAt, evAts, evTypes, evData,
-		).Scan(&success, &actualSeq)
-	case len(req.Tags) > 0:
-		err = q.QueryRow(ctx, appendTagsQuery,
-			b.cfg.Prefix, key, parts, req.ExpectedSequence,
-			tags, tagAdds, evAts, evTypes, evData,
-		).Scan(&success, &actualSeq)
-	default:
-		err = q.QueryRow(ctx, appendPlainQuery,
-			b.cfg.Prefix, key, parts, req.ExpectedSequence,
-			evAts, evTypes, evData,
-		).Scan(&success, &actualSeq)
-	}
-	if err != nil {
-		return err
-	}
-	if success {
-		return nil
-	}
-	evs, err := b.loadEvents(ctx, q, req.ID, key, req.ExpectedSequence)
-	if err != nil {
-		return err
-	}
-	return &timebox.VersionConflictError{
-		ID:               req.ID,
-		ExpectedSequence: req.ExpectedSequence,
-		ActualSequence:   actualSeq,
-		NewEvents:        evs,
-	}
-}
-
-func (b *Backend) checkConflict(
-	ctx context.Context, q querier, id timebox.AggregateID, key string,
-	expected int64,
-) error {
-	var actual int64
-	if err := q.QueryRow(
-		ctx, checkSequenceQuery, b.cfg.Prefix, key,
-	).Scan(&actual); err != nil {
-		return err
-	}
-	if expected == actual {
-		return nil
-	}
-	var evs []*timebox.Event
-	if expected < actual {
-		var err error
-		evs, err = b.loadEvents(ctx, q, id, key, expected)
-		if err != nil {
-			return err
-		}
-	}
-	return &timebox.VersionConflictError{
-		ID:               id,
-		ExpectedSequence: expected,
-		ActualSequence:   actual,
-		NewEvents:        evs,
-	}
-}
-
-func buildAppendFunctionSQL(spec appendFunctionSpec) string {
-	args := []string{
-		"p_store TEXT",
-		"p_aggregate_key TEXT",
-		"p_aggregate_parts TEXT[]",
-		"p_expected_sequence BIGINT",
-	}
-	if spec.status {
-		args = append(args,
-			"p_status TEXT", "p_status_at BIGINT",
-		)
-	}
-	if spec.tags {
-		args = append(args,
-			"p_tags TEXT[]",
-			"p_tag_adds BOOLEAN[]",
-		)
-	}
-	args = append(args,
-		"p_event_ats BIGINT[]",
-		"p_event_types TEXT[]",
-		"p_event_data TEXT[]",
-	)
-
-	decls := []string{
-		"v_base_seq BIGINT := 0;",
-		"v_snapshot_seq BIGINT := 0;",
-		"v_next_seq BIGINT := 0;",
-		"v_current_seq BIGINT := 0;",
-		"v_event_count BIGINT := " +
-			"COALESCE(array_length(p_event_data, 1), 0);",
-	}
-	selectExprs := []string{
-		"COALESCE(s.base_seq, 0)",
-		"COALESCE(s.snapshot_seq, 0)",
-	}
-	intoVars := []string{"v_base_seq", "v_snapshot_seq"}
-	selectExprs = append(selectExprs, `
-       COALESCE((
-           SELECT e.sequence + 1
-           FROM timebox_events e
-           WHERE e.store = p_store
-             AND e.aggregate_key = p_aggregate_key
-           ORDER BY e.sequence DESC
-           LIMIT 1
-       ), COALESCE(s.base_seq, 0))`)
-	intoVars = append(intoVars, "v_next_seq")
-
-	var update strings.Builder
-	var assigns []string
-	if spec.status {
-		assigns = append(assigns,
-			"status = p_status",
-			"status_at = COALESCE(p_status_at, 0)",
-		)
-	}
-	if len(assigns) != 0 {
-		update.WriteString("UPDATE timebox_statuses\nSET ")
-		update.WriteString(strings.Join(assigns, ",\n    "))
-		update.WriteString(`
-WHERE store = p_store AND aggregate_key = p_aggregate_key;
-`)
-	}
-	if spec.tags {
-		update.WriteString(`
-	DELETE FROM timebox_tags ti
-	USING unnest(
-		COALESCE(p_tags, ARRAY[]::TEXT[]),
-		COALESCE(p_tag_adds, ARRAY[]::BOOLEAN[])
-	) AS item(tag, enabled)
-	WHERE ti.store = p_store
-	  AND ti.aggregate_key = p_aggregate_key
-	  AND ti.tag = item.tag
-	  AND NOT item.enabled;
-
-	INSERT INTO timebox_tags (
-		store, aggregate_key, tag
-	)
-	SELECT p_store, p_aggregate_key, item.tag
-	FROM unnest(
-		COALESCE(p_tags, ARRAY[]::TEXT[]),
-		COALESCE(p_tag_adds, ARRAY[]::BOOLEAN[])
-	) AS item(tag, enabled)
-	WHERE item.enabled
-	ON CONFLICT (store, aggregate_key, tag) DO NOTHING;
-`)
-	}
-
-	return fmt.Sprintf(`
-CREATE OR REPLACE FUNCTION %s(
-	%s
+// checkSequenceQuery asserts a sequence without mutating, shaped like
+// timebox_append so both scan the same way
+const checkSequenceQuery = `
+	SELECT $2::bigint = seq AS success, seq AS actual_sequence
+	FROM (
+		SELECT GREATEST(
+			COALESCE((
+				SELECT e.sequence + 1
+				FROM timebox_events e
+				WHERE e.aggregate_key = $1
+				ORDER BY e.sequence DESC
+				LIMIT 1
+			), 0),
+			COALESCE((
+				SELECT s.snapshot_seq
+				FROM timebox_snapshots s
+				WHERE s.aggregate_key = $1
+			), 0)
+		) AS seq
+	) t
+`
+const appendFunctionSQL = `
+CREATE OR REPLACE FUNCTION timebox_append(
+	p_aggregate_key TEXT,
+	p_aggregate_parts TEXT[],
+	p_expected_sequence BIGINT,
+	p_status TEXT,
+	p_status_at BIGINT,
+	p_tags TEXT[],
+	p_tag_adds BOOLEAN[],
+	p_event_ats BIGINT[],
+	p_event_types TEXT[],
+	p_event_data BYTEA[]
 ) RETURNS TABLE(
 	success BOOLEAN,
 	actual_sequence BIGINT
 ) AS $$
 DECLARE
-	%s
+	v_base_seq BIGINT := 0;
+	v_snapshot_seq BIGINT := 0;
+	v_next_seq BIGINT := 0;
+	v_current_seq BIGINT := 0;
+	v_event_count BIGINT := COALESCE(array_length(p_event_data, 1), 0);
 BEGIN
 	IF p_expected_sequence = 0 THEN
 		INSERT INTO timebox_statuses (
-			store, aggregate_key, aggregate_parts
+			aggregate_key, aggregate_parts
 		) VALUES (
-			p_store, p_aggregate_key, p_aggregate_parts
+			p_aggregate_key, p_aggregate_parts
 		)
-		ON CONFLICT (store, aggregate_key) DO NOTHING;
+		ON CONFLICT (aggregate_key) DO NOTHING;
 	END IF;
 
-	SELECT %s
-	INTO %s
+	SELECT COALESCE(s.base_seq, 0),
+	       COALESCE(s.snapshot_seq, 0),
+	       COALESCE((
+	           SELECT e.sequence + 1
+	           FROM timebox_events e
+	           WHERE e.aggregate_key = p_aggregate_key
+	           ORDER BY e.sequence DESC
+	           LIMIT 1
+	       ), COALESCE(s.base_seq, 0))
+	INTO v_base_seq, v_snapshot_seq, v_next_seq
 	FROM timebox_statuses i
 	LEFT JOIN timebox_snapshots s
-	  ON s.store = i.store
-	  AND s.aggregate_key = i.aggregate_key
-	WHERE i.store = p_store
-	  AND i.aggregate_key = p_aggregate_key
+	  ON s.aggregate_key = i.aggregate_key
+	WHERE i.aggregate_key = p_aggregate_key
 	FOR UPDATE OF i;
 
 	IF NOT FOUND THEN
@@ -360,42 +132,204 @@ BEGIN
 	END IF;
 
 	INSERT INTO timebox_events (
-		store, aggregate_key, sequence, event_at, event_type, data
+		aggregate_key, sequence, event_at, event_type, data
 	)
-	SELECT p_store, p_aggregate_key,
+	SELECT p_aggregate_key,
 		p_expected_sequence + ev.ord - 1,
 		ev.event_at, ev.event_type, ev.data
 	FROM unnest(
 		COALESCE(p_event_ats, ARRAY[]::BIGINT[]),
 		COALESCE(p_event_types, ARRAY[]::TEXT[]),
-		COALESCE(p_event_data, ARRAY[]::TEXT[])
+		COALESCE(p_event_data, ARRAY[]::BYTEA[])
 	) WITH ORDINALITY AS ev(event_at, event_type, data, ord);
-%s
+
+	IF p_status IS NOT NULL THEN
+		UPDATE timebox_statuses
+		SET status = p_status,
+		    status_at = COALESCE(p_status_at, 0)
+		WHERE aggregate_key = p_aggregate_key;
+	END IF;
+
+	IF COALESCE(array_length(p_tags, 1), 0) > 0 THEN
+		DELETE FROM timebox_tags ti
+		USING unnest(p_tags, p_tag_adds) AS item(tag, enabled)
+		WHERE ti.aggregate_key = p_aggregate_key
+		  AND ti.tag = item.tag
+		  AND NOT item.enabled;
+
+		INSERT INTO timebox_tags (
+			aggregate_key, tag
+		)
+		SELECT p_aggregate_key, item.tag
+		FROM unnest(p_tags, p_tag_adds) AS item(tag, enabled)
+		WHERE item.enabled
+		ON CONFLICT (aggregate_key, tag) DO NOTHING;
+	END IF;
+
 	success := TRUE;
 	actual_sequence := v_current_seq + v_event_count;
 	RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql
-`,
-		spec.name,
-		strings.Join(args, ",\n\t"),
-		strings.Join(decls, "\n\t"),
-		strings.Join(selectExprs, ",\n       "),
-		strings.Join(intoVars, ", "),
-		update.String(),
-	)
+`
+
+// Append appends every request's events if each expected sequence matches
+func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
+	if err := check.Distinct(reqs); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	tx, err := b.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock in a statement of its own: the append function reads the next
+	// sequence through a subquery that would otherwise use a stale snapshot
+	if err := b.lockAppends(ctx, tx, reqs); err != nil {
+		return err
+	}
+	if err := b.appendAll(ctx, tx, reqs); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-func encodeAppendEvents(evs []*timebox.Event) ([]int64, []string, [][]byte) {
-	ats := make([]int64, 0, len(evs))
-	types := make([]string, 0, len(evs))
-	data := make([][]byte, 0, len(evs))
-	for _, ev := range evs {
-		ats = append(ats, ev.Timestamp.UnixNano())
-		types = append(types, string(ev.Type))
-		data = append(data, ev.Data)
+// Lock in key order, but append in request order to report the first
+// conflict
+func (b *Backend) lockAppends(
+	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
+) error {
+	keys := make([]string, 0, len(reqs))
+	var inserts map[string][]string
+	for _, req := range reqs {
+		key, parts := aggregateKey(req.ID)
+		keys = append(keys, key)
+		if req.ExpectedSequence == 0 && check.Mutates(req) {
+			if inserts == nil {
+				inserts = map[string][]string{}
+			}
+			inserts[key] = parts
+		}
 	}
-	return ats, types, data
+	slices.Sort(keys)
+	for _, key := range keys {
+		if parts, ok := inserts[key]; ok {
+			if err := b.insertAggregate(ctx, tx, key, parts); err != nil {
+				return err
+			}
+		}
+	}
+
+	q, arg := lockKeysQuery, any(keys)
+	if len(keys) == 1 {
+		q, arg = lockKeyQuery, any(keys[0])
+	}
+	_, err := tx.Exec(ctx, q, arg)
+	return err
+}
+
+func (b *Backend) appendAll(
+	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
+) error {
+	batch := &pgx.Batch{}
+	for _, req := range reqs {
+		q, args := appendCall(req)
+		batch.Queue(q, args...)
+	}
+	br := tx.SendBatch(ctx, batch)
+
+	failed := -1
+	var failedSeq int64
+	var scanErr error
+	for i := range reqs {
+		res, err := scanAppendResult(br.QueryRow())
+		if err != nil && scanErr == nil {
+			scanErr = err
+		}
+		if !res.success && failed < 0 {
+			failed, failedSeq = i, res.actualSeq
+		}
+	}
+	if err := br.Close(); err != nil {
+		return err
+	}
+	if scanErr != nil {
+		return scanErr
+	}
+	if failed < 0 {
+		return nil
+	}
+	return b.versionConflict(ctx, tx, reqs[failed], failedSeq)
+}
+
+func (b *Backend) versionConflict(
+	ctx context.Context, q querier, req timebox.AppendRequest, actual int64,
+) error {
+	var evs []*timebox.Event
+	if req.ExpectedSequence < actual {
+		key, _ := aggregateKey(req.ID)
+		var err error
+		evs, err = b.loadEvents(ctx, q, eventRange{
+			id:      req.ID,
+			key:     key,
+			fromSeq: req.ExpectedSequence,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return &timebox.VersionConflictError{
+		ID:               req.ID,
+		ExpectedSequence: req.ExpectedSequence,
+		ActualSequence:   actual,
+		NewEvents:        evs,
+	}
+}
+
+// appendCall builds the query and arguments one request needs
+func appendCall(req timebox.AppendRequest) (string, []any) {
+	key, parts := aggregateKey(req.ID)
+	if !check.Mutates(req) {
+		return checkSequenceQuery, []any{key, req.ExpectedSequence}
+	}
+	evs := encodeAppendEvents(req.Events)
+	tags, tagAdds := encodeTags(req.Tags)
+
+	var status any
+	var statusAt int64
+	if req.Status != nil {
+		status = *req.Status
+		statusAt = req.StatusAt.UnixMilli()
+	}
+
+	return appendQuery, []any{
+		key, parts, req.ExpectedSequence,
+		status, statusAt, tags, tagAdds,
+		evs.ats, evs.types, evs.data,
+	}
+}
+
+func scanAppendResult(row pgx.Row) (appendResult, error) {
+	var res appendResult
+	err := row.Scan(&res.success, &res.actualSeq)
+	return res, err
+}
+
+func encodeAppendEvents(evs []*timebox.Event) encodedEvents {
+	res := encodedEvents{
+		ats:   make([]int64, 0, len(evs)),
+		types: make([]string, 0, len(evs)),
+		data:  make([][]byte, 0, len(evs)),
+	}
+	for _, ev := range evs {
+		res.ats = append(res.ats, ev.Timestamp.UnixNano())
+		res.types = append(res.types, string(ev.Type))
+		res.data = append(res.data, ev.Data)
+	}
+	return res
 }
 
 func encodeTags(values map[string]bool) ([]string, []bool) {

@@ -25,7 +25,7 @@ Timebox currently ships with:
 
 ## Aggregate IDs
 
-An `AggregateID` is a comparable struct of exactly two components, a `Type` and a `Key`, so it can be used as a map key directly and needs no canonicalization outside of the storage and wire boundaries:
+An `AggregateID` is a comparable struct of a `Type` and a `Key`:
 
 ```go
 id := timebox.NewAggregateID("order", "ORD-12345")

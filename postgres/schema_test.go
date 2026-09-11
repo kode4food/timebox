@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kode4food/timebox/postgres"
@@ -18,10 +17,7 @@ func TestBackendSchema(t *testing.T) {
 		}
 		defer func() { _ = b.Close() }()
 
-		pool, err := pgxpool.New(ctx, cfg.URL)
-		if !assert.NoError(t, err) {
-			return
-		}
+		pool := schemaPool(t, ctx, cfg)
 		defer pool.Close()
 
 		var colCount int

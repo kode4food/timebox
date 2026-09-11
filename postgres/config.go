@@ -17,7 +17,7 @@ const (
 	DefaultPrefix = "timebox"
 
 	// DefaultMaxConns is the default pgx pool size
-	DefaultMaxConns = 96
+	DefaultMaxConns = 32
 )
 
 var (
@@ -41,27 +41,27 @@ func DefaultConfig() Config {
 }
 
 // With overlays the non-zero values from other onto cfg
-func (cfg Config) With(other Config) Config {
+func (c Config) With(other Config) Config {
 	if other.URL != "" {
-		cfg.URL = other.URL
+		c.URL = other.URL
 	}
 	if other.Prefix != "" {
-		cfg.Prefix = other.Prefix
+		c.Prefix = other.Prefix
 	}
 	if other.MaxConns != 0 {
-		cfg.MaxConns = other.MaxConns
+		c.MaxConns = other.MaxConns
 	}
-	return cfg
+	return c
 }
 
 // Validate reports whether the configuration contains invalid values
-func (cfg Config) Validate() error {
+func (c Config) Validate() error {
 	switch {
-	case cfg.URL == "":
+	case c.URL == "":
 		return ErrURLRequired
-	case cfg.Prefix == "":
+	case c.Prefix == "":
 		return ErrPrefixRequired
-	case cfg.MaxConns <= 0:
+	case c.MaxConns <= 0:
 		return ErrInvalidMaxConns
 	}
 	return nil
