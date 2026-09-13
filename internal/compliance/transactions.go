@@ -97,6 +97,25 @@ func runTransactions(t *testing.T, p Profile) {
 		assertEvents(t, store, id, 0)
 	})
 
+	t.Run("ConflictOrder", func(t *testing.T) {
+		backend, _ := openBackend(t, p, timebox.Config{})
+		first := timebox.NewAggregateID("tx", "z")
+		second := timebox.NewAggregateID("tx", "a")
+		reqs := []timebox.AppendRequest{
+			{ID: first, ExpectedSequence: 1},
+			{ID: second, ExpectedSequence: 1},
+		}
+
+		var conflict *timebox.VersionConflictError
+		if assert.ErrorAs(t, backend.Append(reqs...), &conflict) {
+			assert.Equal(t, first, conflict.ID)
+		}
+		assert.Equal(t, first, reqs[0].ID)
+		ids, err := backend.ListAggregates("tx")
+		assert.NoError(t, err)
+		assert.Empty(t, ids)
+	})
+
 	t.Run("RollsBack", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		exec := store.Executor(newCounter, counterAppliers)

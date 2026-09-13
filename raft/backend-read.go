@@ -124,17 +124,16 @@ func (b *Backend) checkConflict(
 	id timebox.AggregateID, expected int64,
 ) error {
 	encodedID := encodeAggregateID(id)
-	var conflict error
-	err := b.db.View(func(tx *kvTx) error {
+	return b.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
-		meta, ok, err := loadMetaTx(b, encodedID)
-		if err != nil || !ok {
+		meta, err := loadOrCreateMetaTx(b, encodedID)
+		if err != nil {
 			return err
 		}
 		if expected == meta.CurrentSequence {
 			return nil
 		}
-		vc := &timebox.VersionConflictError{
+		conflict := &timebox.VersionConflictError{
 			ID:               id,
 			ExpectedSequence: expected,
 			ActualSequence:   meta.CurrentSequence,
@@ -145,13 +144,8 @@ func (b *Backend) checkConflict(
 			if err != nil {
 				return err
 			}
-			vc.NewEvents = evs
+			conflict.NewEvents = evs
 		}
-		conflict = vc
-		return nil
+		return conflict
 	})
-	if err != nil {
-		return err
-	}
-	return conflict
 }
