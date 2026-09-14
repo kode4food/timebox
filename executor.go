@@ -12,7 +12,7 @@ type (
 	Executor[T any] struct {
 		store     *Store
 		appliers  Appliers[T]
-		construct constructor[T]
+		construct Constructor[T]
 		cache     *cache[*projection[T]]
 		success   []SuccessAction[T]
 	}
@@ -20,6 +20,9 @@ type (
 	// Command is user code that inspects state and raises events on an
 	// Aggregator. Returning an error aborts the operation
 	Command[T any] func(T, *Aggregator[T]) error
+
+	// Constructors instantiate initial aggregate state
+	Constructor[T any] func() T
 
 	projection[T any] struct {
 		state   T
@@ -36,7 +39,7 @@ var (
 // Executor constructs an Executor bound to a Store with the given appliers
 // and state constructor
 func (s *Store) Executor[T any](
-	cons constructor[T], apps Appliers[T], onSuccess ...SuccessAction[T],
+	cons Constructor[T], apps Appliers[T], onSuccess ...SuccessAction[T],
 ) *Executor[T] {
 	return &Executor[T]{
 		store:     s,
@@ -45,17 +48,6 @@ func (s *Store) Executor[T any](
 		cache:     newCache[*projection[T]](s.config.CacheSize),
 		success:   onSuccess,
 	}
-}
-
-// GetStore exposes the Store used by the Executor
-func (e *Executor[T]) GetStore() *Store {
-	return e.store
-}
-
-// AppliesEvent reports whether the executor has an applier for the event type
-func (e *Executor[T]) AppliesEvent(ev *Event) bool {
-	_, ok := e.appliers[ev.Type]
-	return ok
 }
 
 // Exec loads the aggregate state, executes the command, and persists raised

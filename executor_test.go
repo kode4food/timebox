@@ -181,8 +181,6 @@ func TestRaiseMarksCommittedEvents(t *testing.T) {
 func TestConflictRetry(t *testing.T) {
 	store, executor := setupTestExecutor(t)
 
-	assert.Equal(t, store, executor.GetStore())
-
 	id := timebox.NewAggregateID("counter", "conflict")
 
 	injected := false
@@ -209,14 +207,6 @@ func TestConflictRetry(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 2, state.Value)
-
-	_, err = executor.Exec(id,
-		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
-			assert.Equal(t, id, ag.ID())
-			return nil
-		},
-	)
-	assert.NoError(t, err)
 }
 
 func TestMaxRetriesOverride(t *testing.T) {
@@ -357,24 +347,6 @@ func TestNoOpCommand(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, state.Value)
-}
-
-func TestAppliesEvent(t *testing.T) {
-	_, executor := setupTestExecutor(t)
-
-	// Test with event types that have appliers
-	incremented := &timebox.Event{Type: EventIncremented}
-	assert.True(t, executor.AppliesEvent(incremented))
-
-	decremented := &timebox.Event{Type: EventDecremented}
-	assert.True(t, executor.AppliesEvent(decremented))
-
-	reset := &timebox.Event{Type: EventReset}
-	assert.True(t, executor.AppliesEvent(reset))
-
-	// Test with event type that does not have an applier
-	unknown := &timebox.Event{Type: "unknown_event"}
-	assert.False(t, executor.AppliesEvent(unknown))
 }
 
 func TestGet(t *testing.T) {

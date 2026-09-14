@@ -11,8 +11,6 @@ type (
 		cache *lru.Cache[*cacheEntry[T]]
 	}
 
-	constructor[T any] func() T
-
 	cacheEntry[T any] struct {
 		value T
 		key   string
@@ -26,7 +24,7 @@ func newCache[T any](maxSize int) *cache[T] {
 	}
 }
 
-func (c *cache[T]) Get(key string, cons constructor[T]) *cacheEntry[T] {
+func (c *cache[T]) Get(key string, cons Constructor[T]) *cacheEntry[T] {
 	entry, _ := c.cache.Get(key, func() (*cacheEntry[T], error) {
 		return &cacheEntry[T]{key: key, value: cons()}, nil
 	})
