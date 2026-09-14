@@ -4,6 +4,8 @@
 
 Timebox is a small, opinionated event sourcing library for Go with pluggable persistence backends including memory, Redis/Valkey, PostgreSQL, and Raft. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
 
+See the [documentation](https://kode4food.github.io/timebox/) for usage guides and production patterns.
+
 ## Backends
 
 Timebox currently ships with:
@@ -68,10 +70,7 @@ store, err := backend.NewStore(timebox.Config{
 
 `NewStore` accepts any number of `timebox.Config` values, overlaid on the defaults in order. One Backend opens as many Stores as an application needs, each with its own configuration, over the same underlying storage. Memory, Redis, and Raft use the same construction pattern.
 
-Snapshotting is available in two ways:
-
-- explicit saves through `Executor.SaveSnapshot(id)` or `Store.PutSnapshot(id, value, sequence)`
-- opportunistic executor saves while loading aggregates when no snapshot exists yet or when trailing event data grows past `SnapshotRatio`
+Executors save snapshots automatically while loading aggregates when no snapshot exists yet or when trailing event data grows past `SnapshotRatio`.
 
 ## Transactions
 

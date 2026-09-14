@@ -1,0 +1,49 @@
+@import "plugins/themes";
+
+@mixin theme-timebox-auto {
+  --body-background: #ffffff;
+  --body-background-tint: none;
+  --body-font-color: #2c2927;
+  --color-link: #9e3f00;
+  --color-visited-link: #6f4a33;
+  --icon-filter: none;
+  --gray-100: #f7f6f5;
+  --gray-200: #e4e0dd;
+  --gray-500: #81766f;
+
+  @include accent("default", #81766f);
+  @include accent("note", #c45d17);
+  @include accent("tip", #3f7d4b);
+  @include accent("important", #9e3f00);
+  @include accent("warning", #b86e00);
+  @include accent("caution", #b23a32);
+  @include accent("info", #c45d17);
+  @include accent("success", #3f7d4b);
+  @include accent("danger", #b23a32);
+
+  @media (prefers-color-scheme: dark) {
+    --body-background: #1c1c1c;
+    --body-font-color: #e9e6e3;
+    --color-link: #ffad72;
+    --color-visited-link: #efc59e;
+    --icon-filter: brightness(0) invert(1);
+    --gray-100: #292827;
+    --gray-200: #44403d;
+    --gray-500: #9d9188;
+
+    @include accent("default", #9d9188);
+    @include accent("note", #ffab70);
+    @include accent("tip", #8fbd91);
+    @include accent("important", #ffd092);
+    @include accent("warning", #e3ad62);
+    @include accent("caution", #df8178);
+    @include accent("info", #ffab70);
+    @include accent("success", #8fbd91);
+    @include accent("danger", #df8178);
+  }
+}
+
+.book-brand img {
+  width: auto;
+  height: 2.5rem;
+}

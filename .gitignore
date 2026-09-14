@@ -38,3 +38,8 @@ Thumbs.db
 examples/order
 
 .toe
+
+# Hugo
+docs/.hugo_build.lock
+docs/public/
+docs/resources/
