@@ -1,12 +1,17 @@
 package postgres
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/kode4food/timebox"
+)
 
 // Config configures a Postgres Backend
 type Config struct {
-	URL      string
-	Prefix   string
-	MaxConns int32
+	URL       string
+	Prefix    string
+	MaxConns  int32
+	Publisher timebox.Publisher
 }
 
 const (
@@ -50,6 +55,9 @@ func (c Config) With(other Config) Config {
 	}
 	if other.MaxConns != 0 {
 		c.MaxConns = other.MaxConns
+	}
+	if other.Publisher != nil {
+		c.Publisher = other.Publisher
 	}
 	return c
 }

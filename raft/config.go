@@ -21,14 +21,10 @@ type (
 		LogTailSize int
 
 		// Cluster identity
-		Address string
-		Servers []Server
-
-		Publisher Publisher
+		Address   string
+		Servers   []Server
+		Publisher timebox.Publisher
 	}
-
-	// Publisher reports committed events after they are durably applied
-	Publisher func(...*timebox.Event)
 
 	// Server identifies one voter in the bootstrap configuration
 	Server struct {

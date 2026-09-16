@@ -146,7 +146,11 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if err != nil {
 		return err
 	}
-	return appendConflict(reqs, result)
+	if err := appendConflict(reqs, result); err != nil {
+		return err
+	}
+	b.cfg.Publisher.PublishAppends(reqs...)
+	return nil
 }
 
 // LoadEvents loads events starting at fromSeq

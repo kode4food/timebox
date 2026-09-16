@@ -7,6 +7,7 @@ func Run(t *testing.T, p Profile) {
 
 	t.Run("Lifecycle", func(t *testing.T) { runLifecycle(t, p) })
 	t.Run("Events", func(t *testing.T) { runEvents(t, p) })
+	t.Run("Publisher", func(t *testing.T) { runPublisher(t, p) })
 	t.Run("Aggregates", func(t *testing.T) { runAggregates(t, p) })
 	t.Run("Indexing", func(t *testing.T) { runIndexing(t, p) })
 	t.Run("Snapshots", func(t *testing.T) { runSnapshots(t, p) })

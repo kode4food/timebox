@@ -34,7 +34,7 @@ type (
 		dataDir    string
 		indexer    timebox.Indexer
 		trimEvents bool
-		publisher  raft.Publisher
+		publisher  timebox.Publisher
 	}
 )
 
@@ -432,10 +432,10 @@ func waitForWrite(t *testing.T, store *timebox.Store) {
 
 func testRaftConfig(cfg nodeConfig) raft.Config {
 	return raft.Config{
+		Publisher: cfg.publisher,
 		LocalID:   cfg.id,
 		DataDir:   cfg.dataDir,
 		Address:   cfg.addr,
-		Publisher: cfg.publisher,
 	}
 }
 

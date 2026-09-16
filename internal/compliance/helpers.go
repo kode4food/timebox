@@ -18,7 +18,9 @@ type (
 	}
 
 	// Opener opens a backend and a Store bound to it
-	Opener func(*testing.T, timebox.Config) (timebox.Backend, *timebox.Store)
+	Opener func(
+		*testing.T, timebox.Config, timebox.Publisher,
+	) (timebox.Backend, *timebox.Store)
 
 	indexData struct {
 		Value  int             `json:"value"`
@@ -32,16 +34,16 @@ const readyTimeout = 15 * time.Second
 func openStore(t *testing.T, p Profile, cfg timebox.Config) *timebox.Store {
 	t.Helper()
 
-	_, store := openBackend(t, p, cfg)
+	_, store := openBackend(t, p, cfg, nil)
 	return store
 }
 
 func openBackend(
-	t *testing.T, p Profile, cfg timebox.Config,
+	t *testing.T, p Profile, cfg timebox.Config, pub timebox.Publisher,
 ) (timebox.Backend, *timebox.Store) {
 	t.Helper()
 
-	backend, store := p.Open(t, cfg)
+	backend, store := p.Open(t, cfg, pub)
 	if !assert.NotNil(t, store) {
 		t.FailNow()
 	}

@@ -80,7 +80,7 @@ func runTransactions(t *testing.T, p Profile) {
 	})
 
 	t.Run("DuplicateAggregate", func(t *testing.T) {
-		backend, store := openBackend(t, p, timebox.Config{})
+		backend, store := openBackend(t, p, timebox.Config{}, nil)
 		id := timebox.NewAggregateID("tx", "duplicate")
 		req := timebox.AppendRequest{
 			ID: id,
@@ -98,7 +98,7 @@ func runTransactions(t *testing.T, p Profile) {
 	})
 
 	t.Run("ConflictOrder", func(t *testing.T) {
-		backend, _ := openBackend(t, p, timebox.Config{})
+		backend, _ := openBackend(t, p, timebox.Config{}, nil)
 		first := timebox.NewAggregateID("tx", "z")
 		second := timebox.NewAggregateID("tx", "a")
 		reqs := []timebox.AppendRequest{

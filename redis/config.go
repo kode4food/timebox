@@ -4,15 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/kode4food/timebox"
 )
 
 // Config configures a Redis Backend
 type Config struct {
-	Addr     string
-	Password string
-	Prefix   string
-	Shard    string
-	DB       int
+	Addr      string
+	Password  string
+	Prefix    string
+	Shard     string
+	DB        int
+	Publisher timebox.Publisher
 }
 
 const (
@@ -59,6 +62,9 @@ func (cfg Config) With(other Config) Config {
 	}
 	if other.DB != 0 {
 		cfg.DB = other.DB
+	}
+	if other.Publisher != nil {
+		cfg.Publisher = other.Publisher
 	}
 	return cfg
 }

@@ -44,7 +44,11 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if err := b.appendAll(ctx, tx, reqs); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	b.publisher.PublishAppends(reqs...)
+	return nil
 }
 
 // Lock in key order, but append in request order to report the first conflict

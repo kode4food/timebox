@@ -333,7 +333,7 @@ func TestCommittedPublisher(t *testing.T) {
 	var mu sync.Mutex
 	got := map[string][]*timebox.Event{}
 
-	record := func(node string) raft.Publisher {
+	record := func(node string) timebox.Publisher {
 		return func(evs ...*timebox.Event) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -479,7 +479,7 @@ func TestLogJoinPublish(t *testing.T) {
 	var mu sync.Mutex
 	got := map[string][]*timebox.Event{}
 
-	record := func(node string) raft.Publisher {
+	record := func(node string) timebox.Publisher {
 		return func(evs ...*timebox.Event) {
 			mu.Lock()
 			defer mu.Unlock()

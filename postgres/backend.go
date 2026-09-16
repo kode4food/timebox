@@ -19,7 +19,8 @@ type (
 	// Backend implements timebox.Backend using Postgres
 	Backend struct {
 		timebox.AlwaysReady
-		pool *pgxpool.Pool
+		pool      *pgxpool.Pool
+		publisher timebox.Publisher
 	}
 
 	// querier is the query surface shared by pgxpool.Pool and pgx.Tx, so one
@@ -96,7 +97,7 @@ func newBackend(cfg Config) (*Backend, error) {
 		return nil, err
 	}
 
-	return &Backend{pool: pool}, nil
+	return &Backend{pool: pool, publisher: cfg.Publisher}, nil
 }
 
 // Close closes the Postgres connection pool

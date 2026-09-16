@@ -26,13 +26,14 @@ func TestStore(t *testing.T) {
 	compliance.Run(t, compliance.Profile{
 		Archive: true,
 		Open: func(
-			t *testing.T, cfg timebox.Config,
+			t *testing.T, cfg timebox.Config, pub timebox.Publisher,
 		) (timebox.Backend, *timebox.Store) {
 			t.Helper()
 
 			pCfg := tbredis.DefaultConfig()
 			pCfg.Addr = server.Addr()
 			pCfg.Prefix = suitePrefix(t)
+			pCfg.Publisher = pub
 
 			b, err := tbredis.Open(pCfg)
 			if !assert.NoError(t, err) {

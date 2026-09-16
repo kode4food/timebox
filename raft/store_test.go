@@ -14,7 +14,7 @@ func TestStore(t *testing.T) {
 	compliance.Run(t, compliance.Profile{
 		Archive: true,
 		Open: func(
-			t *testing.T, cfg timebox.Config,
+			t *testing.T, cfg timebox.Config, pub timebox.Publisher,
 		) (timebox.Backend, *timebox.Store) {
 			t.Helper()
 
@@ -23,6 +23,7 @@ func TestStore(t *testing.T) {
 				addr:    freeAddr(t),
 				dataDir: t.TempDir(),
 			})
+			pCfg.Publisher = pub
 
 			p, err := raft.Open(pCfg)
 			if !assert.NoError(t, err) {

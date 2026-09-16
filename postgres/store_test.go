@@ -18,12 +18,13 @@ func TestStore(t *testing.T) {
 	withTestDatabase(t, func(_ context.Context, cfg postgres.Config) {
 		compliance.Run(t, compliance.Profile{
 			Open: func(
-				t *testing.T, tc timebox.Config,
+				t *testing.T, tc timebox.Config, pub timebox.Publisher,
 			) (timebox.Backend, *timebox.Store) {
 				t.Helper()
 
 				pCfg := cfg
 				pCfg.Prefix = storeSuitePrefix(t)
+				pCfg.Publisher = pub
 				b, err := postgres.Open(pCfg)
 				if !assert.NoError(t, err) {
 					t.FailNow()

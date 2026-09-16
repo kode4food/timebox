@@ -17,6 +17,7 @@ type (
 	Backend struct {
 		timebox.AlwaysReady
 
+		publisher timebox.Publisher
 		closed    bool
 		nextID    int64
 		aggs      map[timebox.AggregateID]*aggregate
@@ -37,6 +38,11 @@ type (
 		statusAt time.Time
 		tags     map[string]bool
 	}
+
+	// Config configures a memory Backend
+	Config struct {
+		Publisher timebox.Publisher
+	}
 )
 
 var (
@@ -47,8 +53,13 @@ var (
 var _ timebox.Backend = (*Backend)(nil)
 
 // Open opens a new in-memory Backend
-func Open() *Backend {
+func Open(cfgs ...Config) *Backend {
+	var cfg Config
+	if len(cfgs) > 0 {
+		cfg = cfgs[len(cfgs)-1]
+	}
 	return &Backend{
+		publisher: cfg.Publisher,
 		aggs:      map[timebox.AggregateID]*aggregate{},
 		archive:   []*timebox.ArchiveRecord{},
 		archiveCh: make(chan struct{}, 1),
@@ -72,23 +83,10 @@ func (b *Backend) Close() error {
 
 // Append appends every request's events if each expected sequence matches
 func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if err := b.checkClosed(); err != nil {
+	if err := b.append(reqs); err != nil {
 		return err
 	}
-	if err := check.Distinct(reqs); err != nil {
-		return err
-	}
-	for _, req := range reqs {
-		if err := b.checkSequence(req); err != nil {
-			return err
-		}
-	}
-	for _, req := range reqs {
-		b.applyAppend(req)
-	}
+	b.publisher.PublishAppends(reqs...)
 	return nil
 }
 
@@ -320,6 +318,27 @@ func (b *Backend) ConsumeArchive(
 		case <-b.archiveCh:
 		}
 	}
+}
+
+func (b *Backend) append(reqs []timebox.AppendRequest) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.checkClosed(); err != nil {
+		return err
+	}
+	if err := check.Distinct(reqs); err != nil {
+		return err
+	}
+	for _, req := range reqs {
+		if err := b.checkSequence(req); err != nil {
+			return err
+		}
+	}
+	for _, req := range reqs {
+		b.applyAppend(req)
+	}
+	return nil
 }
 
 func (b *Backend) checkSequence(req timebox.AppendRequest) error {

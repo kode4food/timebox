@@ -17,7 +17,7 @@ func runLifecycle(t *testing.T, p Profile) {
 	t.Run("Closed", func(t *testing.T) {
 		backend, store := openBackend(t, p, timebox.Config{
 			Indexer: newIndexer(t),
-		})
+		}, nil)
 		id := timebox.NewAggregateID("order", "closed")
 		ev := testEvent(t,
 			time.Unix(1_700_000_021, 0).UTC(),

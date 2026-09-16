@@ -33,6 +33,9 @@ type (
 		SaveSnapshot(SnapshotRequest) error
 	}
 
+	// Publisher reports committed events
+	Publisher func(...*Event)
+
 	// Queries provides aggregate and index query operations
 	Queries interface {
 		// ListAggregates lists aggregate IDs of the provided type, or of
@@ -154,3 +157,17 @@ var (
 	// ErrDuplicateAggregate indicates one append names an aggregate twice
 	ErrDuplicateAggregate = errors.New("aggregate appended twice")
 )
+
+// PublishAppends publishes the requests' events as one batch
+func (p Publisher) PublishAppends(reqs ...AppendRequest) {
+	if p == nil {
+		return
+	}
+	var evs []*Event
+	for _, req := range reqs {
+		evs = append(evs, req.Events...)
+	}
+	if len(evs) > 0 {
+		p(evs...)
+	}
+}
