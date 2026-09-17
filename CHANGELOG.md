@@ -2,6 +2,26 @@
 
 Notable changes to Timebox.
 
+## 0.2
+
+### Event sourcing
+
+- Committed-event publishing for every backend through `timebox.Publisher`
+- Exported `Constructor` type for executor state constructors
+
+### Persistence
+
+- Memory backend accepts an optional `Config`
+- `raft.Publisher` replaced by `timebox.Publisher`
+
+### Removed
+
+- `Executor.GetStore` and `Executor.AppliesEvent`
+
+### Documentation
+
+- Documentation site with guides and a runnable tutorial example
+
 ## 0.1
 
 First public release.
