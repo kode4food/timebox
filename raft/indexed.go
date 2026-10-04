@@ -67,6 +67,36 @@ func (b *Backend) ListAggregatesByStatus(
 	return res, nil
 }
 
+// ListAggregatesByStatusPrefix lists matching aggregates for a status
+func (b *Backend) ListAggregatesByStatusPrefix(
+	req timebox.StatusPrefixRequest,
+) ([]timebox.AggregateID, error) {
+	var res []timebox.AggregateID
+
+	err := b.db.View(func(tx *kvTx) error {
+		b := tx.Bucket(bucketName)
+		c := b.Cursor()
+		defer func() { _ = c.Close() }()
+		pfx := append(
+			statusIndexPrefix(req.Status),
+			[]byte(encodeAggregateType(req.Type))...,
+		)
+		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
+			parts := strings.Split(string(k), "/")
+			id, err := decodeAggregateID(parts[len(parts)-1])
+			if err != nil {
+				return err
+			}
+			if strings.HasPrefix(string(id.Key), string(req.Prefix)) {
+				res = append(res, id)
+			}
+			k, _ = c.Next()
+		}
+		return nil
+	})
+	return res, err
+}
+
 // ListAggregatesByTag lists aggregates currently indexed by tag
 func (b *Backend) ListAggregatesByTag(
 	tag string,

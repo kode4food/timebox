@@ -82,7 +82,7 @@ func (e *Executor[T]) SaveSnapshot(id AggregateID) error {
 	if err != nil {
 		return err
 	}
-	return e.store.PutSnapshot(id, state, seq)
+	return e.store.putSnapshot(id, state, seq)
 }
 
 // complete refreshes the cached projection and runs success actions once the
@@ -121,6 +121,21 @@ func (e *Executor[T]) loadSnapshot(id AggregateID) (*projection[T], error) {
 	return e.loadFromStore(id, entry)
 }
 
+func (e *Executor[T]) loadState(id AggregateID) (T, error) {
+	entry := e.cache.Get(cacheKey(id), func() *projection[T] {
+		return &projection[T]{state: e.construct()}
+	})
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	proj, err := e.loadFromStore(id, entry)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return proj.state, nil
+}
+
 func (e *Executor[T]) loadFromStore(
 	id AggregateID, entry *cacheEntry[*projection[T]],
 ) (*projection[T], error) {
@@ -141,7 +156,7 @@ func (e *Executor[T]) loadFromStore(
 	}
 
 	if e.shouldSnapshot(snap) {
-		err := e.store.PutSnapshot(id, proj.state, proj.nextSeq)
+		err := e.store.putSnapshot(id, proj.state, proj.nextSeq)
 		if err != nil {
 			return nil, err
 		}

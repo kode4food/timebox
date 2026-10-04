@@ -74,12 +74,9 @@ for i = 1, reqCount do
 			redis.call(
 				'HSET', KEYS[r.statusKey], r.aggID, r.newStatus
 			)
-			if old ~= r.newStatus then
-				redis.call(
-					'ZADD', prefix .. r.newStatus,
-					r.statusAt, r.aggID
-				)
-			end
+			redis.call(
+				'ZADD', prefix .. r.newStatus, r.statusAt, r.aggID
+			)
 		else
 			redis.call('HDEL', KEYS[r.statusKey], r.aggID)
 		end

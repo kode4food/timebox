@@ -460,6 +460,12 @@ func (f *fakeBackend) ListAggregatesByStatus(
 	return nil, nil
 }
 
+func (f *fakeBackend) ListAggregatesByStatusPrefix(
+	timebox.StatusPrefixRequest,
+) ([]timebox.AggregateID, error) {
+	return nil, nil
+}
+
 func (f *fakeBackend) ListAggregatesByTag(
 	string,
 ) ([]timebox.AggregateID, error) {

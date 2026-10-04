@@ -12,5 +12,6 @@ func Run(t *testing.T, p Profile) {
 	t.Run("Indexing", func(t *testing.T) { runIndexing(t, p) })
 	t.Run("Snapshots", func(t *testing.T) { runSnapshots(t, p) })
 	t.Run("Transactions", func(t *testing.T) { runTransactions(t, p) })
+	t.Run("Schedules", func(t *testing.T) { runSchedules(t, p) })
 	t.Run("Archive", func(t *testing.T) { runArchive(t, p) })
 }

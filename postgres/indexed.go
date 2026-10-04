@@ -54,6 +54,34 @@ func (b *Backend) ListAggregatesByStatus(
 	return res, rows.Err()
 }
 
+// ListAggregatesByStatusPrefix lists matching aggregates for a status
+func (b *Backend) ListAggregatesByStatusPrefix(
+	req timebox.StatusPrefixRequest,
+) ([]timebox.AggregateID, error) {
+	rows, err := b.pool.Query(
+		context.Background(), sqlListByStatusPrefix,
+		req.Status, req.Type, req.Prefix,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var res []timebox.AggregateID
+	for rows.Next() {
+		var parts []string
+		if err := rows.Scan(&parts); err != nil {
+			return nil, err
+		}
+		aggID, err := aggregateID(parts)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, aggID)
+	}
+	return res, rows.Err()
+}
+
 // ListAggregatesByTag lists aggregates for a tag
 func (b *Backend) ListAggregatesByTag(
 	tag string,

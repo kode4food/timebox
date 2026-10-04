@@ -12,8 +12,9 @@ type (
 	// Store persists, queries, and snapshots aggregate events
 	Store struct {
 		Queries
-		backend Backend
-		config  Config
+		backend  Backend
+		schedule *Executor[scheduleState]
+		config   Config
 	}
 
 	// VersionConflictError is returned when AppendEvents encounters a sequence
@@ -41,11 +42,13 @@ func NewStore(b Backend, cfgs ...Config) (*Store, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return &Store{
+	s := &Store{
 		Queries: b,
 		backend: b,
 		config:  cfg,
-	}, nil
+	}
+	s.schedule = s.Executor(newScheduleState, scheduleAppliers)
+	return s, nil
 }
 
 // Config returns the Store configuration
@@ -125,16 +128,7 @@ func (s *Store) GetSnapshot(
 // PutSnapshot saves a snapshot value and sequence if the provided sequence is
 // newer than any stored snapshot
 func (s *Store) PutSnapshot(id AggregateID, value any, sequence int64) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	return s.backend.SaveSnapshot(SnapshotRequest{
-		ID:         id,
-		Data:       data,
-		Sequence:   sequence,
-		TrimEvents: s.config.TrimEvents,
-	})
+	return s.putSnapshot(id, value, sequence)
 }
 
 // Archive moves aggregate artifacts to persistent archive storage
@@ -162,6 +156,19 @@ func (e *VersionConflictError) Error() string {
 		"version conflict: expected sequence %d, but at %d (%d new events)",
 		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
 	)
+}
+
+func (s *Store) putSnapshot(id AggregateID, value any, sequence int64) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return s.backend.SaveSnapshot(SnapshotRequest{
+		ID:         id,
+		Data:       data,
+		Sequence:   sequence,
+		TrimEvents: s.config.TrimEvents,
+	})
 }
 
 // appendRequest sequences the events and derives the index metadata an append

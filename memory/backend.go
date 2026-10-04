@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -229,6 +230,28 @@ func (b *Backend) ListAggregatesByStatus(
 	sort.Slice(res, func(i, j int) bool {
 		return res[i].Timestamp.Before(res[j].Timestamp)
 	})
+	return res, nil
+}
+
+// ListAggregatesByStatusPrefix lists matching aggregates for a status
+func (b *Backend) ListAggregatesByStatusPrefix(
+	req timebox.StatusPrefixRequest,
+) ([]timebox.AggregateID, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if err := b.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	var res []timebox.AggregateID
+	for _, a := range b.aggs {
+		if a.status != req.Status || a.id.Type != req.Type ||
+			!strings.HasPrefix(string(a.id.Key), string(req.Prefix)) {
+			continue
+		}
+		res = append(res, a.id)
+	}
 	return res, nil
 }
 

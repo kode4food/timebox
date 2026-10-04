@@ -48,6 +48,10 @@ type (
 		// ListAggregatesByStatus lists aggregates currently indexed by status
 		ListAggregatesByStatus(status string) ([]StatusEntry, error)
 
+		// ListAggregatesByStatusPrefix lists aggregate IDs with the provided
+		// status, type, and key prefix
+		ListAggregatesByStatusPrefix(StatusPrefixRequest) ([]AggregateID, error)
+
 		// ListAggregatesByTag lists aggregates currently indexed by tag
 		ListAggregatesByTag(tag string) ([]AggregateID, error)
 	}
@@ -107,6 +111,13 @@ type (
 		Data       []byte
 		Sequence   int64
 		TrimEvents bool
+	}
+
+	// StatusPrefixRequest selects aggregates by status, type, and key prefix
+	StatusPrefixRequest struct {
+		Status string
+		Type   ID
+		Prefix ID
 	}
 
 	// Index stores optional projection metadata derived from an event

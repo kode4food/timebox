@@ -1,0 +1,288 @@
+package timebox
+
+import (
+	"errors"
+	"fmt"
+	"time"
+)
+
+type (
+	// Schedule is one durable deferred event and its delivery metadata
+	Schedule struct {
+		Event   *Event
+		At      time.Time
+		Key     ScheduleKey
+		Version ScheduleVersion
+	}
+
+	// ScheduleVersionConflictError indicates a stale schedule incarnation
+	ScheduleVersionConflictError struct {
+		Key             ScheduleKey
+		ExpectedVersion ScheduleVersion
+	}
+
+	// ScheduleKey identifies one replaceable deferred event
+	ScheduleKey string
+
+	// ScheduleVersion identifies one incarnation within a schedule aggregate
+	ScheduleVersion int64
+
+	scheduleState struct {
+		Active *Schedule `json:"active,omitempty"`
+	}
+)
+
+const (
+	// ScheduleAggregateType identifies Timebox's internal schedule streams
+	ScheduleAggregateType ID = "_tb.sched_"
+
+	// ScheduleChanged records creation or replacement of a deferred event
+	ScheduleChanged EventType = "_tb.sched.changed"
+
+	// ScheduleCanceled records cancellation of a deferred event
+	ScheduleCanceled EventType = "_tb.sched.canceled"
+
+	// ScheduleConsumed records handling of a deferred event
+	ScheduleConsumed EventType = "_tb.sched.consumed"
+
+	scheduleActiveStatus = "_tb.sched.active"
+)
+
+var (
+	// ErrScheduleKeyRequired indicates a schedule key was empty
+	ErrScheduleKeyRequired = errors.New("schedule key is required")
+
+	// ErrScheduleEventRequired indicates a schedule has no deferred event
+	ErrScheduleEventRequired = errors.New("schedule event is required")
+
+	// ErrScheduleEventTypeRequired indicates a deferred event type was empty
+	ErrScheduleEventTypeRequired = errors.New("schedule event type is required")
+)
+
+var scheduleAppliers = Appliers[scheduleState]{
+	ScheduleChanged:  applyScheduleChanged,
+	ScheduleCanceled: clearSchedule,
+	ScheduleConsumed: clearSchedule,
+}
+
+// Schedule creates or replaces a durable deferred event
+func (t *Transaction) Schedule(
+	key ScheduleKey, at time.Time, event *Event,
+) error {
+	if err := validateSchedule(key, event); err != nil {
+		return err
+	}
+	id := makeScheduleID(key)
+	_, err := t.Exec(t.store.schedule, id,
+		func(_ scheduleState, ag *Aggregator[scheduleState]) error {
+			ver := ScheduleVersion(ag.NextSequence())
+			return ag.Raise(ScheduleChanged, &Schedule{
+				Event:   cloneScheduleEvent(event),
+				At:      at.UTC(),
+				Key:     key,
+				Version: ver,
+			})
+		},
+	)
+	if err != nil {
+		return err
+	}
+	t.setScheduleStatus(id, scheduleActiveStatus, at)
+	return nil
+}
+
+// CancelSchedule removes the current schedule for a key
+func (t *Transaction) CancelSchedule(key ScheduleKey) error {
+	if key == "" {
+		return ErrScheduleKeyRequired
+	}
+	id := makeScheduleID(key)
+	changed := false
+	_, err := t.Exec(t.store.schedule, id,
+		func(st scheduleState, ag *Aggregator[scheduleState]) error {
+			if st.Active == nil {
+				return nil
+			}
+			changed = true
+			return ag.Raise(ScheduleCanceled, st.Active.Version)
+		},
+	)
+	if err != nil || !changed {
+		return err
+	}
+	t.setScheduleStatus(id, "", time.Time{})
+	return nil
+}
+
+// CancelSchedulePrefix removes active schedules whose keys share prefix
+func (t *Transaction) CancelSchedulePrefix(prefix ScheduleKey) error {
+	if prefix == "" {
+		return ErrScheduleKeyRequired
+	}
+	ids, err := t.store.backend.ListAggregatesByStatusPrefix(
+		StatusPrefixRequest{
+			Status: scheduleActiveStatus,
+			Type:   ScheduleAggregateType,
+			Prefix: ID(prefix),
+		},
+	)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := t.CancelSchedule(ScheduleKey(id.Key)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ConsumeSchedule conditionally removes one observed schedule incarnation
+func (t *Transaction) ConsumeSchedule(
+	key ScheduleKey, version ScheduleVersion,
+) error {
+	if key == "" {
+		return ErrScheduleKeyRequired
+	}
+	id := makeScheduleID(key)
+	_, err := t.Exec(t.store.schedule, id,
+		func(st scheduleState, ag *Aggregator[scheduleState]) error {
+			if st.Active == nil || st.Active.Version != version {
+				return &ScheduleVersionConflictError{
+					Key:             key,
+					ExpectedVersion: version,
+				}
+			}
+			return ag.Raise(ScheduleConsumed, version)
+		},
+	)
+	if err != nil {
+		return err
+	}
+	t.setScheduleStatus(id, "", time.Time{})
+	return nil
+}
+
+// LoadSchedule loads the active schedule for a key
+func (s *Store) LoadSchedule(key ScheduleKey) (*Schedule, error) {
+	if key == "" {
+		return nil, ErrScheduleKeyRequired
+	}
+	st, err := s.schedule.loadState(makeScheduleID(key))
+	if err != nil {
+		return nil, err
+	}
+	if st.Active == nil {
+		return nil, nil
+	}
+	return cloneSchedule(st.Active), nil
+}
+
+// ListSchedules lists active schedules through the provided time, or all
+// schedules when through is zero
+func (s *Store) ListSchedules(through time.Time) ([]*Schedule, error) {
+	entries, err := s.backend.ListAggregatesByStatus(scheduleActiveStatus)
+	if err != nil {
+		return nil, err
+	}
+	if !through.IsZero() {
+		through = through.UTC()
+		selected := entries[:0]
+		for _, entry := range entries {
+			if !entry.Timestamp.After(through) {
+				selected = append(selected, entry)
+			}
+		}
+		entries = selected
+	}
+	res := make([]*Schedule, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ID.Type != ScheduleAggregateType {
+			continue
+		}
+		st, err := s.schedule.loadState(entry.ID)
+		if err != nil {
+			return nil, err
+		}
+		if st.Active == nil {
+			continue
+		}
+		res = append(res, cloneSchedule(st.Active))
+	}
+	return res, nil
+}
+
+// Error describes a stale schedule incarnation
+func (s *ScheduleVersionConflictError) Error() string {
+	return fmt.Sprintf("schedule version conflict for %q: expected %d",
+		s.Key, s.ExpectedVersion)
+}
+
+func (t *Transaction) setScheduleStatus(
+	id AggregateID, status string, at time.Time,
+) {
+	p := t.parts[id]
+	p.request.Status = &status
+	p.request.StatusAt = at.UTC()
+}
+
+func newScheduleState() scheduleState {
+	return scheduleState{}
+}
+
+func applyScheduleChanged(st scheduleState, ev *Event) scheduleState {
+	schedule, err := ev.GetValue[*Schedule]()
+	if err != nil {
+		return st
+	}
+	st.Active = cloneSchedule(schedule)
+	return st
+}
+
+func clearSchedule(st scheduleState, _ *Event) scheduleState {
+	st.Active = nil
+	return st
+}
+
+func makeScheduleID(key ScheduleKey) AggregateID {
+	return NewAggregateID(ScheduleAggregateType, ID(key))
+}
+
+func validateSchedule(key ScheduleKey, event *Event) error {
+	if key == "" {
+		return ErrScheduleKeyRequired
+	}
+	if event == nil {
+		return ErrScheduleEventRequired
+	}
+	if event.Type == "" {
+		return ErrScheduleEventTypeRequired
+	}
+	if event.AggregateID.Type == "" || event.AggregateID.Key == "" {
+		return fmt.Errorf("%w: schedule event", ErrInvalidAggregateID)
+	}
+	return nil
+}
+
+func cloneSchedule(schedule *Schedule) *Schedule {
+	if schedule == nil {
+		return nil
+	}
+	return &Schedule{
+		Event:   cloneScheduleEvent(schedule.Event),
+		At:      schedule.At,
+		Key:     schedule.Key,
+		Version: schedule.Version,
+	}
+}
+
+func cloneScheduleEvent(event *Event) *Event {
+	if event == nil {
+		return nil
+	}
+	return &Event{
+		Type:        event.Type,
+		AggregateID: event.AggregateID,
+		Data:        append([]byte(nil), event.Data...),
+	}
+}

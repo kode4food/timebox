@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -48,6 +49,32 @@ func (b *Backend) ListAggregatesByStatus(
 	return res, nil
 }
 
+// ListAggregatesByStatusPrefix lists matching aggregates for a status
+func (b *Backend) ListAggregatesByStatusPrefix(
+	req timebox.StatusPrefixRequest,
+) ([]timebox.AggregateID, error) {
+	key := b.buildStatusIndexKey(req.Status)
+	prefix := timebox.NewAggregateID(req.Type, req.Prefix)
+	pattern := escapeScanPattern(joinAggregateID(prefix)) + "*"
+	var cursor uint64
+	var res []timebox.AggregateID
+	for {
+		members, next, err := b.client.ZScan(
+			context.Background(), key, cursor, pattern, 128,
+		).Result()
+		if err != nil {
+			return nil, err
+		}
+		for i := 0; i < len(members); i += 2 {
+			res = append(res, parseAggregateID(members[i]))
+		}
+		if next == 0 {
+			return res, nil
+		}
+		cursor = next
+	}
+}
+
 func (b *Backend) ListAggregatesByTag(
 	tag string,
 ) ([]timebox.AggregateID, error) {
@@ -75,4 +102,10 @@ func (b *Backend) buildStatusIndexKey(status string) string {
 
 func (b *Backend) buildTagIndexKey(tag string) string {
 	return fmt.Sprintf("%s:%s:%s", b.prefix, tagSuffix, escapeKeyPart(tag))
+}
+
+func escapeScanPattern(value string) string {
+	return strings.NewReplacer(
+		`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`,
+	).Replace(value)
 }
