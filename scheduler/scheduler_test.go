@@ -254,6 +254,28 @@ func TestCancel(t *testing.T) {
 	assert.ErrorIs(t, <-done, context.Canceled)
 }
 
+func TestCancelStopsDueEmissions(t *testing.T) {
+	store := newStore(t)
+	now := time.Now().Add(-time.Second)
+	scheduleEvent(t, store, "first", now)
+	scheduleEvent(t, store, "second", now)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	var emitted atomic.Int32
+	runner, err := scheduler.New(scheduler.Config{
+		Store: store,
+		Emitter: func(context.Context, *timebox.Schedule) error {
+			emitted.Add(1)
+			cancel()
+			return nil
+		},
+	})
+	assert.NoError(t, err)
+
+	assert.ErrorIs(t, runner.Run(ctx), context.Canceled)
+	assert.Equal(t, int32(1), emitted.Load())
+}
+
 func TestReplace(t *testing.T) {
 	store, peer := newStores(t)
 	scheduleEvent(t, store, "replace", time.Now().Add(time.Hour))

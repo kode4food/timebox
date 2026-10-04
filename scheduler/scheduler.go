@@ -164,16 +164,21 @@ func (s *Scheduler) reconcileSchedules() error {
 
 func (s *Scheduler) emitDue(ctx context.Context) {
 	for {
-		item := s.heap.Peek()
-		if item == nil || item.readyAt.After(s.clock()) {
+		select {
+		case <-ctx.Done():
 			return
-		}
-		item = heap.Pop(s.heap).(*heapItem)
+		default:
+			item := s.heap.Peek()
+			if item == nil || item.readyAt.After(s.clock()) {
+				return
+			}
+			item = heap.Pop(s.heap).(*heapItem)
 
-		if err := s.emit(ctx, item.schedule); err != nil {
-			s.logError(ctx, item.schedule.Key, err)
+			if err := s.emit(ctx, item.schedule); err != nil {
+				s.logError(ctx, item.schedule.Key, err)
+			}
+			s.refreshEmitted(ctx, item)
 		}
-		s.refreshEmitted(ctx, item)
 	}
 }
 
