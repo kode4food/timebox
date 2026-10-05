@@ -26,7 +26,7 @@ This keeps event dispatch and state reconstruction attached to the domain model 
 
 Run domain operations inside `Store.Transact`. A parent aggregate can enlist a child aggregate through the same `Transaction`, so their event batches either both commit or neither does.
 
-Keep transaction functions deterministic because conflicts can rerun them. Register scheduling, publication, and other side effects with `OnSuccess` so they begin only after persistence succeeds.
+Keep transaction functions deterministic because conflicts can rerun them. Add durable schedules with `Transaction.Schedule` inside the transaction so they commit with the aggregate events. Register external effects with `OnSuccess` so they begin only after persistence succeeds.
 
 ## Committed Event Publication
 

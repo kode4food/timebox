@@ -39,7 +39,7 @@ type (
 func TestRecovery(t *testing.T) {
 	store := newStore(t)
 	scheduleEvent(t, store, "recover", time.Now().Add(-time.Second))
-	emitted := make(chan *timebox.Event, 1)
+	emitted := make(chan *timebox.Message, 1)
 	runner, err := scheduler.New(scheduler.Config{
 		Store:          store,
 		RescanInterval: 10 * time.Millisecond,
@@ -51,7 +51,7 @@ func TestRecovery(t *testing.T) {
 				return delivery.Consume(tx)
 			})
 			if err == nil {
-				emitted <- delivery.Event()
+				emitted <- delivery.Message()
 			}
 			return err
 		},
@@ -62,7 +62,7 @@ func TestRecovery(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
 
-	var got *timebox.Event
+	var got *timebox.Message
 	ok := assert.Eventually(t,
 		func() bool {
 			select {
@@ -151,8 +151,8 @@ func TestEarlier(t *testing.T) {
 				return delivery.Consume(tx)
 			})
 			if err == nil {
-				event := delivery.Event()
-				data, dataErr := event.GetValue[payload]()
+				msg := delivery.Message()
+				data, dataErr := msg.GetValue[payload]()
 				if dataErr != nil {
 					return dataErr
 				}
@@ -249,7 +249,7 @@ func TestReschedule(t *testing.T) {
 				}
 				if attempt == 1 {
 					at := time.Now().Add(20 * time.Millisecond)
-					return tx.Schedule("repeat", at, delivery.Event())
+					return tx.Schedule("repeat", at, delivery.Message())
 				}
 				return nil
 			})
@@ -341,14 +341,14 @@ func TestCancelStopsDueEmissions(t *testing.T) {
 func TestReplace(t *testing.T) {
 	store, peer := newStores(t)
 	scheduleEvent(t, store, "replace", time.Now().Add(time.Hour))
-	emitted := make(chan *timebox.Event, 1)
+	emitted := make(chan *timebox.Message, 1)
 	runner, err := scheduler.New(scheduler.Config{
 		Store:          store,
 		RescanInterval: time.Hour,
 		Emitter: func(
 			_ context.Context, delivery *scheduler.Delivery,
 		) error {
-			emitted <- delivery.Event()
+			emitted <- delivery.Message()
 			return nil
 		},
 	})
@@ -361,11 +361,11 @@ func TestReplace(t *testing.T) {
 	assert.NoError(t, peer.Transact(func(tx *timebox.Transaction) error {
 		return tx.Schedule(
 			"replace", time.Now().Add(20*time.Millisecond),
-			newEvent(t, "replacement"),
+			newMessage(t, "replacement"),
 		)
 	}))
 	runner.Wake()
-	var got *timebox.Event
+	var got *timebox.Message
 	ok := assert.Eventually(t,
 		func() bool {
 			select {
@@ -501,18 +501,18 @@ func scheduleEvent(
 	t.Helper()
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule(key, at, newEvent(t, string(key)))
+			return tx.Schedule(key, at, newMessage(t, string(key)))
 		}),
 	)
 }
 
-func newEvent(t *testing.T, value string) *timebox.Event {
+func newMessage(t *testing.T, value string) *timebox.Message {
 	t.Helper()
 	data, err := json.Marshal(payload{Value: value})
 	if !assert.NoError(t, err) {
 		return nil
 	}
-	return &timebox.Event{
+	return &timebox.Message{
 		AggregateID: timebox.NewAggregateID(
 			"schedule-target", timebox.ID(value),
 		),

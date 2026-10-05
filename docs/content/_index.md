@@ -11,6 +11,7 @@ Timebox is a small, opinionated event sourcing library for Go with pluggable per
 - Typed aggregate state and event appliers
 - Automatic retries on optimistic concurrency conflicts
 - Atomic multi-aggregate transactions
+- Durable deferred messages delivered by a scheduler
 - Snapshots and optional event trimming
 - Status and tag indexes updated with the event append
 - Memory, PostgreSQL, Redis/Valkey, and Raft backends
@@ -48,6 +49,8 @@ order, err := orders.Exec(orderID,
 The complete runnable [order example](https://github.com/kode4food/timebox/blob/main/examples/order.go) shows an aggregate lifecycle using Redis.
 
 → [Build the order tutorial]({{< relref "/docs/tutorial" >}})
+
+→ [Schedule a deferred message]({{< relref "/docs/scheduler" >}})
 
 ## Status
 

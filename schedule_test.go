@@ -28,10 +28,10 @@ type (
 	}
 
 	validationCase struct {
-		name  string
-		key   timebox.ScheduleKey
-		event *timebox.Event
-		err   error
+		name    string
+		key     timebox.ScheduleKey
+		message *timebox.Message
+		err     error
 	}
 )
 
@@ -45,30 +45,30 @@ func TestSchedule(t *testing.T) {
 	store, exec := newStore(t)
 	target := timebox.NewAggregateID("counter", "one")
 	at := time.Now().UTC().Add(time.Hour)
-	event := newTargetEvent(t, target, "first")
+	msg := newTargetMessage(t, target, "first")
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
 		if _, err := tx.Exec(exec, target, changeCounter(1)); err != nil {
 			return err
 		}
-		return tx.Schedule("counter/one/expire", at, event)
+		return tx.Schedule("counter/one/expire", at, msg)
 	})
 	assert.NoError(t, err)
 
 	schedule := loadSchedule(t, store, "counter/one/expire")
 	assert.Equal(t, timebox.ScheduleVersion(0), schedule.Version)
 	assert.Equal(t, at, schedule.At)
-	assert.Equal(t, target, schedule.Event.AggregateID)
+	assert.Equal(t, target, schedule.Message.AggregateID)
 
-	got, err := schedule.Event.GetValue[payload]()
+	got, err := schedule.Message.GetValue[payload]()
 	assert.NoError(t, err)
 	assert.Equal(t, payload{Name: "first"}, got)
 }
 
 func TestScheduleABA(t *testing.T) {
 	store, _ := newStore(t)
-	first := newEvent(t, "first")
-	second := newEvent(t, "second")
+	first := newMessage(t, "first")
+	second := newMessage(t, "second")
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
 		return tx.Schedule("replace", time.Now(), first)
@@ -101,8 +101,8 @@ func TestScheduleABA(t *testing.T) {
 
 func TestScheduleCompose(t *testing.T) {
 	store, _ := newStore(t)
-	first := newEvent(t, "first")
-	second := newEvent(t, "second")
+	first := newMessage(t, "first")
+	second := newMessage(t, "second")
 
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
@@ -113,7 +113,7 @@ func TestScheduleCompose(t *testing.T) {
 		}),
 	)
 	schedule := loadSchedule(t, store, "compose")
-	got, err := schedule.Event.GetValue[payload]()
+	got, err := schedule.Message.GetValue[payload]()
 	assert.NoError(t, err)
 	assert.Equal(t, payload{Name: "second"}, got)
 
@@ -152,7 +152,7 @@ func TestScheduleRefresh(t *testing.T) {
 		first.Transact(func(tx *timebox.Transaction) error {
 			return tx.Schedule(
 				"remote", time.Now().Add(time.Hour),
-				newEvent(t, "first"),
+				newMessage(t, "first"),
 			)
 		}),
 	)
@@ -162,7 +162,7 @@ func TestScheduleRefresh(t *testing.T) {
 		first.Transact(func(tx *timebox.Transaction) error {
 			return tx.Schedule(
 				"remote", time.Now().Add(2*time.Hour),
-				newEvent(t, "second"),
+				newMessage(t, "second"),
 			)
 		}),
 	)
@@ -173,10 +173,10 @@ func TestScheduleRefresh(t *testing.T) {
 func TestScheduleConsume(t *testing.T) {
 	store, exec := newStore(t)
 	target := timebox.NewAggregateID("counter", "consume")
-	event := newEvent(t, "consume")
+	msg := newMessage(t, "consume")
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
-		return tx.Schedule("consume", time.Now(), event)
+		return tx.Schedule("consume", time.Now(), msg)
 	})
 	assert.NoError(t, err)
 	schedule := loadSchedule(t, store, "consume")
@@ -202,10 +202,10 @@ func TestScheduleConsume(t *testing.T) {
 
 func TestScheduleRollback(t *testing.T) {
 	store, _ := newStore(t)
-	event := newEvent(t, "rollback")
+	msg := newMessage(t, "rollback")
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
-		if err := tx.Schedule("rollback", time.Now(), event); err != nil {
+		if err := tx.Schedule("rollback", time.Now(), msg); err != nil {
 			return err
 		}
 		return errStop
@@ -228,7 +228,7 @@ func TestScheduleList(t *testing.T) {
 		err := store.Transact(func(tx *timebox.Transaction) error {
 			return tx.Schedule(
 				timebox.ScheduleKey(item.key), item.at,
-				newEvent(t, item.key),
+				newMessage(t, item.key),
 			)
 		})
 		assert.NoError(t, err)
@@ -260,11 +260,11 @@ func TestScheduleRecovery(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, backend.Close()) })
 	first, err := backend.NewStore()
 	assert.NoError(t, err)
-	event := newEvent(t, "restart")
+	msg := newMessage(t, "restart")
 	at := time.Now().UTC().Add(time.Hour)
 	assert.NoError(t,
 		first.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule("restart", at, event)
+			return tx.Schedule("restart", at, msg)
 		}),
 	)
 
@@ -276,37 +276,59 @@ func TestScheduleRecovery(t *testing.T) {
 	assert.NoError(t, err)
 	recovered := loadSchedule(t, third, "restart")
 	assert.Equal(t, loaded, recovered)
+	assert.Equal(t, msg, recovered.Message)
+}
+
+func TestScheduleJSON(t *testing.T) {
+	data := []byte(`{"Message":{"type":"schedule.test",` +
+		`"aggregate_id":["target","one"],"data":{"name":"one"}},` +
+		`"Key":"one","Version":2}`)
+	var schedule timebox.Schedule
+	assert.NoError(t, json.Unmarshal(data, &schedule))
+	assert.Equal(t, timebox.ScheduleKey("one"), schedule.Key)
+	assert.Equal(t, timebox.ScheduleVersion(2), schedule.Version)
+	assert.Equal(t, timebox.EventType("schedule.test"),
+		schedule.Message.Type)
+
+	encoded, err := json.Marshal(schedule)
+	assert.NoError(t, err)
+	var fields map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(encoded, &fields))
+	assert.Contains(t, fields, "Message")
+	assert.NotContains(t, fields, "Event")
 }
 
 func TestScheduleInvalid(t *testing.T) {
 	store, _ := newStore(t)
-	valid := newEvent(t, "valid")
+	valid := newMessage(t, "valid")
 	cases := []validationCase{
 		{
-			name: "Key", event: valid,
+			name: "Key", message: valid,
 			err: timebox.ErrScheduleKeyRequired,
 		},
 		{
-			name: "Event", key: "invalid",
-			err: timebox.ErrScheduleEventRequired,
+			name: "Message", key: "invalid",
+			err: timebox.ErrScheduleMessageRequired,
 		},
 		{
 			name: "Type", key: "invalid",
-			event: &timebox.Event{
+			message: &timebox.Message{
 				AggregateID: timebox.NewAggregateID("target", "type"),
 			},
-			err: timebox.ErrScheduleEventTypeRequired,
+			err: timebox.ErrScheduleMessageTypeRequired,
 		},
 		{
 			name: "ID", key: "invalid",
-			event: &timebox.Event{Type: "schedule.test"},
-			err:   timebox.ErrInvalidAggregateID,
+			message: &timebox.Message{Type: "schedule.test"},
+			err:     timebox.ErrInvalidAggregateID,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule(tc.key, time.Now(), tc.event)
+				return tx.Schedule(
+					tc.key, time.Now(), tc.message,
+				)
 			})
 			assert.ErrorIs(t, err, tc.err)
 		})
@@ -316,10 +338,10 @@ func TestScheduleInvalid(t *testing.T) {
 func TestScheduleConcurrent(t *testing.T) {
 	store, exec := newStore(t)
 	target := timebox.NewAggregateID("counter", "concurrent")
-	event := newEvent(t, "concurrent")
+	msg := newMessage(t, "concurrent")
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule("concurrent", time.Now(), event)
+			return tx.Schedule("concurrent", time.Now(), msg)
 		}),
 	)
 	schedule := loadSchedule(t, store, "concurrent")
@@ -396,26 +418,26 @@ func loadSchedule(
 	t.Helper()
 	schedule, err := store.LoadSchedule(key)
 	if !assert.NoError(t, err) || !assert.NotNil(t, schedule) {
-		return &timebox.Schedule{Event: &timebox.Event{}}
+		return &timebox.Schedule{Message: &timebox.Message{}}
 	}
 	return schedule
 }
 
-func newEvent(t *testing.T, name string) *timebox.Event {
+func newMessage(t *testing.T, name string) *timebox.Message {
 	t.Helper()
 	id := timebox.NewAggregateID("schedule-target", timebox.ID(name))
-	return newTargetEvent(t, id, name)
+	return newTargetMessage(t, id, name)
 }
 
-func newTargetEvent(
+func newTargetMessage(
 	t *testing.T, id timebox.AggregateID, name string,
-) *timebox.Event {
+) *timebox.Message {
 	t.Helper()
 	data, err := json.Marshal(payload{Name: name})
 	if !assert.NoError(t, err) {
 		return nil
 	}
-	return &timebox.Event{
+	return &timebox.Message{
 		AggregateID: id,
 		Type:        "test.schedule",
 		Data:        data,

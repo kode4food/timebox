@@ -7,9 +7,9 @@ import (
 )
 
 type (
-	// Schedule is one durable deferred event and its delivery metadata
+	// Schedule is one durable deferred message and its delivery metadata
 	Schedule struct {
-		Event   *Event
+		Message *Message
 		At      time.Time
 		Key     ScheduleKey
 		Version ScheduleVersion
@@ -21,7 +21,7 @@ type (
 		ExpectedVersion ScheduleVersion
 	}
 
-	// ScheduleKey identifies one replaceable deferred event
+	// ScheduleKey identifies one replaceable deferred message
 	ScheduleKey string
 
 	// ScheduleVersion identifies one incarnation within a schedule aggregate
@@ -44,11 +44,13 @@ var (
 	// ErrScheduleKeyRequired indicates a schedule key was empty
 	ErrScheduleKeyRequired = errors.New("schedule key is required")
 
-	// ErrScheduleEventRequired indicates a schedule has no deferred event
-	ErrScheduleEventRequired = errors.New("schedule event is required")
+	// ErrScheduleMessageRequired indicates a schedule has no deferred message
+	ErrScheduleMessageRequired = errors.New("schedule message is required")
 
-	// ErrScheduleEventTypeRequired indicates a deferred event type was empty
-	ErrScheduleEventTypeRequired = errors.New("schedule event type is required")
+	// ErrScheduleMessageTypeRequired indicates an empty deferred message type
+	ErrScheduleMessageTypeRequired = errors.New(
+		"schedule message type is required",
+	)
 )
 
 var scheduleAppliers = Appliers[scheduleState]{
@@ -57,11 +59,11 @@ var scheduleAppliers = Appliers[scheduleState]{
 	scheduleConsumed: clearSchedule,
 }
 
-// Schedule creates or replaces a durable deferred event
+// Schedule creates or replaces a durable deferred message
 func (t *Transaction) Schedule(
-	key ScheduleKey, at time.Time, event *Event,
+	key ScheduleKey, at time.Time, message *Message,
 ) error {
-	if err := validateSchedule(key, event); err != nil {
+	if err := validateSchedule(key, message); err != nil {
 		return err
 	}
 	id := makeScheduleID(key)
@@ -69,7 +71,7 @@ func (t *Transaction) Schedule(
 		func(_ scheduleState, ag *Aggregator[scheduleState]) error {
 			ver := ScheduleVersion(ag.NextSequence())
 			return ag.Raise(scheduleChanged, &Schedule{
-				Event:   cloneScheduleEvent(event),
+				Message: cloneMessage(message),
 				At:      at.UTC(),
 				Key:     key,
 				Version: ver,
@@ -245,18 +247,18 @@ func makeScheduleID(key ScheduleKey) AggregateID {
 	return NewAggregateID(scheduleAggregateType, ID(key))
 }
 
-func validateSchedule(key ScheduleKey, event *Event) error {
+func validateSchedule(key ScheduleKey, message *Message) error {
 	if key == "" {
 		return ErrScheduleKeyRequired
 	}
-	if event == nil {
-		return ErrScheduleEventRequired
+	if message == nil {
+		return ErrScheduleMessageRequired
 	}
-	if event.Type == "" {
-		return ErrScheduleEventTypeRequired
+	if message.Type == "" {
+		return ErrScheduleMessageTypeRequired
 	}
-	if event.AggregateID.Type == "" || event.AggregateID.Key == "" {
-		return fmt.Errorf("%w: schedule event", ErrInvalidAggregateID)
+	if message.AggregateID.Type == "" || message.AggregateID.Key == "" {
+		return fmt.Errorf("%w: schedule message", ErrInvalidAggregateID)
 	}
 	return nil
 }
@@ -266,21 +268,21 @@ func cloneSchedule(schedule *Schedule) *Schedule {
 		return nil
 	}
 	return &Schedule{
-		Event:   cloneScheduleEvent(schedule.Event),
+		Message: cloneMessage(schedule.Message),
 		At:      schedule.At,
 		Key:     schedule.Key,
 		Version: schedule.Version,
 	}
 }
 
-func cloneScheduleEvent(event *Event) *Event {
-	if event == nil {
+func cloneMessage(message *Message) *Message {
+	if message == nil {
 		return nil
 	}
-	return &Event{
-		Type:        event.Type,
-		AggregateID: event.AggregateID,
-		Data:        append([]byte(nil), event.Data...),
+	return &Message{
+		Type:        message.Type,
+		AggregateID: message.AggregateID,
+		Data:        append([]byte(nil), message.Data...),
 	}
 }
 

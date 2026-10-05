@@ -40,10 +40,10 @@ func runSchedules(t *testing.T, p Profile) {
 	t.Run("Lifecycle", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		at := time.Now().UTC().Add(time.Hour)
-		event := newScheduleEvent(t, "one")
+		msg := newScheduleMessage(t, "one")
 
 		err := store.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule("one", at, event)
+			return tx.Schedule("one", at, msg)
 		})
 		assert.NoError(t, err)
 
@@ -51,7 +51,7 @@ func runSchedules(t *testing.T, p Profile) {
 		assert.Equal(t, timebox.ScheduleVersion(0), first.Version)
 
 		err = store.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule("one", at.Add(time.Hour), event)
+			return tx.Schedule("one", at.Add(time.Hour), msg)
 		})
 		assert.NoError(t, err)
 		second := loadSchedule(t, store, "one")
@@ -68,11 +68,11 @@ func runSchedules(t *testing.T, p Profile) {
 
 	t.Run("ABA", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
-		event := newScheduleEvent(t, "aba")
+		msg := newScheduleMessage(t, "aba")
 
 		assert.NoError(t,
 			store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule("aba", time.Now(), event)
+				return tx.Schedule("aba", time.Now(), msg)
 			}),
 		)
 		old := loadSchedule(t, store, "aba")
@@ -83,7 +83,7 @@ func runSchedules(t *testing.T, p Profile) {
 		)
 		assert.NoError(t,
 			store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule("aba", time.Now(), event)
+				return tx.Schedule("aba", time.Now(), msg)
 			}),
 		)
 
@@ -96,14 +96,14 @@ func runSchedules(t *testing.T, p Profile) {
 
 	t.Run("Prefix", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
-		event := newScheduleEvent(t, "prefix")
+		msg := newScheduleMessage(t, "prefix")
 		assert.NoError(t,
 			store.Transact(func(tx *timebox.Transaction) error {
 				for _, key := range []timebox.ScheduleKey{
 					"argyll:flow/one", "argyll:flow/two",
 					"argyll:flowish", "foreign",
 				} {
-					if err := tx.Schedule(key, time.Now(), event); err != nil {
+					if err := tx.Schedule(key, time.Now(), msg); err != nil {
 						return err
 					}
 				}
@@ -139,12 +139,12 @@ func runSchedules(t *testing.T, p Profile) {
 			scheduleAppliers,
 		)
 		id := timebox.NewAggregateID("schedule-state", "atomic")
-		event := newScheduleEvent(t, "atomic")
+		msg := newScheduleMessage(t, "atomic")
 		err := store.Transact(func(tx *timebox.Transaction) error {
 			if _, err := tx.Exec(exec, id, changeScheduleState(1)); err != nil {
 				return err
 			}
-			return tx.Schedule("atomic", time.Now(), event)
+			return tx.Schedule("atomic", time.Now(), msg)
 		})
 		assert.NoError(t, err)
 
@@ -170,7 +170,7 @@ func runSchedules(t *testing.T, p Profile) {
 
 	t.Run("List", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
-		event := newScheduleEvent(t, "order")
+		msg := newScheduleMessage(t, "order")
 		base := time.Now().UTC()
 		for _, item := range []scheduleItem{
 			{key: "later", at: base.Add(2 * time.Hour)},
@@ -179,7 +179,7 @@ func runSchedules(t *testing.T, p Profile) {
 		} {
 			assert.NoError(t,
 				store.Transact(func(tx *timebox.Transaction) error {
-					return tx.Schedule(item.key, item.at, event)
+					return tx.Schedule(item.key, item.at, msg)
 				}),
 			)
 		}
@@ -206,9 +206,7 @@ func runSchedules(t *testing.T, p Profile) {
 
 		assert.NoError(t,
 			store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule(
-					"later", base.Add(30*time.Minute), event,
-				)
+				return tx.Schedule("later", base.Add(30*time.Minute), msg)
 			}),
 		)
 		due, err = store.ListSchedules(base.Add(time.Hour))
@@ -223,13 +221,13 @@ func runSchedules(t *testing.T, p Profile) {
 	})
 }
 
-func newScheduleEvent(t *testing.T, key string) *timebox.Event {
+func newScheduleMessage(t *testing.T, key string) *timebox.Message {
 	t.Helper()
 	data, err := json.Marshal(scheduleData{Value: 1})
 	if !assert.NoError(t, err) {
 		return nil
 	}
-	return &timebox.Event{
+	return &timebox.Message{
 		AggregateID: timebox.NewAggregateID("schedule-target", timebox.ID(key)),
 		Type:        "schedule.test",
 		Data:        data,
@@ -242,7 +240,7 @@ func loadSchedule(
 	t.Helper()
 	schedule, err := store.LoadSchedule(key)
 	if !assert.NoError(t, err) || !assert.NotNil(t, schedule) {
-		return &timebox.Schedule{Event: &timebox.Event{}}
+		return &timebox.Schedule{Message: &timebox.Message{}}
 	}
 	return schedule
 }

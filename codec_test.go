@@ -18,6 +18,13 @@ func TestJSONCodec(t *testing.T) {
 	ev := codecEvent()
 	data, err := codec.Encode(ev)
 	assert.NoError(t, err)
+	assert.JSONEq(t, `{
+		"timestamp":"1970-01-01T00:02:03.000000456Z",
+		"type":"event.test",
+		"aggregate_id":["flow","1"],
+		"data":{"value":1},
+		"sequence":7
+	}`, string(data))
 
 	got, err := codec.Decode(data)
 	assert.NoError(t, err)

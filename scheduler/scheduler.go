@@ -1,4 +1,4 @@
-// Package scheduler emits durable Timebox schedules when they become due
+// Package scheduler delivers durable Timebox messages when they become due
 package scheduler
 
 import (
@@ -24,7 +24,7 @@ type (
 		heap       *scheduleHeap
 	}
 
-	// Delivery is one due event and its transactional acknowledgement
+	// Delivery is one due message and its transactional acknowledgement
 	Delivery struct {
 		schedule *timebox.Schedule
 	}
@@ -113,9 +113,9 @@ func (s *Scheduler) Wake() {
 	}
 }
 
-// Event returns the deferred event
-func (d *Delivery) Event() *timebox.Event {
-	return d.schedule.Event
+// Message returns the deferred message
+func (d *Delivery) Message() *timebox.Message {
+	return d.schedule.Message
 }
 
 // Consume conditionally consumes this delivery in tx
@@ -123,7 +123,7 @@ func (d *Delivery) Consume(tx *timebox.Transaction) error {
 	return tx.ConsumeSchedule(d.schedule.Key, d.schedule.Version)
 }
 
-// Run emits due schedules until ctx ends
+// Run delivers due messages until ctx ends
 func (s *Scheduler) Run(ctx context.Context) error {
 	if err := s.store.WaitReady(ctx); err != nil {
 		return err
