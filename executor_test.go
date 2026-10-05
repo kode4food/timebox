@@ -29,6 +29,25 @@ func TestBasicIncrement(t *testing.T) {
 	assert.Equal(t, 5, state.Value)
 }
 
+func TestEmptyPayload(t *testing.T) {
+	store, executor := setupTestExecutor(t)
+	id := timebox.NewAggregateID("counter", "empty-payload")
+
+	_, err := executor.Exec(id,
+		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
+			return ag.Raise(EventReset, timebox.Empty{})
+		},
+	)
+	assert.NoError(t, err)
+
+	events, err := store.GetEvents(id, 0)
+	assert.NoError(t, err)
+	if !assert.Len(t, events, 1) {
+		return
+	}
+	assert.Equal(t, "{}", string(events[0].Data))
+}
+
 func TestMultipleOperations(t *testing.T) {
 	_, executor := setupTestExecutor(t)
 

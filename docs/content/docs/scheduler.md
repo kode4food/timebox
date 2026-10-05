@@ -52,7 +52,7 @@ runner, err := scheduler.New(scheduler.Config{
 					if order.Status != "pending" {
 						return nil
 					}
-					return ag.Raise("order.expired", struct{}{})
+					return ag.Raise("order.expired", timebox.Empty{})
 				},
 			)
 			if err != nil {
@@ -69,5 +69,7 @@ return runner.Run(ctx)
 ```
 
 `Run` blocks until its context ends. The scheduler can be recreated after a restart because schedules remain in the backend. `Consume` checks the schedule version, so a delivery from before a replacement or cancellation cannot consume the newer schedule. If the emitter fails or leaves a schedule active, the runner retries it; make external effects idempotent because delivery may happen more than once.
+
+The expiry event has no payload fields, so the example uses `timebox.Empty{}`.
 
 The runner watches local schedule commits and rescans the backend for changes made by other stores or processes. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `store.LoadSchedule(key)` to inspect one active schedule and `store.ListSchedules(through)` to list active schedules due by a time; `time.Time{}` lists all. For recurring work, consume a delivery and schedule its next occurrence with the same key in one transaction.

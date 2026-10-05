@@ -203,7 +203,7 @@ func (ex *orderExample) confirmOrder() {
 	fmt.Println("\nConfirming order...")
 	state, err := ex.executor.Exec(ex.orderID,
 		func(s OrderState, ag *OrderAggregator) error {
-			return ag.Raise(OrderConfirmed, struct{}{})
+			return ag.Raise(OrderConfirmed, timebox.Empty{})
 		},
 	)
 	if err != nil {
@@ -217,7 +217,7 @@ func (ex *orderExample) shipOrder() {
 	fmt.Println("\nShipping order...")
 	state, err := ex.executor.Exec(ex.orderID,
 		func(s OrderState, ag *OrderAggregator) error {
-			return ag.Raise(OrderShipped, struct{}{})
+			return ag.Raise(OrderShipped, timebox.Empty{})
 		},
 	)
 	if err != nil {
@@ -231,7 +231,7 @@ func (ex *orderExample) deliverOrder() {
 	fmt.Println("\nDelivering order...")
 	state, err := ex.executor.Exec(ex.orderID,
 		func(s OrderState, ag *OrderAggregator) error {
-			return ag.Raise(OrderDelivered, struct{}{})
+			return ag.Raise(OrderDelivered, timebox.Empty{})
 		},
 	)
 	if err != nil {

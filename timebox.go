@@ -21,13 +21,16 @@ type (
 
 		Type        EventType       `json:"type"`
 		AggregateID AggregateID     `json:"aggregate_id"`
-		Data        json.RawMessage `json:"data"`
+		Data        json.RawMessage `json:"data,omitempty"`
 
 		mu sync.RWMutex
 	}
 
 	// EventType identifies the kind of an Event or Message
 	EventType string
+
+	// Empty is a payload with no fields
+	Empty struct{}
 )
 
 // GetValue unmarshals the message data into the requested type. It reuses a

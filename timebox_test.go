@@ -86,6 +86,19 @@ func TestEventRaisedNotSerialized(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestMessageEmptyData(t *testing.T) {
+	msg := &timebox.Message{
+		Type:        "message.empty",
+		AggregateID: timebox.NewAggregateID("order", "one"),
+	}
+	data, err := json.Marshal(msg)
+	assert.NoError(t, err)
+
+	var fields map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(data, &fields))
+	assert.NotContains(t, fields, "data")
+}
+
 func TestStoreIndexer(t *testing.T) {
 	for _, trimEvents := range []bool{false, true} {
 		mode := "untrimmed"

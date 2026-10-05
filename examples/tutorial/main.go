@@ -325,7 +325,7 @@ func confirmOrder(
 					"cannot confirm order in %q state", order.Status,
 				)
 			}
-			return ag.Raise(OrderConfirmed, struct{}{})
+			return ag.Raise(OrderConfirmed, timebox.Empty{})
 		},
 	)
 	return err

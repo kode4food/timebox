@@ -28,8 +28,10 @@ Event type names are durable identifiers. Payloads are JSON encoded by `Aggregat
 ```go
 const OrderConfirmed timebox.EventType = "order.confirmed"
 
-err := ag.Raise(OrderConfirmed, struct{}{})
+err := ag.Raise(OrderConfirmed, timebox.Empty{})
 ```
+
+Use `timebox.Empty{}` for an event without payload fields.
 
 Use `Event.GetValue` when reading an event directly:
 
