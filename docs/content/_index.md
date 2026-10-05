@@ -4,7 +4,7 @@ title: "Timebox"
 
 # Timebox
 
-Timebox is a small, opinionated event sourcing library for Go with pluggable persistence backends including memory, Redis/Valkey, PostgreSQL, and Raft. It provides an append-only event log, optimistic concurrency, snapshotting, and append-time indexing so multiple instances can coordinate through the same store.
+Timebox is a small, opinionated event sourcing library for Go with an event store and durable message scheduling.
 
 ## What It Provides
 
