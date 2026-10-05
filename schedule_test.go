@@ -63,17 +63,6 @@ func TestSchedule(t *testing.T) {
 	got, err := schedule.Event.GetValue[payload]()
 	assert.NoError(t, err)
 	assert.Equal(t, payload{Name: "first"}, got)
-
-	ids, err := store.ListAggregates(timebox.ScheduleAggregateType)
-	assert.NoError(t, err)
-	assert.Equal(t, []timebox.AggregateID{
-		timebox.NewAggregateID("_tb.sched_", "counter/one/expire"),
-	}, ids)
-
-	events, err := store.GetEvents(ids[0], 0)
-	assert.NoError(t, err)
-	assert.Len(t, events, 1)
-	assert.Equal(t, timebox.ScheduleChanged, events[0].Type)
 }
 
 func TestScheduleABA(t *testing.T) {

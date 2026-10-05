@@ -14,6 +14,7 @@ type (
 		Queries
 		backend  Backend
 		schedule *Executor[scheduleState]
+		changes  chan struct{}
 		config   Config
 	}
 
@@ -45,9 +46,12 @@ func NewStore(b Backend, cfgs ...Config) (*Store, error) {
 	s := &Store{
 		Queries: b,
 		backend: b,
+		changes: make(chan struct{}, 1),
 		config:  cfg,
 	}
-	s.schedule = s.Executor(newScheduleState, scheduleAppliers)
+	s.schedule = s.Executor(
+		newScheduleState, scheduleAppliers, s.notifyScheduleChange,
+	)
 	return s, nil
 }
 

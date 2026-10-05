@@ -24,6 +24,11 @@ type (
 		heap       *scheduleHeap
 	}
 
+	// Delivery is one due event and its transactional acknowledgement
+	Delivery struct {
+		schedule *timebox.Schedule
+	}
+
 	// Config configures a disposable schedule runner
 	Config struct {
 		Store            *timebox.Store
@@ -34,15 +39,15 @@ type (
 		RetryDelay       time.Duration
 	}
 
-	// Emitter handles one due schedule and normally consumes it transactionally
-	Emitter func(context.Context, *timebox.Schedule) error
+	// Emitter handles one due delivery and normally consumes it transactionally
+	Emitter func(context.Context, *Delivery) error
 )
 
 const (
 	// DefaultRescanInterval controls discovery of changes from other processes
 	DefaultRescanInterval = time.Second
 
-	// DefaultRetryDelay controls local retry after an emitter error
+	// DefaultRetryDelay controls local retry after scheduler errors
 	DefaultRetryDelay = time.Second
 )
 
@@ -108,31 +113,46 @@ func (s *Scheduler) Wake() {
 	}
 }
 
-// Run emits due schedules until ctx ends or durable recovery fails
+// Event returns the deferred event
+func (d *Delivery) Event() *timebox.Event {
+	return d.schedule.Event
+}
+
+// Consume conditionally consumes this delivery in tx
+func (d *Delivery) Consume(tx *timebox.Transaction) error {
+	return tx.ConsumeSchedule(d.schedule.Key, d.schedule.Version)
+}
+
+// Run emits due schedules until ctx ends
 func (s *Scheduler) Run(ctx context.Context) error {
 	if err := s.store.WaitReady(ctx); err != nil {
 		return err
 	}
-	if err := s.reconcileSchedules(); err != nil {
-		return err
-	}
-
 	timer := s.newTimer(0)
 	defer timer.Stop()
-	resetTimer(timer, s.calculateDelay())
+	if err := s.reconcileSchedules(); err != nil {
+		s.logReconcileError(ctx, err)
+		resetTimer(timer, s.retryDelay)
+	} else {
+		resetTimer(timer, s.calculateDelay())
+	}
 
 	for {
+		emit := false
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-s.wake:
-			if err := s.reconcileSchedules(); err != nil {
-				return err
-			}
+		case <-s.store.ScheduleChanges():
 		case <-timer.Channel():
-			if err := s.reconcileSchedules(); err != nil {
-				return err
-			}
+			emit = true
+		}
+		if err := s.reconcileSchedules(); err != nil {
+			s.logReconcileError(ctx, err)
+			resetTimer(timer, s.retryDelay)
+			continue
+		}
+		if emit {
 			s.emitDue(ctx)
 		}
 		resetTimer(timer, s.calculateDelay())
@@ -174,7 +194,8 @@ func (s *Scheduler) emitDue(ctx context.Context) {
 			}
 			item = heap.Pop(s.heap).(*heapItem)
 
-			if err := s.emit(ctx, item.schedule); err != nil {
+			delivery := &Delivery{schedule: item.schedule}
+			if err := s.emit(ctx, delivery); err != nil {
 				s.logError(ctx, item.schedule.Key, err)
 			}
 			s.refreshEmitted(ctx, item)
@@ -215,6 +236,15 @@ func (s *Scheduler) logError(
 	}
 	slog.ErrorContext(ctx, "Schedule dispatch failed",
 		slog.String("schedule_key", string(key)),
+		slog.Any("error", err),
+	)
+}
+
+func (*Scheduler) logReconcileError(ctx context.Context, err error) {
+	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
+		return
+	}
+	slog.ErrorContext(ctx, "Schedule reconciliation failed",
 		slog.Any("error", err),
 	)
 }

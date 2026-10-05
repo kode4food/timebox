@@ -33,19 +33,11 @@ type (
 )
 
 const (
-	// ScheduleAggregateType identifies Timebox's internal schedule streams
-	ScheduleAggregateType ID = "_tb.sched_"
-
-	// ScheduleChanged records creation or replacement of a deferred event
-	ScheduleChanged EventType = "_tb.sched.changed"
-
-	// ScheduleCanceled records cancellation of a deferred event
-	ScheduleCanceled EventType = "_tb.sched.canceled"
-
-	// ScheduleConsumed records handling of a deferred event
-	ScheduleConsumed EventType = "_tb.sched.consumed"
-
-	scheduleActiveStatus = "_tb.sched.active"
+	scheduleAggregateType ID        = "_tb.sched_"
+	scheduleChanged       EventType = "_tb.sched.changed"
+	scheduleCanceled      EventType = "_tb.sched.canceled"
+	scheduleConsumed      EventType = "_tb.sched.consumed"
+	scheduleActiveStatus            = "_tb.sched.active"
 )
 
 var (
@@ -60,9 +52,9 @@ var (
 )
 
 var scheduleAppliers = Appliers[scheduleState]{
-	ScheduleChanged:  applyScheduleChanged,
-	ScheduleCanceled: clearSchedule,
-	ScheduleConsumed: clearSchedule,
+	scheduleChanged:  applyScheduleChanged,
+	scheduleCanceled: clearSchedule,
+	scheduleConsumed: clearSchedule,
 }
 
 // Schedule creates or replaces a durable deferred event
@@ -76,7 +68,7 @@ func (t *Transaction) Schedule(
 	_, err := t.Exec(t.store.schedule, id,
 		func(_ scheduleState, ag *Aggregator[scheduleState]) error {
 			ver := ScheduleVersion(ag.NextSequence())
-			return ag.Raise(ScheduleChanged, &Schedule{
+			return ag.Raise(scheduleChanged, &Schedule{
 				Event:   cloneScheduleEvent(event),
 				At:      at.UTC(),
 				Key:     key,
@@ -104,7 +96,7 @@ func (t *Transaction) CancelSchedule(key ScheduleKey) error {
 				return nil
 			}
 			changed = true
-			return ag.Raise(ScheduleCanceled, st.Active.Version)
+			return ag.Raise(scheduleCanceled, st.Active.Version)
 		},
 	)
 	if err != nil || !changed {
@@ -122,7 +114,7 @@ func (t *Transaction) CancelSchedulePrefix(prefix ScheduleKey) error {
 	ids, err := t.store.backend.ListAggregatesByStatusPrefix(
 		StatusPrefixRequest{
 			Status: scheduleActiveStatus,
-			Type:   ScheduleAggregateType,
+			Type:   scheduleAggregateType,
 			Prefix: ID(prefix),
 		},
 	)
@@ -153,7 +145,7 @@ func (t *Transaction) ConsumeSchedule(
 					ExpectedVersion: version,
 				}
 			}
-			return ag.Raise(ScheduleConsumed, version)
+			return ag.Raise(scheduleConsumed, version)
 		},
 	)
 	if err != nil {
@@ -161,6 +153,11 @@ func (t *Transaction) ConsumeSchedule(
 	}
 	t.setScheduleStatus(id, "", time.Time{})
 	return nil
+}
+
+// ScheduleChanges reports coalesced local schedule commit notifications
+func (s *Store) ScheduleChanges() <-chan struct{} {
+	return s.changes
 }
 
 // LoadSchedule loads the active schedule for a key
@@ -197,7 +194,7 @@ func (s *Store) ListSchedules(through time.Time) ([]*Schedule, error) {
 	}
 	res := make([]*Schedule, 0, len(entries))
 	for _, entry := range entries {
-		if entry.ID.Type != ScheduleAggregateType {
+		if entry.ID.Type != scheduleAggregateType {
 			continue
 		}
 		st, err := s.schedule.loadState(entry.ID)
@@ -245,7 +242,7 @@ func clearSchedule(st scheduleState, _ *Event) scheduleState {
 }
 
 func makeScheduleID(key ScheduleKey) AggregateID {
-	return NewAggregateID(ScheduleAggregateType, ID(key))
+	return NewAggregateID(scheduleAggregateType, ID(key))
 }
 
 func validateSchedule(key ScheduleKey, event *Event) error {
@@ -284,5 +281,15 @@ func cloneScheduleEvent(event *Event) *Event {
 		Type:        event.Type,
 		AggregateID: event.AggregateID,
 		Data:        append([]byte(nil), event.Data...),
+	}
+}
+
+func (s *Store) notifyScheduleChange(_ scheduleState, evs []*Event) {
+	if len(evs) == 0 {
+		return
+	}
+	select {
+	case s.changes <- struct{}{}:
+	default:
 	}
 }
