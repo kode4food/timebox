@@ -72,9 +72,6 @@ var (
 	//go:embed sql/list-by-status.sql
 	sqlListByStatus string
 
-	//go:embed sql/list-by-status-prefix.sql
-	sqlListByStatusPrefix string
-
 	//go:embed sql/list-by-tag.sql
 	sqlListByTag string
 )

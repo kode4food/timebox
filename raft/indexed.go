@@ -2,6 +2,7 @@ package raft
 
 import (
 	"bytes"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -28,31 +29,43 @@ func (b *Backend) GetAggregateStatus(
 	return status, err
 }
 
-// ListAggregatesByStatus lists aggregates currently indexed by status
+// ListAggregatesByStatus lists aggregates matching the query, ordered by
+// status time. Type narrows the status-index scan; KeyPrefix and Through
+// filter each entry
 func (b *Backend) ListAggregatesByStatus(
-	status string,
+	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {
-	var res []timebox.StatusEntry
+	bound := int64(math.MaxInt64)
+	if !q.Through.IsZero() {
+		bound = q.Through.UnixMilli()
+	}
 
+	var res []timebox.StatusEntry
 	err := b.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
 		defer func() { _ = c.Close() }()
-		pfx := statusIndexPrefix(status)
+		pfx := statusIndexPrefix(q.Status)
+		if q.Type != "" {
+			pfx = append(pfx, []byte(encodeAggregateType(q.Type))...)
+		}
 		for k, v := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
+			ts, err := decodeOptionalInt64(v)
+			if err != nil {
+				return err
+			}
 			parts := strings.Split(string(k), "/")
 			id, err := decodeAggregateID(parts[len(parts)-1])
 			if err != nil {
 				return err
 			}
-			ts, err := decodeOptionalInt64(v)
-			if err != nil {
-				return err
+			if ts <= bound &&
+				strings.HasPrefix(string(id.Key), string(q.KeyPrefix)) {
+				res = append(res, timebox.StatusEntry{
+					ID:        id,
+					Timestamp: time.UnixMilli(ts).UTC(),
+				})
 			}
-			res = append(res, timebox.StatusEntry{
-				ID:        id,
-				Timestamp: time.UnixMilli(ts).UTC(),
-			})
 			k, v = c.Next()
 		}
 		return nil
@@ -65,36 +78,6 @@ func (b *Backend) ListAggregatesByStatus(
 		return res[i].Timestamp.Before(res[j].Timestamp)
 	})
 	return res, nil
-}
-
-// ListAggregatesByStatusPrefix lists matching aggregates for a status
-func (b *Backend) ListAggregatesByStatusPrefix(
-	req timebox.StatusPrefixRequest,
-) ([]timebox.AggregateID, error) {
-	var res []timebox.AggregateID
-
-	err := b.db.View(func(tx *kvTx) error {
-		b := tx.Bucket(bucketName)
-		c := b.Cursor()
-		defer func() { _ = c.Close() }()
-		pfx := append(
-			statusIndexPrefix(req.Status),
-			[]byte(encodeAggregateType(req.Type))...,
-		)
-		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
-			parts := strings.Split(string(k), "/")
-			id, err := decodeAggregateID(parts[len(parts)-1])
-			if err != nil {
-				return err
-			}
-			if strings.HasPrefix(string(id.Key), string(req.Prefix)) {
-				res = append(res, id)
-			}
-			k, _ = c.Next()
-		}
-		return nil
-	})
-	return res, err
 }
 
 // ListAggregatesByTag lists aggregates currently indexed by tag

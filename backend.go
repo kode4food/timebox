@@ -45,12 +45,9 @@ type (
 		// GetAggregateStatus loads the current indexed status for an aggregate
 		GetAggregateStatus(id AggregateID) (string, error)
 
-		// ListAggregatesByStatus lists aggregates currently indexed by status
-		ListAggregatesByStatus(status string) ([]StatusEntry, error)
-
-		// ListAggregatesByStatusPrefix lists aggregate IDs with the provided
-		// status, type, and key prefix
-		ListAggregatesByStatusPrefix(StatusPrefixRequest) ([]AggregateID, error)
+		// ListAggregatesByStatus lists aggregates matching the query, ordered
+		// by status time
+		ListAggregatesByStatus(StatusQuery) ([]StatusEntry, error)
 
 		// ListAggregatesByTag lists aggregates currently indexed by tag
 		ListAggregatesByTag(tag string) ([]AggregateID, error)
@@ -113,11 +110,14 @@ type (
 		TrimEvents bool
 	}
 
-	// StatusPrefixRequest selects aggregates by status, type, and key prefix
-	StatusPrefixRequest struct {
-		Status string
-		Type   ID
-		Prefix ID
+	// StatusQuery selects aggregates by status, optionally narrowed by
+	// aggregate type, key prefix, and a latest status time. Through is
+	// inclusive; a zero Through, Type, or KeyPrefix imposes no bound
+	StatusQuery struct {
+		Through   time.Time
+		Status    string
+		Type      ID
+		KeyPrefix ID
 	}
 
 	// Index stores optional projection metadata derived from an event

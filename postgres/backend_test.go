@@ -127,7 +127,7 @@ func TestClosedBackend(t *testing.T) {
 		_, err = b.ListAggregates("")
 		assert.Error(t, err)
 
-		_, err = b.ListAggregatesByStatus("x")
+		_, err = b.ListAggregatesByStatus(timebox.StatusQuery{Status: "x"})
 		assert.Error(t, err)
 
 		_, err = b.ListAggregatesByTag("v")

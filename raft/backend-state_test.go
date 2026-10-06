@@ -626,7 +626,9 @@ func TestRestart(t *testing.T) {
 	}
 	assert.Equal(t, "paused", status)
 
-	statuses, err := n.store.ListAggregatesByStatus("paused")
+	statuses, err := n.store.ListAggregatesByStatus(timebox.StatusQuery{
+		Status: "paused",
+	})
 	if !assert.NoError(t, err) {
 		return
 	}

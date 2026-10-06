@@ -36,7 +36,9 @@ func TestAppend(t *testing.T) {
 	assert.Equal(t, int64(0), evs[0].Sequence)
 	assert.Equal(t, int64(1), evs[1].Sequence)
 
-	statuses, err := n.store.ListAggregatesByStatus("active")
+	statuses, err := n.store.ListAggregatesByStatus(timebox.StatusQuery{
+		Status: "active",
+	})
 	if !assert.NoError(t, err) {
 		return
 	}

@@ -25,11 +25,19 @@ func (b *Backend) GetAggregateStatus(
 	return status, err
 }
 
-// ListAggregatesByStatus lists aggregates for the given status
+// ListAggregatesByStatus lists aggregates matching the query
 func (b *Backend) ListAggregatesByStatus(
-	status string,
+	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {
-	rows, err := b.pool.Query(context.Background(), sqlListByStatus, status)
+	var through *int64
+	if !q.Through.IsZero() {
+		ms := q.Through.UnixMilli()
+		through = &ms
+	}
+	rows, err := b.pool.Query(
+		context.Background(), sqlListByStatus,
+		q.Status, q.Type, q.KeyPrefix, through,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -50,34 +58,6 @@ func (b *Backend) ListAggregatesByStatus(
 			ID:        aggID,
 			Timestamp: time.UnixMilli(ts).UTC(),
 		})
-	}
-	return res, rows.Err()
-}
-
-// ListAggregatesByStatusPrefix lists matching aggregates for a status
-func (b *Backend) ListAggregatesByStatusPrefix(
-	req timebox.StatusPrefixRequest,
-) ([]timebox.AggregateID, error) {
-	rows, err := b.pool.Query(
-		context.Background(), sqlListByStatusPrefix,
-		req.Status, req.Type, req.Prefix,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var res []timebox.AggregateID
-	for rows.Next() {
-		var parts []string
-		if err := rows.Scan(&parts); err != nil {
-			return nil, err
-		}
-		aggID, err := aggregateID(parts)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, aggID)
 	}
 	return res, rows.Err()
 }

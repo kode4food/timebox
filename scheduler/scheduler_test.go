@@ -470,12 +470,12 @@ func (*testTimer) Stop() bool {
 }
 
 func (b *failOnceBackend) ListAggregatesByStatus(
-	status string,
+	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {
 	if !b.failed.Swap(true) {
 		return nil, assert.AnError
 	}
-	return b.Backend.ListAggregatesByStatus(status)
+	return b.Backend.ListAggregatesByStatus(q)
 }
 
 func newStore(t *testing.T) *timebox.Store {

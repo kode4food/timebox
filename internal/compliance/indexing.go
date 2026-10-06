@@ -46,7 +46,9 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Equal(t, "", status)
 
-				statuses, err := store.ListAggregatesByStatus("active")
+				statuses, err := store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: "active"},
+				)
 				assert.NoError(t, err)
 				assert.Empty(t, statuses)
 
@@ -127,7 +129,9 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Equal(t, active, got)
 
-				statuses, err := store.ListAggregatesByStatus(active)
+				statuses, err := store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: active},
+				)
 				assert.NoError(t, err)
 				assert.Equal(t, []timebox.StatusEntry{
 					{
@@ -140,14 +144,18 @@ func runIndexing(t *testing.T, p Profile) {
 					},
 				}, statuses)
 
-				statuses, err = store.ListAggregatesByStatus(paused)
+				statuses, err = store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: paused},
+				)
 				assert.NoError(t, err)
 				assert.Equal(t, []timebox.StatusEntry{{
 					ID:        third,
 					Timestamp: time.Unix(1_700_000_600, 0).UTC(),
 				}}, statuses)
 
-				statuses, err = store.ListAggregatesByStatus("missing")
+				statuses, err = store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: "missing"},
+				)
 				assert.NoError(t, err)
 				assert.Empty(t, statuses)
 			})
@@ -182,11 +190,15 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Equal(t, paused, status)
 
-				activeIDs, err := store.ListAggregatesByStatus(active)
+				activeIDs, err := store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: active},
+				)
 				assert.NoError(t, err)
 				assert.Empty(t, activeIDs)
 
-				pausedIDs, err := store.ListAggregatesByStatus(paused)
+				pausedIDs, err := store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: paused},
+				)
 				assert.NoError(t, err)
 				assert.Equal(t, []timebox.StatusEntry{{
 					ID:        id,
@@ -228,7 +240,9 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Empty(t, status)
 
-				statuses, err := store.ListAggregatesByStatus(active)
+				statuses, err := store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: active},
+				)
 				assert.NoError(t, err)
 				assert.Empty(t, statuses)
 
@@ -357,7 +371,9 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Equal(t, paused, status)
 
-				statuses, err := store.ListAggregatesByStatus(paused)
+				statuses, err := store.ListAggregatesByStatus(
+					timebox.StatusQuery{Status: paused},
+				)
 				assert.NoError(t, err)
 				assert.Equal(t, []timebox.StatusEntry{{
 					ID:        id,

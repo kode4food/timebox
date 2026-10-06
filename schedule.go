@@ -113,18 +113,16 @@ func (t *Transaction) CancelSchedulePrefix(prefix ScheduleKey) error {
 	if prefix == "" {
 		return ErrScheduleKeyRequired
 	}
-	ids, err := t.store.backend.ListAggregatesByStatusPrefix(
-		StatusPrefixRequest{
-			Status: scheduleActiveStatus,
-			Type:   scheduleAggregateType,
-			Prefix: ID(prefix),
-		},
-	)
+	entries, err := t.store.backend.ListAggregatesByStatus(StatusQuery{
+		Status:    scheduleActiveStatus,
+		Type:      scheduleAggregateType,
+		KeyPrefix: ID(prefix),
+	})
 	if err != nil {
 		return err
 	}
-	for _, id := range ids {
-		if err := t.CancelSchedule(ScheduleKey(id.Key)); err != nil {
+	for _, entry := range entries {
+		if err := t.CancelSchedule(ScheduleKey(entry.ID.Key)); err != nil {
 			return err
 		}
 	}
@@ -180,19 +178,12 @@ func (s *Store) LoadSchedule(key ScheduleKey) (*Schedule, error) {
 // ListSchedules lists active schedules through the provided time, or all
 // schedules when through is zero
 func (s *Store) ListSchedules(through time.Time) ([]*Schedule, error) {
-	entries, err := s.backend.ListAggregatesByStatus(scheduleActiveStatus)
+	entries, err := s.backend.ListAggregatesByStatus(StatusQuery{
+		Status:  scheduleActiveStatus,
+		Through: through,
+	})
 	if err != nil {
 		return nil, err
-	}
-	if !through.IsZero() {
-		through = through.UTC()
-		selected := entries[:0]
-		for _, entry := range entries {
-			if !entry.Timestamp.After(through) {
-				selected = append(selected, entry)
-			}
-		}
-		entries = selected
 	}
 	res := make([]*Schedule, 0, len(entries))
 	for _, entry := range entries {

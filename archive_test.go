@@ -49,7 +49,9 @@ func TestArchiveToStream(t *testing.T) {
 	aggregates, err := store.ListAggregates(id.Type)
 	assert.NoError(t, err)
 	assert.Empty(t, aggregates)
-	statuses, err := store.ListAggregatesByStatus("active")
+	statuses, err := store.ListAggregatesByStatus(timebox.StatusQuery{
+		Status: "active",
+	})
 	assert.NoError(t, err)
 	assert.Empty(t, statuses)
 	tagIDs, err := store.ListAggregatesByTag("prod")

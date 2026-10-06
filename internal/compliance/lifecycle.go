@@ -42,7 +42,9 @@ func runLifecycle(t *testing.T, p Profile) {
 		_, err = store.ListAggregates("")
 		assert.Error(t, err)
 
-		_, err = store.ListAggregatesByStatus("active")
+		_, err = store.ListAggregatesByStatus(timebox.StatusQuery{
+			Status: "active",
+		})
 		assert.Error(t, err)
 
 		_, err = store.ListAggregatesByTag("prod")

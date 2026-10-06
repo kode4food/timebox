@@ -206,9 +206,10 @@ func (b *Backend) GetAggregateStatus(
 	return a.status, nil
 }
 
-// ListAggregatesByStatus lists aggregates for the given status
+// ListAggregatesByStatus lists aggregates matching the query, ordered by status
+// time
 func (b *Backend) ListAggregatesByStatus(
-	status string,
+	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -219,7 +220,16 @@ func (b *Backend) ListAggregatesByStatus(
 
 	var res []timebox.StatusEntry
 	for _, a := range b.aggs {
-		if a.status != status {
+		if a.status != q.Status {
+			continue
+		}
+		if q.Type != "" && a.id.Type != q.Type {
+			continue
+		}
+		if !strings.HasPrefix(string(a.id.Key), string(q.KeyPrefix)) {
+			continue
+		}
+		if !q.Through.IsZero() && a.statusAt.After(q.Through) {
 			continue
 		}
 		res = append(res, timebox.StatusEntry{
@@ -230,28 +240,6 @@ func (b *Backend) ListAggregatesByStatus(
 	sort.Slice(res, func(i, j int) bool {
 		return res[i].Timestamp.Before(res[j].Timestamp)
 	})
-	return res, nil
-}
-
-// ListAggregatesByStatusPrefix lists matching aggregates for a status
-func (b *Backend) ListAggregatesByStatusPrefix(
-	req timebox.StatusPrefixRequest,
-) ([]timebox.AggregateID, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if err := b.checkClosed(); err != nil {
-		return nil, err
-	}
-
-	var res []timebox.AggregateID
-	for _, a := range b.aggs {
-		if a.status != req.Status || a.id.Type != req.Type ||
-			!strings.HasPrefix(string(a.id.Key), string(req.Prefix)) {
-			continue
-		}
-		res = append(res, a.id)
-	}
 	return res, nil
 }
 

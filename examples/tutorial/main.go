@@ -134,7 +134,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	shipped, err := store.ListAggregatesByStatus("shipped")
+	shipped, err := store.ListAggregatesByStatus(timebox.StatusQuery{
+		Status: "shipped",
+	})
 	if err != nil {
 		return err
 	}

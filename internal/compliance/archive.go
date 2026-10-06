@@ -49,7 +49,9 @@ func runArchive(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Empty(t, ids)
 
-		statuses, err := store.ListAggregatesByStatus(active)
+		statuses, err := store.ListAggregatesByStatus(timebox.StatusQuery{
+			Status: active,
+		})
 		assert.NoError(t, err)
 		assert.Empty(t, statuses)
 

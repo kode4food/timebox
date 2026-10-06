@@ -465,7 +465,9 @@ Read the resulting projections and inspect the history, status index, and custom
     if err != nil {
         return err
     }
-    shipped, err := store.ListAggregatesByStatus("shipped")
+    shipped, err := store.ListAggregatesByStatus(timebox.StatusQuery{
+        Status: "shipped",
+    })
     if err != nil {
         return err
     }

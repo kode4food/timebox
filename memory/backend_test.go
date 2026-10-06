@@ -55,7 +55,7 @@ func TestClosedMethods(t *testing.T) {
 	_, err = b.GetAggregateStatus(timebox.NewAggregateID("order", "1"))
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
-	_, err = b.ListAggregatesByStatus("active")
+	_, err = b.ListAggregatesByStatus(timebox.StatusQuery{Status: "active"})
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
 	_, err = b.ListAggregatesByTag("prod")

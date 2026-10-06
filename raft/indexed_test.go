@@ -41,7 +41,9 @@ func TestRestartIndexes(t *testing.T) {
 	}
 	assert.Equal(t, "active", status)
 
-	paused, err := n.store.ListAggregatesByStatus("paused")
+	paused, err := n.store.ListAggregatesByStatus(timebox.StatusQuery{
+		Status: "paused",
+	})
 	if !assert.NoError(t, err) {
 		return
 	}

@@ -349,7 +349,9 @@ func TestStoreCombinedIndexing(t *testing.T) {
 						}),
 					)
 
-					statuses, err := store.ListAggregatesByStatus("active")
+					statuses, err := store.ListAggregatesByStatus(
+						timebox.StatusQuery{Status: "active"},
+					)
 					assert.NoError(t, err)
 					assert.Len(t, statuses, 1)
 					assert.Equal(t, id, statuses[0].ID)
@@ -455,14 +457,8 @@ func (f *fakeBackend) GetAggregateStatus(
 }
 
 func (f *fakeBackend) ListAggregatesByStatus(
-	string,
+	timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {
-	return nil, nil
-}
-
-func (f *fakeBackend) ListAggregatesByStatusPrefix(
-	timebox.StatusPrefixRequest,
-) ([]timebox.AggregateID, error) {
 	return nil, nil
 }
 
