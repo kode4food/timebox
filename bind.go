@@ -1,17 +1,16 @@
 package timebox
 
-// Handler processes a single Event
-type Handler func(*Event) error
+// Handler processes a single Message
+type Handler func(*Message) error
 
-// MakeHandler decodes event data into the provided type before invoking fn.
-// It reuses the Event's cached value when available
-func MakeHandler[T any](fn func(ev *Event, data T) error) Handler {
-	return func(ev *Event) error {
-		data, err := ev.GetValue[T]()
+// MakeHandler decodes message data into the provided type before invoking fn
+func MakeHandler[T any](fn func(msg *Message, data T) error) Handler {
+	return func(msg *Message) error {
+		data, err := msg.GetValue[T]()
 		if err != nil {
 			return err
 		}
-		return fn(ev, data)
+		return fn(msg, data)
 	}
 }
 
@@ -27,12 +26,11 @@ func MakeApplier[T, Data any](fn func(T, *Event, Data) T) Applier[T] {
 	}
 }
 
-// MakeDispatcher routes events to handlers keyed by EventType, ignoring
-// unmatched event types
+// MakeDispatcher routes messages to handlers by type, ignoring unmatched types
 func MakeDispatcher(handlers map[EventType]Handler) Handler {
-	return func(ev *Event) error {
-		if fn, ok := handlers[ev.Type]; ok {
-			return fn(ev)
+	return func(msg *Message) error {
+		if fn, ok := handlers[msg.Type]; ok {
+			return fn(msg)
 		}
 		return nil
 	}

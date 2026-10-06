@@ -15,7 +15,7 @@ type (
 	// Scheduler maintains a disposable heap over durable schedule aggregates
 	Scheduler struct {
 		store      *timebox.Store
-		emit       Emitter
+		process    Processor
 		clock      Clock
 		newTimer   TimerConstructor
 		rescan     time.Duration
@@ -24,23 +24,18 @@ type (
 		heap       *scheduleHeap
 	}
 
-	// Delivery is one due message and its transactional acknowledgement
-	Delivery struct {
-		schedule *timebox.Schedule
-	}
-
 	// Config configures a disposable schedule runner
 	Config struct {
 		Store            *timebox.Store
-		Emitter          Emitter
+		Processor        Processor
 		Clock            Clock
 		TimerConstructor TimerConstructor
 		RescanInterval   time.Duration
 		RetryDelay       time.Duration
 	}
 
-	// Emitter handles one due delivery and normally consumes it transactionally
-	Emitter func(context.Context, *Delivery) error
+	// Processor changes state in response to one due message
+	Processor func(*timebox.Transaction, *timebox.Message) error
 )
 
 const (
@@ -55,8 +50,11 @@ var (
 	// ErrStoreRequired indicates a Scheduler has no Store
 	ErrStoreRequired = errors.New("scheduler store is required")
 
-	// ErrEmitterRequired indicates a Scheduler has no Emitter
-	ErrEmitterRequired = errors.New("scheduler emitter is required")
+	// ErrProcessorRequired indicates a Scheduler has no Processor
+	ErrProcessorRequired = errors.New("scheduler processor is required")
+
+	// ErrRetry leaves a due message active without logging the attempt
+	ErrRetry = errors.New("retry scheduled message")
 
 	// ErrInvalidRescanInterval indicates a non-positive rescan interval
 	ErrInvalidRescanInterval = errors.New(
@@ -72,8 +70,8 @@ func New(cfg Config) (*Scheduler, error) {
 	if cfg.Store == nil {
 		return nil, ErrStoreRequired
 	}
-	if cfg.Emitter == nil {
-		return nil, ErrEmitterRequired
+	if cfg.Processor == nil {
+		return nil, ErrProcessorRequired
 	}
 	if cfg.Clock == nil {
 		cfg.Clock = time.Now
@@ -95,7 +93,7 @@ func New(cfg Config) (*Scheduler, error) {
 	}
 	return &Scheduler{
 		store:      cfg.Store,
-		emit:       cfg.Emitter,
+		process:    cfg.Processor,
 		clock:      cfg.Clock,
 		newTimer:   cfg.TimerConstructor,
 		rescan:     cfg.RescanInterval,
@@ -113,16 +111,6 @@ func (s *Scheduler) Wake() {
 	}
 }
 
-// Message returns the deferred message
-func (d *Delivery) Message() *timebox.Message {
-	return d.schedule.Message
-}
-
-// Consume conditionally consumes this delivery in tx
-func (d *Delivery) Consume(tx *timebox.Transaction) error {
-	return tx.ConsumeSchedule(d.schedule.Key, d.schedule.Version)
-}
-
 // Run delivers due messages until ctx ends
 func (s *Scheduler) Run(ctx context.Context) error {
 	if err := s.store.WaitReady(ctx); err != nil {
@@ -138,22 +126,22 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 
 	for {
-		emit := false
+		process := false
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-s.wake:
 		case <-s.store.ScheduleChanges():
 		case <-timer.Channel():
-			emit = true
+			process = true
 		}
 		if err := s.reconcileSchedules(); err != nil {
 			s.logReconcileError(ctx, err)
 			resetTimer(timer, s.retryDelay)
 			continue
 		}
-		if emit {
-			s.emitDue(ctx)
+		if process {
+			s.processDue(ctx)
 		}
 		resetTimer(timer, s.calculateDelay())
 	}
@@ -182,7 +170,7 @@ func (s *Scheduler) reconcileSchedules() error {
 	return nil
 }
 
-func (s *Scheduler) emitDue(ctx context.Context) {
+func (s *Scheduler) processDue(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -194,16 +182,23 @@ func (s *Scheduler) emitDue(ctx context.Context) {
 			}
 			item = heap.Pop(s.heap).(*heapItem)
 
-			delivery := &Delivery{schedule: item.schedule}
-			if err := s.emit(ctx, delivery); err != nil {
+			err := s.store.Transact(func(tx *timebox.Transaction) error {
+				if err := tx.ConsumeSchedule(
+					item.schedule.Key, item.schedule.Version,
+				); err != nil {
+					return err
+				}
+				return s.process(tx, item.schedule.Message)
+			})
+			if err != nil {
 				s.logError(ctx, item.schedule.Key, err)
 			}
-			s.refreshEmitted(ctx, item)
+			s.refreshProcessed(ctx, item)
 		}
 	}
 }
 
-func (s *Scheduler) refreshEmitted(ctx context.Context, item *heapItem) {
+func (s *Scheduler) refreshProcessed(ctx context.Context, item *heapItem) {
 	schedule, err := s.store.LoadSchedule(item.schedule.Key)
 	if !errors.Is(err, nil) {
 		s.logError(ctx, item.schedule.Key, err)
@@ -231,10 +226,13 @@ func (s *Scheduler) logError(
 	if _, ok := errors.AsType[*timebox.ScheduleVersionConflictError](err); ok {
 		return
 	}
+	if errors.Is(err, ErrRetry) {
+		return
+	}
 	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 		return
 	}
-	slog.ErrorContext(ctx, "Schedule dispatch failed",
+	slog.ErrorContext(ctx, "Schedule processing failed",
 		slog.String("schedule_key", string(key)),
 		slog.Any("error", err),
 	)

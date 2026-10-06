@@ -31,35 +31,29 @@ The message needs no data because its `AggregateID` identifies the order. Callin
 
 ## Deliver the Message
 
-Run a `scheduler.Scheduler` in a long-lived process using the same durable backend. Its emitter receives each due delivery. Check current state, raise any resulting event, and consume the delivery in one transaction:
+Run a `scheduler.Scheduler` in a long-lived process using the same durable backend. Its processor receives each due message and a transaction. Check current state and raise any resulting event in that transaction:
 
 ```go
 runner, err := scheduler.New(scheduler.Config{
 	Store: store,
-	Emitter: func(
-		_ context.Context, delivery *scheduler.Delivery,
+	Processor: func(
+		tx *timebox.Transaction, msg *timebox.Message,
 	) error {
-		msg := delivery.Message()
 		if msg.Type != "order.expire" {
 			return fmt.Errorf("unexpected message %q", msg.Type)
 		}
-		return store.Transact(func(tx *timebox.Transaction) error {
-			_, err := tx.Exec(orders, msg.AggregateID,
-				func(
-					order OrderState,
-					ag *timebox.Aggregator[OrderState],
-				) error {
-					if order.Status != "pending" {
-						return nil
-					}
-					return ag.Raise("order.expired", timebox.Empty{})
-				},
-			)
-			if err != nil {
-				return err
-			}
-			return delivery.Consume(tx)
-		})
+		_, err := tx.Exec(orders, msg.AggregateID,
+			func(
+				order OrderState,
+				ag *timebox.Aggregator[OrderState],
+			) error {
+				if order.Status != "pending" {
+					return nil
+				}
+				return ag.Raise("order.expired", timebox.Empty{})
+			},
+		)
+		return err
 	},
 })
 if err != nil {
@@ -68,8 +62,8 @@ if err != nil {
 return runner.Run(ctx)
 ```
 
-`Run` blocks until its context ends. The scheduler can be recreated after a restart because schedules remain in the backend. `Consume` checks the schedule version, so a delivery from before a replacement or cancellation cannot consume the newer schedule. If the emitter fails or leaves a schedule active, the runner retries it; make external effects idempotent because delivery may happen more than once.
+`Run` blocks until its context ends. The scheduler can be recreated after a restart because schedules remain in the backend. Before calling the processor, the runner checks the schedule version and stages its consumption. It commits consumption and the processor's state changes together when the processor returns nil. A stale version fails the check; a concurrent replacement aborts the commit. An error leaves the schedule active for retry. Return `scheduler.ErrRetry` to retry without logging an expected delay. The processor can run more than once after a transaction conflict, so keep external I/O out of it.
 
 The expiry event has no payload fields, so the example uses `timebox.Empty{}`.
 
-The runner watches local schedule commits and rescans the backend for changes made by other stores or processes. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `store.LoadSchedule(key)` to inspect one active schedule and `store.ListSchedules(through)` to list active schedules due by a time; `time.Time{}` lists all. For recurring work, consume a delivery and schedule its next occurrence with the same key in one transaction.
+The runner watches local schedule commits and rescans the backend for changes made by other stores or processes. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `store.LoadSchedule(key)` to inspect one active schedule and `store.ListSchedules(through)` to list active schedules due by a time; `time.Time{}` lists all. For recurring work, schedule the next occurrence under the same key in the processor's transaction.

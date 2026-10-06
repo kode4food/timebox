@@ -41,6 +41,18 @@ data, err := event.GetValue[OrderCreatedData]()
 
 Timebox caches a compatible decoded value, including the value supplied to a newly raised event.
 
+## Message Handlers
+
+`Handler`, `MakeHandler`, and `MakeDispatcher` work with `Message`, so the same dispatcher can route recorded event messages and deferred schedule messages by type. An `Event` embeds its message; pass that field to a handler or dispatcher:
+
+```go
+dispatch := timebox.MakeDispatcher(handlers)
+err := dispatch(&event.Message)
+err = dispatch(scheduledMessage)
+```
+
+Use `MakeHandler` when a handler needs a decoded payload. Event appliers remain separate because they can also use recorded metadata such as the event timestamp.
+
 ## Appliers
 
 An applier maps the previous state and one event to the next state. Prefer `MakeApplier` for typed payloads:

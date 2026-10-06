@@ -44,16 +44,11 @@ func TestRecovery(t *testing.T) {
 		Store:          store,
 		RescanInterval: 10 * time.Millisecond,
 		RetryDelay:     10 * time.Millisecond,
-		Emitter: func(
-			_ context.Context, delivery *scheduler.Delivery,
+		Processor: func(
+			_ *timebox.Transaction, msg *timebox.Message,
 		) error {
-			err := store.Transact(func(tx *timebox.Transaction) error {
-				return delivery.Consume(tx)
-			})
-			if err == nil {
-				emitted <- delivery.Message()
-			}
-			return err
+			emitted <- msg
+			return nil
 		},
 	})
 	assert.NoError(t, err)
@@ -100,18 +95,11 @@ func TestReconcileRetry(t *testing.T) {
 	runner, err := scheduler.New(scheduler.Config{
 		Store:      store,
 		RetryDelay: time.Millisecond,
-		Emitter: func(
-			_ context.Context, delivery *scheduler.Delivery,
+		Processor: func(
+			_ *timebox.Transaction, _ *timebox.Message,
 		) error {
-			err := store.Transact(
-				func(tx *timebox.Transaction) error {
-					return delivery.Consume(tx)
-				},
-			)
-			if err == nil {
-				emitted <- struct{}{}
-			}
-			return err
+			emitted <- struct{}{}
+			return nil
 		},
 	})
 	assert.NoError(t, err)
@@ -144,21 +132,15 @@ func TestEarlier(t *testing.T) {
 		Store:          store,
 		RescanInterval: time.Hour,
 		RetryDelay:     10 * time.Millisecond,
-		Emitter: func(
-			_ context.Context, delivery *scheduler.Delivery,
+		Processor: func(
+			_ *timebox.Transaction, msg *timebox.Message,
 		) error {
-			err := store.Transact(func(tx *timebox.Transaction) error {
-				return delivery.Consume(tx)
-			})
-			if err == nil {
-				msg := delivery.Message()
-				data, dataErr := msg.GetValue[payload]()
-				if dataErr != nil {
-					return dataErr
-				}
-				emitted <- data.Value
+			data, err := msg.GetValue[payload]()
+			if err != nil {
+				return err
 			}
-			return err
+			emitted <- data.Value
+			return nil
 		},
 	})
 	assert.NoError(t, err)
@@ -187,47 +169,65 @@ func TestEarlier(t *testing.T) {
 }
 
 func TestRetry(t *testing.T) {
-	store := newStore(t)
-	scheduleEvent(t, store, "retry", time.Now().Add(-time.Second))
-	var attempts atomic.Int32
-	emitted := make(chan struct{}, 1)
-	runner, err := scheduler.New(scheduler.Config{
-		Store:          store,
-		RescanInterval: time.Hour,
-		RetryDelay:     10 * time.Millisecond,
-		Emitter: func(
-			_ context.Context, delivery *scheduler.Delivery,
-		) error {
-			if attempts.Add(1) == 1 {
-				return assert.AnError
-			}
-			err := store.Transact(func(tx *timebox.Transaction) error {
-				return delivery.Consume(tx)
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "error", err: assert.AnError},
+		{name: "quiet", err: scheduler.ErrRetry},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newStore(t)
+			scheduleEvent(
+				t, store, "retry", time.Now().Add(-time.Second),
+			)
+			var attempts atomic.Int32
+			emitted := make(chan struct{}, 1)
+			runner, err := scheduler.New(scheduler.Config{
+				Store:          store,
+				RescanInterval: time.Hour,
+				RetryDelay:     10 * time.Millisecond,
+				Processor: func(
+					tx *timebox.Transaction, msg *timebox.Message,
+				) error {
+					if attempts.Add(1) == 1 {
+						if err := tx.Schedule(
+							"uncommitted", time.Now().Add(time.Hour), msg,
+						); err != nil {
+							return err
+						}
+						return tc.err
+					}
+					emitted <- struct{}{}
+					return nil
+				},
 			})
-			if err == nil {
-				emitted <- struct{}{}
-			}
-			return err
-		},
-	})
-	assert.NoError(t, err)
+			assert.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
-	assert.Eventually(t,
-		func() bool {
-			select {
-			case <-emitted:
-				return true
-			default:
-				return false
-			}
-		}, time.Second, time.Millisecond,
-	)
-	assert.Equal(t, int32(2), attempts.Load())
-	cancel()
-	assert.ErrorIs(t, <-done, context.Canceled)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- runner.Run(ctx) }()
+			assert.Eventually(t,
+				func() bool {
+					select {
+					case <-emitted:
+						return true
+					default:
+						return false
+					}
+				}, time.Second, time.Millisecond,
+			)
+			assert.Equal(t, int32(2), attempts.Load())
+			cancel()
+			assert.ErrorIs(t, <-done, context.Canceled)
+			remaining, err := store.LoadSchedule("retry")
+			assert.NoError(t, err)
+			assert.Nil(t, remaining)
+			uncommitted, err := store.LoadSchedule("uncommitted")
+			assert.NoError(t, err)
+			assert.Nil(t, uncommitted)
+		})
+	}
 }
 
 func TestReschedule(t *testing.T) {
@@ -239,24 +239,18 @@ func TestReschedule(t *testing.T) {
 		Store:          store,
 		RescanInterval: time.Hour,
 		RetryDelay:     10 * time.Millisecond,
-		Emitter: func(
-			_ context.Context, delivery *scheduler.Delivery,
+		Processor: func(
+			tx *timebox.Transaction, msg *timebox.Message,
 		) error {
 			attempt := attempts.Add(1)
-			err := store.Transact(func(tx *timebox.Transaction) error {
-				if err := delivery.Consume(tx); err != nil {
-					return err
-				}
-				if attempt == 1 {
-					at := time.Now().Add(20 * time.Millisecond)
-					return tx.Schedule("repeat", at, delivery.Message())
-				}
-				return nil
-			})
-			if err == nil && attempt == 2 {
+			if attempt == 1 {
+				at := time.Now().Add(20 * time.Millisecond)
+				return tx.Schedule("repeat", at, msg)
+			}
+			if attempt == 2 {
 				emitted <- struct{}{}
 			}
-			return err
+			return nil
 		},
 	})
 	assert.NoError(t, err)
@@ -286,7 +280,9 @@ func TestCancel(t *testing.T) {
 	runner, err := scheduler.New(scheduler.Config{
 		Store:          store,
 		RescanInterval: time.Hour,
-		Emitter: func(context.Context, *scheduler.Delivery) error {
+		Processor: func(
+			*timebox.Transaction, *timebox.Message,
+		) error {
 			emitted <- struct{}{}
 			return nil
 		},
@@ -316,7 +312,7 @@ func TestCancel(t *testing.T) {
 	assert.ErrorIs(t, <-done, context.Canceled)
 }
 
-func TestCancelStopsDueEmissions(t *testing.T) {
+func TestCancelStopsDueProcessing(t *testing.T) {
 	store := newStore(t)
 	now := time.Now().Add(-time.Second)
 	scheduleEvent(t, store, "first", now)
@@ -326,7 +322,9 @@ func TestCancelStopsDueEmissions(t *testing.T) {
 	var emitted atomic.Int32
 	runner, err := scheduler.New(scheduler.Config{
 		Store: store,
-		Emitter: func(context.Context, *scheduler.Delivery) error {
+		Processor: func(
+			*timebox.Transaction, *timebox.Message,
+		) error {
 			emitted.Add(1)
 			cancel()
 			return nil
@@ -345,10 +343,10 @@ func TestReplace(t *testing.T) {
 	runner, err := scheduler.New(scheduler.Config{
 		Store:          store,
 		RescanInterval: time.Hour,
-		Emitter: func(
-			_ context.Context, delivery *scheduler.Delivery,
+		Processor: func(
+			_ *timebox.Transaction, msg *timebox.Message,
 		) error {
-			emitted <- delivery.Message()
+			emitted <- msg
 			return nil
 		},
 	})
@@ -387,29 +385,31 @@ func TestReplace(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	store := newStore(t)
-	emit := func(context.Context, *scheduler.Delivery) error { return nil }
+	process := func(*timebox.Transaction, *timebox.Message) error {
+		return nil
+	}
 	cases := []configCase{
 		{
 			name: "Store",
-			cfg:  scheduler.Config{Emitter: emit},
+			cfg:  scheduler.Config{Processor: process},
 			err:  scheduler.ErrStoreRequired,
 		},
 		{
-			name: "Emitter",
+			name: "Processor",
 			cfg:  scheduler.Config{Store: store},
-			err:  scheduler.ErrEmitterRequired,
+			err:  scheduler.ErrProcessorRequired,
 		},
 		{
 			name: "Rescan",
 			cfg: scheduler.Config{
-				Store: store, Emitter: emit, RescanInterval: -1,
+				Store: store, Processor: process, RescanInterval: -1,
 			},
 			err: scheduler.ErrInvalidRescanInterval,
 		},
 		{
 			name: "Retry",
 			cfg: scheduler.Config{
-				Store: store, Emitter: emit, RetryDelay: -1,
+				Store: store, Processor: process, RetryDelay: -1,
 			},
 			err: scheduler.ErrInvalidRetryDelay,
 		},
@@ -433,8 +433,8 @@ func TestTimer(t *testing.T) {
 	}
 	runner, err := scheduler.New(scheduler.Config{
 		Store: store,
-		Emitter: func(
-			context.Context, *scheduler.Delivery,
+		Processor: func(
+			*timebox.Transaction, *timebox.Message,
 		) error {
 			return nil
 		},
