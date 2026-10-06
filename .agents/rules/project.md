@@ -24,7 +24,7 @@ examples/        # Usage examples (own go.mod)
 
 ### raft/
 
-Multi-node consensus backend. Each node runs etcd raft + bbolt. Followers propose directly via `node.Propose()` — raft handles forwarding internally.
+Multi-node consensus backend. Each node runs etcd raft + bbolt. Followers propose directly via `node.Propose()`, and raft handles forwarding internally.
 
 Key types: `Backend`, `Config`, `Server`
 

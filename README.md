@@ -6,14 +6,16 @@ Timebox is a small, opinionated event sourcing library for Go with append-only e
 
 ## Documentation
 
-- [Getting started](https://kode4food.github.io/timebox/docs/getting-started/) — install Timebox and execute a command
-- [Order tutorial](https://kode4food.github.io/timebox/docs/tutorial/) — build an application using aggregates and transactions
-- [Aggregates and events](https://kode4food.github.io/timebox/docs/aggregates/) — model identities, payloads, and appliers
-- [Transactions](https://kode4food.github.io/timebox/docs/transactions/) — commit changes across aggregates
-- [Scheduler](https://kode4food.github.io/timebox/docs/scheduler/) — deliver messages at a durable deadline
-- [Snapshots, indexing, and archiving](https://kode4food.github.io/timebox/docs/storage/) — manage derived and historical data
-- [Backends](https://kode4food.github.io/timebox/docs/backends/) — choose and configure persistence
-- [Production patterns](https://kode4food.github.io/timebox/docs/patterns/) — structure a long-running service
+- [Getting started](https://kode4food.github.io/timebox/docs/getting-started/) explains how to install Timebox and execute a command.
+- [Order tutorial](https://kode4food.github.io/timebox/docs/tutorial/) builds an application using aggregates and transactions.
+- [Aggregates and events](https://kode4food.github.io/timebox/docs/aggregates/) covers identities, payloads, and appliers.
+- [Transactions](https://kode4food.github.io/timebox/docs/transactions/) shows how to commit changes across aggregates.
+- [Scheduler](https://kode4food.github.io/timebox/docs/scheduler/) explains how to deliver messages at a durable deadline.
+- [Snapshots](https://kode4food.github.io/timebox/docs/snapshots/) explains how to load state without replaying its full history.
+- [Indexing](https://kode4food.github.io/timebox/docs/indexing/) covers queries by aggregate status and tags.
+- [Archiving](https://kode4food.github.io/timebox/docs/archiving/) shows how to remove finished aggregates from live storage and export their records.
+- [Backends](https://kode4food.github.io/timebox/docs/backends/) helps you choose and configure persistence.
+- [Production patterns](https://kode4food.github.io/timebox/docs/patterns/) covers the structure of a long-running service.
 
 The [order example](examples/order.go) shows an aggregate lifecycle using Redis.
 

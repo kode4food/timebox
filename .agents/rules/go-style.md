@@ -522,7 +522,7 @@ var _ Archiver = (*ArchiveWorker)(nil)
 
 - **Never panic** - always return errors
 - **Typed errors only** - All production code must use package-level vars with `Err` prefix
-- **Pattern: `%w: context`** — wrapped error first, then context variable
+- **Pattern: `%w: context`** puts the wrapped error first, followed by the context variable
 - Plain error messages acceptable only in examples/documentation
 - Handle errors immediately, early return
 
