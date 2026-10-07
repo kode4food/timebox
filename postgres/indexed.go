@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -29,10 +30,9 @@ func (b *Backend) GetAggregateStatus(
 func (b *Backend) ListAggregatesByStatus(
 	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {
-	var through *int64
+	var through int64 = math.MaxInt64
 	if !q.Through.IsZero() {
-		ms := q.Through.UnixMilli()
-		through = &ms
+		through = q.Through.UnixMilli()
 	}
 	rows, err := b.pool.Query(
 		context.Background(), sqlListByStatus,
