@@ -2,6 +2,28 @@
 
 Notable changes to Timebox.
 
+## 0.3
+
+### Scheduling
+
+- `scheduler.Scheduler` delivers durable deferred messages, surviving process
+  restarts and running against the same backend as its aggregates
+- `Transaction.Schedule`, `CancelSchedule`, `CancelSchedulePrefix`, and
+  `ConsumeSchedule` commit schedule changes atomically with aggregate events
+- `Store.LoadSchedule` and `Store.ListSchedules` query active schedules
+
+### Event sourcing
+
+- `Event` is now a recorded `Message` (type, aggregate ID, data) with a
+  sequence and timestamp; `Handler`, `MakeHandler`, and `MakeDispatcher`
+  operate on `Message` instead of `Event`
+- Added `Empty` for payload-less messages and events
+
+### Indexing
+
+- `ListAggregatesByStatus` takes a `StatusQuery`, narrowing by aggregate type,
+  key prefix, and a latest status time instead of status alone
+
 ## 0.2
 
 ### Event sourcing
