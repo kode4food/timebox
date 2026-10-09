@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"maps"
@@ -253,29 +252,29 @@ func NewOrderState() OrderState {
 
 func createExecutor(store *timebox.Store) *OrderExecutor {
 	return store.Executor(NewOrderState, OrderAppliers{
-		OrderCreated:         orderCreated,
-		OrderItemAdded:       orderItemAdded,
-		OrderItemRemoved:     orderItemRemoved,
-		OrderShippingChanged: orderShippingChanged,
-		OrderBillingChanged:  orderBillingChanged,
+		OrderCreated:         timebox.MakeApplier(orderCreated),
+		OrderItemAdded:       timebox.MakeApplier(orderItemAdded),
+		OrderItemRemoved:     timebox.MakeApplier(orderItemRemoved),
+		OrderShippingChanged: timebox.MakeApplier(orderShippingChanged),
+		OrderBillingChanged:  timebox.MakeApplier(orderBillingChanged),
 		OrderConfirmed:       orderConfirmed,
 		OrderShipped:         orderShipped,
 		OrderDelivered:       orderDelivered,
 	})
 }
 
-func orderCreated(st OrderState, ev *timebox.Event) OrderState {
-	var data OrderCreatedData
-	_ = json.Unmarshal(ev.Data, &data)
+func orderCreated(
+	st OrderState, _ *timebox.Event, data OrderCreatedData,
+) OrderState {
 	st.CustomerName = data.CustomerName
 	st.CustomerEmail = data.CustomerEmail
 	st.Status = StatusCreated
 	return st
 }
 
-func orderItemAdded(st OrderState, ev *timebox.Event) OrderState {
-	var data ItemAddedData
-	_ = json.Unmarshal(ev.Data, &data)
+func orderItemAdded(
+	st OrderState, _ *timebox.Event, data ItemAddedData,
+) OrderState {
 	st.Items = maps.Clone(st.Items)
 	st.Items[data.ProductID] = OrderItem{
 		ProductID: data.ProductID,
@@ -287,25 +286,25 @@ func orderItemAdded(st OrderState, ev *timebox.Event) OrderState {
 	return st
 }
 
-func orderItemRemoved(st OrderState, ev *timebox.Event) OrderState {
-	var data ItemRemovedData
-	_ = json.Unmarshal(ev.Data, &data)
+func orderItemRemoved(
+	st OrderState, _ *timebox.Event, data ItemRemovedData,
+) OrderState {
 	st.Items = maps.Clone(st.Items)
 	delete(st.Items, data.ProductID)
 	st.Total = calculateTotal(st.Items)
 	return st
 }
 
-func orderShippingChanged(st OrderState, ev *timebox.Event) OrderState {
-	var data AddressChangedData
-	_ = json.Unmarshal(ev.Data, &data)
+func orderShippingChanged(
+	st OrderState, _ *timebox.Event, data AddressChangedData,
+) OrderState {
 	st.ShippingAddress = new(data.Address)
 	return st
 }
 
-func orderBillingChanged(st OrderState, ev *timebox.Event) OrderState {
-	var data AddressChangedData
-	_ = json.Unmarshal(ev.Data, &data)
+func orderBillingChanged(
+	st OrderState, _ *timebox.Event, data AddressChangedData,
+) OrderState {
 	st.BillingAddress = new(data.Address)
 	return st
 }
