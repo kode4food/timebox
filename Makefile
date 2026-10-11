@@ -5,12 +5,12 @@ GO ?= go
 all: test
 
 format: generate
-	$(GO) run golang.org/x/tools/cmd/goimports@latest -w .
+	$(GO) tool goimports -w .
 	$(GO) fix ./...
 
 check:
 	$(GO) vet ./...
-	$(GO) run honnef.co/go/tools/cmd/staticcheck ./...
+	$(GO) tool staticcheck ./...
 
 test: generate check
 	$(GO) clean -testcache
