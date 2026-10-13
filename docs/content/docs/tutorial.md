@@ -242,10 +242,7 @@ func receiveStock(
     products *ProductExecutor, id timebox.AggregateID, quantity int,
 ) error {
     _, err := products.Exec(id,
-        func(
-            _ ProductState,
-            ag *ProductAggregator,
-        ) error {
+        func(_ ProductState, ag *ProductAggregator) error {
             return ag.Raise(StockReceived, StockChangedData{
                 SKU:      string(id.Key),
                 Quantity: quantity,
@@ -280,10 +277,7 @@ type placeOrderArgs struct {
 func placeOrder(args placeOrderArgs) error {
     return args.store.Transact(func(tx *timebox.Transaction) error {
         _, err := tx.Exec(args.products, args.productID,
-            func(
-                product ProductState,
-                ag *ProductAggregator,
-            ) error {
+            func(product ProductState, ag *ProductAggregator) error {
                 if product.Available < args.quantity {
                     return errInsufficientStock
                 }
@@ -298,10 +292,7 @@ func placeOrder(args placeOrderArgs) error {
         }
 
         _, err = tx.Exec(args.orders, args.orderID,
-            func(
-                order OrderState,
-                ag *OrderAggregator,
-            ) error {
+            func(order OrderState, ag *OrderAggregator) error {
                 if order.Status != "" {
                     return errOrderExists
                 }
@@ -357,10 +348,7 @@ type shipOrderArgs struct {
 func shipOrder(args shipOrderArgs) error {
     return args.store.Transact(func(tx *timebox.Transaction) error {
         order, err := tx.Exec(args.orders, args.orderID,
-            func(
-                order OrderState,
-                ag *OrderAggregator,
-            ) error {
+            func(order OrderState, ag *OrderAggregator) error {
                 if order.Status != StatusConfirmed {
                     return fmt.Errorf(
                         "cannot ship order in %q state", order.Status,
@@ -376,10 +364,7 @@ func shipOrder(args shipOrderArgs) error {
         }
 
         _, err = tx.Exec(args.products, args.productID,
-            func(
-                product ProductState,
-                ag *ProductAggregator,
-            ) error {
+            func(product ProductState, ag *ProductAggregator) error {
                 if product.Reserved < order.Quantity {
                     return errInsufficientStock
                 }
