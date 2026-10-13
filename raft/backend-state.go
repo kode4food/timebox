@@ -58,7 +58,27 @@ func (b *Backend) compactBound() uint64 {
 			bound = pr.Match
 		}
 	}
+	if floor := b.pendingSnapFloor(); floor > 0 && floor < bound {
+		bound = floor
+	}
 	return bound
+}
+
+// pendingSnapFloor returns the lowest applied index of any outgoing snapshot
+// not yet confirmed sent, so compaction can't race ahead of it
+func (b *Backend) pendingSnapFloor() uint64 {
+	b.snapMu.Lock()
+	defer b.snapMu.Unlock()
+	var floor uint64
+	for _, out := range b.snapOut {
+		if out.applied == 0 {
+			continue
+		}
+		if floor == 0 || out.applied < floor {
+			floor = out.applied
+		}
+	}
+	return floor
 }
 
 func (b *Backend) captureSnapshot() ([]byte, uint64, error) {
@@ -92,7 +112,7 @@ func (b *Backend) captureSnapshot() ([]byte, uint64, error) {
 		return nil, 0, err
 	}
 
-	b.storeOutgoingSnapshot(ref, path)
+	b.storeOutgoingSnapshot(ref, path, applied)
 	return encodeSnapshotRef(ref), applied, nil
 }
 
@@ -170,29 +190,42 @@ func (b *Backend) newSnapshotRef() (uint64, string, error) {
 	return ref, filepath.Join(dir, snapshotFileName(ref)), nil
 }
 
-func (b *Backend) storeOutgoingSnapshot(ref uint64, path string) {
+func (b *Backend) storeOutgoingSnapshot(
+	ref uint64, path string, applied uint64,
+) {
 	b.snapMu.Lock()
 	defer b.snapMu.Unlock()
-	b.snapOut[ref] = path
+	b.snapOut[ref] = outSnapshot{path: path, applied: applied}
 }
 
 func (b *Backend) outgoingSnapshot(ref uint64) (string, bool) {
 	b.snapMu.Lock()
 	defer b.snapMu.Unlock()
-	path, ok := b.snapOut[ref]
-	return path, ok
+	out, ok := b.snapOut[ref]
+	return out.path, ok
 }
 
 func (b *Backend) releaseOutgoingSnapshot(ref uint64) {
 	b.snapMu.Lock()
-	path, ok := b.snapOut[ref]
+	out, ok := b.snapOut[ref]
 	if ok {
 		delete(b.snapOut, ref)
 	}
 	b.snapMu.Unlock()
 	if ok {
-		_ = os.Remove(path)
+		_ = os.Remove(out.path)
 	}
+}
+
+// clearSnapFloor stops a failed-delivery snapshot from holding back compaction,
+// keeping its file around in case the send is retried
+func (b *Backend) clearSnapFloor(ref uint64) {
+	b.snapMu.Lock()
+	if out, ok := b.snapOut[ref]; ok {
+		out.applied = 0
+		b.snapOut[ref] = out
+	}
+	b.snapMu.Unlock()
 }
 
 func (b *Backend) storeIncomingSnapshot(ref uint64, path string) {

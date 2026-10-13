@@ -47,7 +47,7 @@ type (
 		appliedIndex atomic.Uint64
 
 		snapMu   sync.Mutex
-		snapOut  map[uint64]string
+		snapOut  map[uint64]outSnapshot
 		snapIn   map[uint64]string
 		nextSnap atomic.Uint64
 	}
@@ -64,6 +64,13 @@ type (
 	peerInfo struct {
 		ID       ServerID
 		RaftAddr ServerAddress
+	}
+
+	// outSnapshot is a captured snapshot file awaiting peer delivery. applied
+	// is 0 once sent or failed, so it stops holding back compaction
+	outSnapshot struct {
+		path    string
+		applied uint64
 	}
 )
 
@@ -152,7 +159,7 @@ func openBackend(cfg Config) (*Backend, error) {
 		stopCh:    make(chan struct{}),
 
 		pending: map[uint64]proposalState{},
-		snapOut: map[uint64]string{},
+		snapOut: map[uint64]outSnapshot{},
 		snapIn:  map[uint64]string{},
 	}
 	if cfg.Publisher != nil {

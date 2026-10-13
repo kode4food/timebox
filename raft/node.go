@@ -147,15 +147,6 @@ func (b *Backend) queueMessages(msgs []*raftpb.Message) error {
 		}
 
 		typ := msg.GetType()
-		q := b.peerQueues[to]
-		if q == nil {
-			if typ == raftpb.MsgSnap {
-				b.node.ReportSnapshot(to, raft.SnapshotFailure)
-			}
-			b.node.ReportUnreachable(to)
-			continue
-		}
-
 		data, err := proto.Marshal(msg)
 		if err != nil {
 			return err
@@ -168,6 +159,16 @@ func (b *Backend) queueMessages(msgs []*raftpb.Message) error {
 			if !ok {
 				return raft.ErrSnapshotTemporarilyUnavailable
 			}
+		}
+
+		q := b.peerQueues[to]
+		if q == nil {
+			if snap {
+				b.clearSnapFloor(snapRef)
+				b.node.ReportSnapshot(to, raft.SnapshotFailure)
+			}
+			b.node.ReportUnreachable(to)
+			continue
 		}
 		q.Put(peerMessage{
 			to:      to,
@@ -198,8 +199,9 @@ func (b *Backend) sendPeerQueue(
 	id uint64, peer peerInfo, q *peerQueue,
 ) error {
 	var (
-		hadSnap bool
-		sent    []uint64
+		hadSnap   bool
+		attempted []uint64
+		sent      []uint64
 	)
 
 	err := b.transport.WithPeer(
@@ -212,6 +214,7 @@ func (b *Backend) sendPeerQueue(
 				}
 				if msg.snap {
 					hadSnap = true
+					attempted = append(attempted, msg.snapRef)
 				}
 				if err := writeFrame(w, msg.data); err != nil {
 					return err
@@ -228,6 +231,9 @@ func (b *Backend) sendPeerQueue(
 	)
 	if err != nil {
 		if hadSnap {
+			for _, ref := range attempted {
+				b.clearSnapFloor(ref)
+			}
 			b.node.ReportSnapshot(id, raft.SnapshotFailure)
 		}
 		return err
