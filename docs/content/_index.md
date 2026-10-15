@@ -34,7 +34,7 @@ if err != nil {
     return err
 }
 
-orders := store.Executor(newOrder, orderAppliers)
+orders := store.Executor(newOrder, orderAppliers.Reduce)
 orderID := timebox.NewAggregateID("order", "ORD-123")
 
 order, err := orders.Exec(orderID,

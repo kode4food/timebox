@@ -1,7 +1,6 @@
 package memory_test
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -36,13 +35,6 @@ func TestClosedMethods(t *testing.T) {
 		ID:      timebox.NewAggregateID("order", "1"),
 		FromSeq: 0,
 	})
-	assert.ErrorIs(t, err, memory.ErrClosed)
-
-	err = b.ConsumeArchive(context.Background(),
-		func(_ context.Context, _ *timebox.ArchiveRecord) error {
-			return nil
-		},
-	)
 	assert.ErrorIs(t, err, memory.ErrClosed)
 
 	err = b.Append(timebox.AppendRequest{

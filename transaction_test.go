@@ -173,7 +173,7 @@ func TestTransactionRejectsConflictingStateTypes(t *testing.T) {
 	// a second executor over the same Store with a different state type
 	other := store.Executor(
 		func() otherState { return otherState{} },
-		timebox.Appliers[otherState]{},
+		(timebox.Appliers[otherState]{}).Reduce,
 	)
 	id := timebox.NewAggregateID("counter", "conflicting")
 

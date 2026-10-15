@@ -29,6 +29,39 @@ func TestBasicIncrement(t *testing.T) {
 	assert.Equal(t, 5, state.Value)
 }
 
+func TestReducerBatch(t *testing.T) {
+	backend := memory.Open()
+	t.Cleanup(func() { assert.NoError(t, backend.Close()) })
+	store, err := backend.NewStore()
+	assert.NoError(t, err)
+	id := timebox.NewAggregateID("counter", "batch")
+	assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{
+		{Type: EventIncremented, Data: []byte("1")},
+		{Type: EventIncremented, Data: []byte("2")},
+		{Type: EventIncremented, Data: []byte("3")},
+	}))
+
+	var batches []int
+	reducer := func(st CounterState, evs []*timebox.Event) CounterState {
+		batches = append(batches, len(evs))
+		return appliers.Reduce(st, evs)
+	}
+	executor := store.Executor(newCounterState, reducer)
+	state, err := executor.Get(id)
+	assert.NoError(t, err)
+	assert.Equal(t, 6, state.Value)
+	assert.Equal(t, []int{3}, batches)
+
+	state, err = executor.Exec(id,
+		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
+			return ag.Raise(EventIncremented, 4)
+		},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, 10, state.Value)
+	assert.Equal(t, []int{3, 1}, batches)
+}
+
 func TestEmptyPayload(t *testing.T) {
 	store, executor := setupTestExecutor(t)
 	id := timebox.NewAggregateID("counter", "empty-payload")
@@ -298,7 +331,7 @@ func TestCacheEviction(t *testing.T) {
 		t, timebox.Config{CacheSize: 1}, timebox.Config{},
 	)
 
-	executor := store.Executor(newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers.Reduce)
 
 	id1 := timebox.NewAggregateID("counter", "1")
 	id2 := timebox.NewAggregateID("counter", "2")
@@ -464,7 +497,7 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	var eventCounts []int
 	executor := store.Executor(
 		newCounterState,
-		appliers,
+		appliers.Reduce,
 		func(st CounterState, evs []*timebox.Event) {
 			called = append(called, 0)
 			values = append(values, st.Value)
@@ -555,7 +588,7 @@ func TestOnSuccessDefaultsOnly(t *testing.T) {
 	called := false
 	executor := store.Executor(
 		newCounterState,
-		appliers,
+		appliers.Reduce,
 		func(st CounterState, evs []*timebox.Event) {
 			called = true
 			assert.Equal(t, 1, st.Value)
@@ -639,7 +672,7 @@ func setupExecutorWithCacheConfigs(
 	executor := store.Executor(func() CounterState {
 		count++
 		return newCounterState()
-	}, appliers)
+	}, appliers.Reduce)
 	return store, executor, &count
 }
 
@@ -649,7 +682,7 @@ func setupExecutorWithConfigs(
 	t.Helper()
 
 	store := setupExecutorStore(t, base, override)
-	executor := store.Executor(newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers.Reduce)
 	return store, executor
 }
 

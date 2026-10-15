@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -159,7 +158,7 @@ func (b *Backend) LoadSnapshot(
 		return nil, err
 	}
 	return &timebox.SnapshotRecord{
-		Data:     json.RawMessage(snapData),
+		Data:     snapData,
 		Sequence: snapSeq,
 		Events:   evs,
 	}, nil
@@ -299,7 +298,7 @@ func (b *Backend) loadEvents(
 			Sequence:    seq,
 			Type:        timebox.EventType(typ),
 			AggregateID: r.id,
-			Data:        json.RawMessage(data),
+			Data:        data,
 		})
 	}
 	return res, rows.Err()

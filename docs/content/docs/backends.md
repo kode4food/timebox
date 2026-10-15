@@ -32,7 +32,7 @@ defer backend.Close()
 store, err := backend.NewStore()
 ```
 
-The backend creates and owns its schema. `Prefix` is the PostgreSQL schema name. PostgreSQL supports events, snapshots, status, tags, and multi-aggregate transactions; it does not support archiving.
+The backend creates and owns its schema. `Prefix` is the PostgreSQL schema name. PostgreSQL supports events, snapshots, status, tags, multi-aggregate transactions, and archiving.
 
 ## Redis and Valkey
 

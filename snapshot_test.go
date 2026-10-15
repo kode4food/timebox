@@ -50,8 +50,7 @@ func TestSequenceWithSnapshot(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	var state CounterState
-	snap, err := store.GetSnapshot(id, &state)
+	snap, err := store.GetSnapshot[CounterState](id)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2), snap.NextSequence)
 	assert.Equal(t, encodedSize(t, &CounterState{Value: 10}), snap.SnapshotSize)
@@ -163,10 +162,9 @@ func TestSnapshotLargeBatch(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, numEvents+50, state.Value)
 
-	var snapState CounterState
-	snap, err := store.GetSnapshot(id, &snapState)
+	snap, err := store.GetSnapshot[CounterState](id)
 	assert.NoError(t, err)
-	assert.Equal(t, numEvents, snapState.Value)
+	assert.Equal(t, numEvents, snap.State.Value)
 	assert.Equal(t,
 		encodedSize(t, &CounterState{Value: numEvents}), snap.SnapshotSize,
 	)
@@ -190,7 +188,7 @@ func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
 	err = store.AppendEvents(id, 0, []*timebox.Event{ev})
 	assert.NoError(t, err)
 
-	executor := store.Executor(newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers.Reduce)
 	state, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			assert.Equal(t, 1, st.Value)
@@ -200,14 +198,13 @@ func TestExecSnapshotsInlineWhenRatioExceeded(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, state.Value)
 
-	var snapState CounterState
-	snap, err := store.GetSnapshot(id, &snapState)
+	snap, err := store.GetSnapshot[CounterState](id)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), snap.NextSequence)
 	assert.Equal(t, encodedSize(t, &CounterState{Value: 1}), snap.SnapshotSize)
 	assert.Equal(t, 0, snap.EventsSize)
 	assert.Len(t, snap.AdditionalEvents, 0)
-	assert.Equal(t, 1, snapState.Value)
+	assert.Equal(t, 1, snap.State.Value)
 }
 
 func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
@@ -236,7 +233,7 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 	err = store.AppendEvents(id, 1, []*timebox.Event{ev})
 	assert.NoError(t, err)
 
-	executor := store.Executor(newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers.Reduce)
 	state, err := executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			assert.Equal(t, 11, st.Value)
@@ -246,15 +243,14 @@ func TestExecDoesNotSnapshotInlineBelowRatio(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 11, state.Value)
 
-	var snapState CounterState
-	snap, err := store.GetSnapshot(id, &snapState)
+	snap, err := store.GetSnapshot[CounterState](id)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), snap.NextSequence)
 	assert.Equal(t, encodedSize(t, &CounterState{Value: 10}), snap.SnapshotSize)
 	assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
 	assert.Len(t, snap.AdditionalEvents, 1)
 	assert.Equal(t, int64(1), snap.AdditionalEvents[0].Sequence)
-	assert.Equal(t, 10, snapState.Value)
+	assert.Equal(t, 10, snap.State.Value)
 }
 
 func TestSaveSnapshotError(t *testing.T) {
@@ -266,7 +262,7 @@ func TestSaveSnapshotError(t *testing.T) {
 
 	executor := store.Executor(
 		func() *BadState { return &BadState{Value: make(chan int)} },
-		timebox.Appliers[*BadState]{},
+		(timebox.Appliers[*BadState]{}).Reduce,
 	)
 
 	err := executor.SaveSnapshot(timebox.NewAggregateID("bad", "snapshot"))
@@ -289,13 +285,12 @@ func TestSaveSnapshot(t *testing.T) {
 	err = executor.SaveSnapshot(id)
 	assert.NoError(t, err)
 
-	var state CounterState
-	snap, err := store.GetSnapshot(id, &state)
+	snap, err := store.GetSnapshot[CounterState](id)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), snap.NextSequence)
 	assert.Equal(t, encodedSize(t, &CounterState{Value: 2}), snap.SnapshotSize)
 	assert.Equal(t, 0, snap.EventsSize)
-	assert.Equal(t, 2, state.Value)
+	assert.Equal(t, 2, snap.State.Value)
 }
 
 func TestSaveSnapshotColdCache(t *testing.T) {
@@ -324,15 +319,14 @@ func TestSaveSnapshotColdCache(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Fresh executor with cold cache must fast-forward through the new event
-	fresh := store.Executor(newCounterState, appliers)
+	fresh := store.Executor(newCounterState, appliers.Reduce)
 	err = fresh.SaveSnapshot(id)
 	assert.NoError(t, err)
 
-	var state CounterState
-	snap, err := store.GetSnapshot(id, &state)
+	snap, err := store.GetSnapshot[CounterState](id)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2), snap.NextSequence)
-	assert.Equal(t, 8, state.Value)
+	assert.Equal(t, 8, snap.State.Value)
 	assert.Empty(t, snap.AdditionalEvents)
 }
 
@@ -341,7 +335,7 @@ func TestSaveSnapshotLoadError(t *testing.T) {
 	store, err := b.NewStore()
 	assert.NoError(t, err)
 
-	executor := store.Executor(newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers.Reduce)
 	id := timebox.NewAggregateID("save", "snapshot-error")
 
 	_ = b.Close()
@@ -353,9 +347,8 @@ func TestGetSnapshotEmpty(t *testing.T) {
 	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
 
-	var state CounterState
-	snap, err := store.GetSnapshot(
-		timebox.NewAggregateID("counter", "1"), &state,
+	snap, err := store.GetSnapshot[CounterState](
+		timebox.NewAggregateID("counter", "1"),
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, snap)
@@ -384,7 +377,7 @@ func TestExecInlineSnapshotSaveError(t *testing.T) {
 	store, err := timebox.NewStore(b)
 	assert.NoError(t, err)
 
-	executor := store.Executor(newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers.Reduce)
 	id := timebox.NewAggregateID("counter", "inline-save-error")
 
 	_, err = executor.Exec(id,

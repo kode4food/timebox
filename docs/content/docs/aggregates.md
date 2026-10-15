@@ -13,7 +13,7 @@ Every aggregate ID contains a type and key:
 orderID := timebox.NewAggregateID("order", "ORD-123")
 ```
 
-Both components are always populated. For a concept with exactly one aggregate, use `NewAggregateType`; it fills the key with `timebox.SingletonKey`:
+Both components are always populated. For a concept with exactly one aggregate, use `NewAggregateType`. It fills the key with `timebox.SingletonKey`:
 
 ```go
 catalogID := timebox.NewAggregateType("catalog")
@@ -43,7 +43,7 @@ Timebox caches a compatible decoded value, including the value supplied to a new
 
 ## Message Handlers
 
-`Handler`, `MakeHandler`, and `MakeDispatcher` work with `Message`, so the same dispatcher can route recorded event messages and deferred schedule messages by type. An `Event` embeds its message; pass that field to a handler or dispatcher:
+`Handler`, `MakeHandler`, and `MakeDispatcher` work with `Message`, so the same dispatcher can route recorded event messages and deferred schedule messages by type. An `Event` embeds its message. Pass that field to a handler or dispatcher:
 
 ```go
 dispatch := timebox.MakeDispatcher(handlers)
@@ -73,6 +73,8 @@ var orderAppliers = timebox.Appliers[Order]{
 
 Appliers run both while replaying stored history and immediately after `Raise`. They should not perform I/O or other side effects.
 
+Pass `orderAppliers.Reduce` to an executor. A custom `Reducer` can apply a complete replay batch directly when a projection can avoid repeated immutable copies.
+
 ## Post-Commit Actions
 
 Side effects belong after a successful commit. Register defaults when constructing an executor, or register a command-specific action through the aggregator:
@@ -83,4 +85,4 @@ ag.OnSuccess(func(order Order, events []*timebox.Event) {
 })
 ```
 
-Success actions run only after persistence succeeds. Timebox recovers a panic in an action and logs it; the commit is already durable and is not rolled back.
+Success actions run only after persistence succeeds. Timebox recovers a panic in an action and logs it. The commit is already durable and is not rolled back.

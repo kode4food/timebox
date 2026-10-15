@@ -4,7 +4,7 @@
 
 Event-sourcing persistence library for Go. Module: `github.com/kode4food/timebox`.
 
-Timebox provides append-only aggregate event storage with optimistic concurrency, multi-aggregate transactions, snapshots, status and tag indexing, archiving, and pluggable memory, PostgreSQL, Redis, and Raft backends.
+Timebox provides append-only aggregate event storage with optimistic concurrency, multi-aggregate transactions, snapshots, status and tag indexing, durable scheduling, durable queues, archiving, and pluggable memory, PostgreSQL, Redis, and Raft backends.
 
 ## Exact Scope
 
@@ -32,7 +32,7 @@ Rules:
 2. Keep exported signatures in the language of the receiving public package.
 3. Preserve the core append contract in every backend: `Append` takes any number of `AppendRequest` values and applies all of them or none, with aggregate-local optimistic concurrency, atomic event-batch append, aligned derived index updates, and a `VersionConflictError` naming the first failing request's aggregate.
 4. Treat snapshots as accelerative state, never as the authoritative event source.
-5. Keep `AggregateID` a comparable type and key pair with both components always populated; a singleton aggregate takes `SingletonKey`. Queries over a whole type take an `ID` type rather than a partial `AggregateID`. Canonicalize IDs to strings only at storage and wire boundaries.
+5. Keep `AggregateID` a comparable type and key pair with both components always populated. A singleton aggregate takes `SingletonKey`. Queries over a whole type take an `ID` type rather than a partial `AggregateID`. Canonicalize IDs to strings only at storage and wire boundaries.
 6. Add interfaces only for real lifecycle or substitution seams.
 7. Name packages and files by concern. Never create `util`, `helpers`, `common`, `models`, or `types` dumping grounds.
 8. Group files by concern. Size alone never justifies a split or move.
@@ -77,7 +77,7 @@ Rules:
 - Prefer guard clauses. Keep conditional nesting to one level unless an early return duplicates work.
 - Use multi-assignment only for multiple results from one call.
 - Store mutable counters, caches, registries, and lifecycle state on their owning structs.
-- Reference another package's exported value directly; never re-export it through a package-level variable.
+- Reference another package's exported value directly. Never re-export it through a package-level variable.
 
 ### Comments
 

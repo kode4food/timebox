@@ -19,14 +19,13 @@ type Backend struct {
 	timebox.AlwaysReady
 	cfg Config
 
-	client         *redis.Client
-	prefix         string
-	appendScript   *redis.Script
-	getEvents      map[bool]*redis.Script
-	putSnapshot    map[bool]*redis.Script
-	getSnapshot    map[bool]*redis.Script
-	publishArchive *redis.Script
-	consumeArchive *redis.Script
+	client       *redis.Client
+	prefix       string
+	appendScript *redis.Script
+	getEvents    map[bool]*redis.Script
+	putSnapshot  map[bool]*redis.Script
+	getSnapshot  map[bool]*redis.Script
+	archive      *redis.Script
 }
 
 const (
@@ -42,10 +41,6 @@ const (
 	defaultSnapshot   = "snapshot"
 	snapshotValSuffix = defaultSnapshot + ":val"
 	snapshotSeqSuffix = defaultSnapshot + ":seq"
-
-	archiveStreamSuffix   = "archive"
-	archiveGroupSuffix    = archiveStreamSuffix + ":group"
-	archiveConsumerSuffix = archiveStreamSuffix + ":consumer"
 )
 
 var (
@@ -103,8 +98,7 @@ func newBackend(cfg Config) (*Backend, error) {
 			false: redis.NewScript(luaGetSnapshot),
 			true:  redis.NewScript(luaGetSnapshotTrim),
 		},
-		publishArchive: redis.NewScript(luaPublishArchive),
-		consumeArchive: redis.NewScript(luaConsumeArchive),
+		archive: redis.NewScript(luaArchive),
 	}, nil
 }
 
@@ -318,18 +312,6 @@ func (b *Backend) buildTagStateKey(id timebox.AggregateID) string {
 
 func (b *Backend) buildTagRootKey() string {
 	return fmt.Sprintf("%s:%s", b.prefix, tagSuffix)
-}
-
-func (b *Backend) archiveStreamKey() string {
-	return fmt.Sprintf("%s:%s", b.prefix, archiveStreamSuffix)
-}
-
-func (b *Backend) archiveGroup() string {
-	return fmt.Sprintf("%s:%s", b.prefix, archiveGroupSuffix)
-}
-
-func (b *Backend) archiveConsumer() string {
-	return fmt.Sprintf("%s:%s", b.prefix, archiveConsumerSuffix)
 }
 
 func (b *Backend) parseAggregateIDFromKey(key string) timebox.AggregateID {

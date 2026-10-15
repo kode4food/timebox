@@ -15,7 +15,7 @@ type (
 	// raised through Raise. It is not safe for concurrent use
 	Aggregator[T any] struct {
 		value    T
-		appliers Appliers[T]
+		reducer  Reducer[T]
 		tx       *Transaction
 		id       AggregateID
 		enqueued []*Event
@@ -29,6 +29,9 @@ type (
 
 	// Applier applies an event to an aggregate state, returning the new state
 	Applier[T any] func(T, *Event) T
+
+	// Reducer applies an event batch to an aggregate state
+	Reducer[T any] func(T, []*Event) T
 
 	// SuccessAction receives the Aggregator's final value after Executor.Exec
 	// succeeds, as well as the Events persisted by that execution
@@ -65,16 +68,14 @@ func NewAggregateType(typ ID) AggregateID {
 	return AggregateID{Type: typ, Key: SingletonKey}
 }
 
-func newAggregator[T any](
-	id AggregateID, appliers Appliers[T], initValue T, initSeq int64,
-) *Aggregator[T] {
-	return &Aggregator[T]{
-		id:       id,
-		nextSeq:  initSeq,
-		enqueued: []*Event{},
-		appliers: appliers,
-		value:    initValue,
+// Reduce applies an event batch with the matching appliers
+func (a Appliers[T]) Reduce(st T, evs []*Event) T {
+	for _, ev := range evs {
+		if apply, ok := a[ev.Type]; ok {
+			st = apply(st, ev)
+		}
 	}
+	return st
 }
 
 // ID returns the aggregate's identifier
@@ -156,10 +157,20 @@ func (id *AggregateID) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (a *Aggregator[T]) apply(ev *Event) {
-	if apply, ok := a.appliers[ev.Type]; ok {
-		a.value = apply(a.value, ev)
+func newAggregator[T any](
+	id AggregateID, reducer Reducer[T], initValue T, initSeq int64,
+) *Aggregator[T] {
+	return &Aggregator[T]{
+		id:       id,
+		nextSeq:  initSeq,
+		enqueued: []*Event{},
+		reducer:  reducer,
+		value:    initValue,
 	}
+}
+
+func (a *Aggregator[T]) apply(ev *Event) {
+	a.value = a.reducer(a.value, []*Event{ev})
 }
 
 func (a *Aggregator[_]) flush() (int64, []*Event) {

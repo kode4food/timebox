@@ -12,8 +12,9 @@ import (
 )
 
 type (
-	// Scheduler maintains a disposable heap over durable schedule aggregates
+	// Scheduler maintains a disposable heap over a durable named scheduler
 	Scheduler struct {
+		id         timebox.ID
 		store      *timebox.Store
 		process    Processor
 		clock      Clock
@@ -26,6 +27,7 @@ type (
 
 	// Config configures a disposable schedule runner
 	Config struct {
+		ID               timebox.ID
 		Store            *timebox.Store
 		Processor        Processor
 		Clock            Clock
@@ -70,6 +72,9 @@ func New(cfg Config) (*Scheduler, error) {
 	if cfg.Store == nil {
 		return nil, ErrStoreRequired
 	}
+	if cfg.ID == "" {
+		return nil, timebox.ErrSchedulerIDRequired
+	}
 	if cfg.Processor == nil {
 		return nil, ErrProcessorRequired
 	}
@@ -92,6 +97,7 @@ func New(cfg Config) (*Scheduler, error) {
 		return nil, ErrInvalidRetryDelay
 	}
 	return &Scheduler{
+		id:         cfg.ID,
 		store:      cfg.Store,
 		process:    cfg.Processor,
 		clock:      cfg.Clock,
@@ -103,7 +109,7 @@ func New(cfg Config) (*Scheduler, error) {
 	}, nil
 }
 
-// Wake requests prompt reconciliation with the durable schedule index
+// Wake requests prompt reconciliation with the named scheduler aggregate
 func (s *Scheduler) Wake() {
 	select {
 	case s.wake <- struct{}{}:
@@ -148,7 +154,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 }
 
 func (s *Scheduler) reconcileSchedules() error {
-	schedules, err := s.store.ListSchedules(s.clock().Add(s.rescan))
+	schedules, err := s.store.ListSchedules(s.id, s.clock().Add(s.rescan))
 	if err != nil {
 		return err
 	}
@@ -184,7 +190,7 @@ func (s *Scheduler) processDue(ctx context.Context) {
 
 			err := s.store.Transact(func(tx *timebox.Transaction) error {
 				if err := tx.ConsumeSchedule(
-					item.schedule.Key, item.schedule.Version,
+					s.id, item.schedule.Key, item.schedule.Version,
 				); err != nil {
 					return err
 				}
@@ -199,8 +205,8 @@ func (s *Scheduler) processDue(ctx context.Context) {
 }
 
 func (s *Scheduler) refreshProcessed(ctx context.Context, item *heapItem) {
-	schedule, err := s.store.LoadSchedule(item.schedule.Key)
-	if !errors.Is(err, nil) {
+	schedule, err := s.store.LoadSchedule(s.id, item.schedule.Key)
+	if err != nil {
 		s.logError(ctx, item.schedule.Key, err)
 		s.retryItem(item)
 		return

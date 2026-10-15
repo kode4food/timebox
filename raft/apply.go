@@ -121,7 +121,6 @@ func (b *Backend) flushBatchNoPublish(
 	}
 	for i := range batch {
 		b.resolveProposal(propIDs[i], batch[i].cmd, results[i])
-		b.notifyAppliedArchive(batch[i].cmd, results[i])
 	}
 	b.appliedIndex.Store(batch[len(batch)-1].index)
 	return nil
@@ -141,7 +140,6 @@ func (b *Backend) flushBatchPublish(
 	for i := range batch {
 		res := results[i]
 		b.resolveProposal(propIDs[i], batch[i].cmd, res)
-		b.notifyAppliedArchive(batch[i].cmd, res)
 		if res.Error != nil {
 			continue
 		}
@@ -158,16 +156,6 @@ func (b *Backend) flushBatchPublish(
 		b.publishQ.Put(published)
 	}
 	return nil
-}
-
-func (b *Backend) notifyAppliedArchive(cmd Command, res *ApplyResult) {
-	if res.Error != nil {
-		return
-	}
-	switch cmd.Type() {
-	case CmdTypeArchive, CmdTypeConsumeArchive:
-		b.notifyArchive()
-	}
 }
 
 func (b *Backend) applyConfChange(ent *raftpb.Entry) error {

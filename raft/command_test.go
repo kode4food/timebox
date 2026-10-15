@@ -40,12 +40,6 @@ func TestCommandType(t *testing.T) {
 		assert.Equal(t, raft.CmdTypeArchive, c.Type())
 	})
 
-	t.Run("consume archive", func(t *testing.T) {
-		c := raft.MakeConsumeArchiveCommand(1,
-			&raft.ConsumeArchiveCommand{StreamID: "1"},
-		)
-		assert.Equal(t, raft.CmdTypeConsumeArchive, c.Type())
-	})
 }
 
 func TestCommandProposalID(t *testing.T) {
@@ -136,21 +130,6 @@ func TestCommandArchiveRoundtrip(t *testing.T) {
 	assert.Equal(t, ac.ID, got.ID)
 }
 
-func TestCommandConsumeArchiveRoundtrip(t *testing.T) {
-	ac := &raft.ConsumeArchiveCommand{
-		StreamID: "00000000000000000042",
-	}
-	c := raft.MakeConsumeArchiveCommand(89, ac)
-
-	pid, err := c.ProposalID()
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(89), pid)
-
-	got, err := c.ConsumeArchiveRequest()
-	assert.NoError(t, err)
-	assert.Equal(t, ac.StreamID, got.StreamID)
-}
-
 func TestCommandCorrupt(t *testing.T) {
 	t.Run("append too short", func(t *testing.T) {
 		_, err := raft.Command([]byte{raft.CmdTypeAppend}).AppendRequests()
@@ -186,20 +165,6 @@ func TestCommandCorrupt(t *testing.T) {
 		c := make(raft.Command, 9+2) // header + truncated payload
 		c[0] = raft.CmdTypeArchive
 		_, err := c.ArchiveRequest()
-		assert.True(t, errors.Is(err, bin.ErrCorruptState))
-	})
-
-	t.Run("consume archive too short", func(t *testing.T) {
-		_, err := raft.Command(
-			[]byte{raft.CmdTypeConsumeArchive},
-		).ConsumeArchiveRequest()
-		assert.True(t, errors.Is(err, bin.ErrCorruptState))
-	})
-
-	t.Run("consume archive corrupt payload", func(t *testing.T) {
-		c := make(raft.Command, 9+2) // header + truncated payload
-		c[0] = raft.CmdTypeConsumeArchive
-		_, err := c.ConsumeArchiveRequest()
 		assert.True(t, errors.Is(err, bin.ErrCorruptState))
 	})
 }

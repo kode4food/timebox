@@ -113,12 +113,11 @@ func TestSnapshotFutureSeq(t *testing.T) {
 		return
 	}
 
-	var snapState map[string]int
-	snap, err := n.store.GetSnapshot(id, &snapState)
+	snap, err := n.store.GetSnapshot[map[string]int](id)
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Equal(t, map[string]int{"value": 5}, snapState)
+	assert.Equal(t, map[string]int{"value": 5}, snap.State)
 	assert.Equal(t, int64(5), snap.NextSequence)
 	assert.Len(t, snap.AdditionalEvents, 1)
 	assert.Equal(t, int64(5), snap.AdditionalEvents[0].Sequence)

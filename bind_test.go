@@ -529,13 +529,10 @@ func TestMakeApplier(t *testing.T) {
 		incData, err := json.Marshal(deltaData{Delta: 5})
 		assert.NoError(t, err)
 		event1 := &timebox.Event{Type: "increment", Data: incData}
-		st := valueState{Value: 10}
-		st = appliers["increment"](st, event1)
-
-		assert.Equal(t, 15, st.Value)
-
 		event2 := &timebox.Event{Type: "reset", Data: []byte("{}")}
-		st = appliers["reset"](st, event2)
+		st := appliers.Reduce(valueState{Value: 10}, []*timebox.Event{
+			event1, event2,
+		})
 
 		assert.Equal(t, 0, st.Value)
 	})

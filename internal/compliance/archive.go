@@ -13,17 +13,42 @@ import (
 )
 
 func runArchive(t *testing.T, p Profile) {
-	if !p.Archive {
-		store := openStore(t, p, timebox.Config{})
-		id := timebox.NewAggregateID("order", "archive-disabled")
+	t.Run("QueueTrims", func(t *testing.T) {
+		backend, store := openBackend(t, p, timebox.Config{}, nil)
+		first := timebox.NewAggregateID("order", "trim-first")
+		second := timebox.NewAggregateID("order", "trim-second")
+		for _, id := range []timebox.AggregateID{first, second} {
+			ev := testEvent(t, time.Now().UTC(), "event.test", 1, nil, nil)
+			assert.NoError(t,
+				store.AppendEvents(id, 0, []*timebox.Event{ev}),
+			)
+			assert.NoError(t, store.Archive(id))
+		}
 
-		err := store.Archive(id)
-		assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
+		assert.Equal(t, first, consumeArchiveID(t, store))
 
-		err = store.ConsumeArchive(context.Background(), nil)
-		assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
-		return
-	}
+		evs, err := backend.LoadEvents(timebox.LoadEventsRequest{
+			ID:         timebox.ArchiveQueueID,
+			TrimEvents: true,
+		})
+		assert.NoError(t, err)
+		if assert.Len(t, evs.Events, 1) {
+			assert.Equal(t, int64(2), evs.StartSequence)
+			assert.Equal(t, int64(2), evs.Events[0].Sequence)
+		}
+
+		third := timebox.NewAggregateID("order", "trim-third")
+		ev := testEvent(t, time.Now().UTC(), "event.test", 1, nil, nil)
+		assert.NoError(t,
+			store.AppendEvents(third, 0, []*timebox.Event{ev}),
+		)
+		assert.NoError(t, store.Archive(third))
+
+		reloaded, err := timebox.NewStore(backend)
+		assert.NoError(t, err)
+		assert.Equal(t, second, consumeArchiveID(t, reloaded))
+		assert.Equal(t, third, consumeArchiveID(t, reloaded))
+	})
 
 	t.Run("Lifecycle", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{
@@ -172,4 +197,19 @@ func runArchive(t *testing.T, p Profile) {
 		}
 		assert.Equal(t, id, rec.AggregateID)
 	})
+}
+
+func consumeArchiveID(
+	t *testing.T, store *timebox.Store,
+) timebox.AggregateID {
+	t.Helper()
+	var res timebox.AggregateID
+	err := store.ConsumeArchive(t.Context(),
+		func(_ context.Context, rec *timebox.ArchiveRecord) error {
+			res = rec.AggregateID
+			return nil
+		},
+	)
+	assert.NoError(t, err)
+	return res
 }

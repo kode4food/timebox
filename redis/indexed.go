@@ -30,8 +30,8 @@ func (b *Backend) GetAggregateStatus(
 }
 
 // ListAggregatesByStatus lists aggregates matching the query. Type and
-// KeyPrefix narrow by aggregate-id prefix; Through bounds by status time,
-// each via its own native redis op
+// KeyPrefix narrow by aggregate-id prefix. Through bounds by status time.
+// Each narrowing uses its own native redis op
 func (b *Backend) ListAggregatesByStatus(
 	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {

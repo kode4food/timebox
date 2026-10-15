@@ -74,4 +74,16 @@ var (
 
 	//go:embed sql/list-by-tag.sql
 	sqlListByTag string
+
+	//go:embed sql/delete-events.sql
+	sqlDeleteEvents string
+
+	//go:embed sql/delete-snapshot.sql
+	sqlDeleteSnapshot string
+
+	//go:embed sql/delete-tags.sql
+	sqlDeleteTags string
+
+	//go:embed sql/delete-status.sql
+	sqlDeleteStatus string
 )

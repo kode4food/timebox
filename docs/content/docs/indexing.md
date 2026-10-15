@@ -35,7 +35,7 @@ func orderIndexer(events []*timebox.Event) []*timebox.Index {
 store, err := backend.NewStore(timebox.Config{Indexer: orderIndexer})
 ```
 
-The status and tag changes are committed atomically with the event batch. A nil `Status` leaves the current status alone; an empty string clears it. For a tag, `true` adds membership and `false` removes it. If a batch yields multiple updates for the same status or tag, the last one wins.
+The status and tag changes are committed atomically with the event batch. A nil `Status` leaves the current status alone, and an empty string clears it. For a tag, `true` adds membership and `false` removes it. If a batch yields multiple updates for the same status or tag, the last one wins.
 
 Query the resulting indexes through the store:
 
@@ -47,4 +47,4 @@ active, err := store.ListAggregatesByStatus(timebox.StatusQuery{
 review, err := store.ListAggregatesByTag("awaiting-review")
 ```
 
-`GetAggregateStatus` returns an empty string when no status is set. `ListAggregatesByStatus` takes a `StatusQuery` and returns IDs and the timestamp of the last event in the batch that updated each status; `Type` and `KeyPrefix` narrow by aggregate, and `Through` bounds by status time (zero means all). `ListAggregatesByTag` returns IDs. The indexer should derive its result from the supplied events so retries produce the same updates.
+`GetAggregateStatus` returns an empty string when no status is set. `ListAggregatesByStatus` takes a `StatusQuery` and returns IDs and the timestamp of the last event in the batch that updated each status. `Type` and `KeyPrefix` narrow by aggregate, and `Through` bounds by status time (zero means all). `ListAggregatesByTag` returns IDs. The indexer should derive its result from the supplied events so retries produce the same updates.

@@ -32,8 +32,7 @@ func runLifecycle(t *testing.T, p Profile) {
 		_, err = store.GetEvents(id, 0)
 		assert.Error(t, err)
 
-		var state map[string]int
-		_, err = store.GetSnapshot(id, &state)
+		_, err = store.GetSnapshot[map[string]int](id)
 		assert.Error(t, err)
 
 		err = store.PutSnapshot(id, map[string]int{"value": 1}, 1)

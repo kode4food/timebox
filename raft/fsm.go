@@ -68,15 +68,7 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
 				if err != nil {
 					return err
 				}
-				if res, err = f.applyArchiveTx(b, de.index, ac); err != nil {
-					return err
-				}
-			case CmdTypeConsumeArchive:
-				ac, err := de.cmd.ConsumeArchiveRequest()
-				if err != nil {
-					return err
-				}
-				if res, err = f.applyConsumeArchiveTx(b, ac); err != nil {
+				if res, err = f.applyArchiveTx(b, ac); err != nil {
 					return err
 				}
 			default:
@@ -185,8 +177,9 @@ func (f *fsm) applySnapshotTx(
 	return &ApplyResult{}, nil
 }
 
+// applyArchiveTx atomically moves cmd.ID into the archive queue
 func (f *fsm) applyArchiveTx(
-	b *kvBucket, index uint64, cmd *ArchiveCommand,
+	b *kvBucket, cmd *ArchiveCommand,
 ) (*ApplyResult, error) {
 	encodedID := encodeAggregateID(cmd.ID)
 	meta, ok, err := loadMetaTx(b, encodedID)
@@ -199,9 +192,7 @@ func (f *fsm) applyArchiveTx(
 		return nil, err
 	}
 
-	streamID := archiveStreamID(index)
 	rec := &timebox.ArchiveRecord{
-		StreamID:    streamID,
 		AggregateID: cmd.ID,
 		SnapshotData: append(
 			[]byte(nil),
@@ -210,22 +201,30 @@ func (f *fsm) applyArchiveTx(
 		SnapshotSequence: meta.SnapshotSequence,
 		Events:           events,
 	}
-	if err := putArchiveRecordTx(b, rec); err != nil {
+
+	queueEncodedID := encodeAggregateID(timebox.ArchiveQueueID)
+	queueMeta, err := loadOrCreateMetaTx(b, queueEncodedID)
+	if err != nil {
 		return nil, err
 	}
+	ev, err := timebox.NewArchiveQueueEvent(
+		queueMeta.CurrentSequence, cmd.ID, rec,
+	)
+	if err != nil {
+		return nil, err
+	}
+	req := &timebox.AppendRequest{
+		ID:     timebox.ArchiveQueueID,
+		Events: []*timebox.Event{ev},
+	}
+	if err := f.writeAppendTx(b, queueMeta, req); err != nil {
+		return nil, err
+	}
+
 	if err := deleteAggregateTx(b, encodedID, meta); err != nil {
 		return nil, err
 	}
-	return &ApplyResult{}, nil
-}
-
-func (f *fsm) applyConsumeArchiveTx(
-	b *kvBucket, cmd *ConsumeArchiveCommand,
-) (*ApplyResult, error) {
-	if err := b.Delete(archiveRecordKey(cmd.StreamID)); err != nil {
-		return nil, err
-	}
-	return &ApplyResult{}, nil
+	return &ApplyResult{Appends: []*timebox.AppendRequest{req}}, nil
 }
 
 func writeEventsTx(

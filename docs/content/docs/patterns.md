@@ -18,7 +18,7 @@ Stores share persistence while keeping their caching, snapshotting, trimming, an
 
 ## One Executor per State Model
 
-Create separate executors for each state model. Singleton models use `NewAggregateType`; models with many instances use `NewAggregateID`.
+Create separate executors for each state model. Singleton models use `NewAggregateType`. Models with many instances use `NewAggregateID`.
 
 This keeps event dispatch and state reconstruction attached to the domain model that owns them.
 

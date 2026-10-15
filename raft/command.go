@@ -22,11 +22,6 @@ type (
 		ID timebox.AggregateID
 	}
 
-	// ConsumeArchiveCommand carries one archive acknowledgement through Raft
-	ConsumeArchiveCommand struct {
-		StreamID string
-	}
-
 	// AggregateMeta stores the derived aggregate state needed for reads
 	AggregateMeta struct {
 		Tags             map[string]bool
@@ -48,10 +43,14 @@ type (
 )
 
 const (
-	CmdTypeAppend         = 0
-	CmdTypeSnapshot       = 1
-	CmdTypeArchive        = 2
-	CmdTypeConsumeArchive = 3
+	// CmdTypeAppend identifies an append command
+	CmdTypeAppend = 0
+
+	// CmdTypeSnapshot identifies a snapshot command
+	CmdTypeSnapshot = 1
+
+	// CmdTypeArchive identifies an archive command
+	CmdTypeArchive = 2
 
 	cmdHeaderSize = 9 // 1 type byte + 8 proposalID bytes
 )
@@ -101,16 +100,6 @@ func MakeArchiveCommand(proposalID uint64, ac *ArchiveCommand) Command {
 	return appendAggregateID(c, ac.ID)
 }
 
-// MakeConsumeArchiveCommand encodes one archive ack into a Raft command
-func MakeConsumeArchiveCommand(
-	proposalID uint64, ac *ConsumeArchiveCommand,
-) Command {
-	c := make(Command, 0, cmdHeaderSize+32)
-	c = bin.AppendByte(c, CmdTypeConsumeArchive)
-	c = bin.AppendUint64(c, proposalID)
-	return bin.AppendString(c, ac.StreamID)
-}
-
 // Type returns the encoded command type
 func (c Command) Type() int {
 	if len(c) == 0 {
@@ -157,14 +146,6 @@ func (c Command) ArchiveRequest() (*ArchiveCommand, error) {
 		return nil, bin.ErrCorruptState
 	}
 	return decodeArchiveCommand(c[cmdHeaderSize:])
-}
-
-// ConsumeArchiveRequest decodes an archive ack from the command payload
-func (c Command) ConsumeArchiveRequest() (*ConsumeArchiveCommand, error) {
-	if len(c) < cmdHeaderSize {
-		return nil, bin.ErrCorruptState
-	}
-	return decodeConsumeArchiveCommand(c[cmdHeaderSize:])
 }
 
 func appendRequestTo(
@@ -244,14 +225,6 @@ func decodeArchiveCommand(data []byte) (*ArchiveCommand, error) {
 		return nil, err
 	}
 	return &ArchiveCommand{ID: id}, nil
-}
-
-func decodeConsumeArchiveCommand(data []byte) (*ConsumeArchiveCommand, error) {
-	streamID, _, err := bin.ReadString(data)
-	if err != nil {
-		return nil, err
-	}
-	return &ConsumeArchiveCommand{StreamID: streamID}, nil
 }
 
 func appendAggregateID(buf []byte, id timebox.AggregateID) []byte {

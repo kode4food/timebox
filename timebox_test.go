@@ -160,7 +160,7 @@ func setupTestExecutorWithConfig(
 	store, err := memory.Open().NewStore(cfg)
 	assert.NoError(t, err)
 
-	executor := store.Executor(newCounterState, appliers)
+	executor := store.Executor(newCounterState, appliers.Reduce)
 	return store, executor
 }
 

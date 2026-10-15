@@ -1,6 +1,6 @@
 # Timebox
 
-Event-sourcing persistence library for Go. Provides append-only aggregate event storage with optimistic concurrency, multi-aggregate transactions, snapshots, status/tag indexing, and pluggable backends. The `raft` sub-package adds multi-node consensus via etcd raft + bbolt; the `redis` sub-package provides a Redis-backed backend.
+Event-sourcing persistence library for Go. Provides append-only aggregate event storage with optimistic concurrency, multi-aggregate transactions, snapshots, status/tag indexing, durable scheduling, durable queues, archiving, and pluggable backends. The `raft` sub-package adds multi-node consensus via etcd raft + badger. The `redis` sub-package provides a Redis-backed backend.
 
 ## Build & Test
 
@@ -15,7 +15,7 @@ make pre-commit  # format + test
 
 ```
 timebox (root)   # Core interfaces and Store: Append, Transaction, Snapshot, events, indexing
-raft/            # etcd raft + bbolt persistence backend
+raft/            # etcd raft + badger persistence backend
 redis/           # Redis persistence backend
 examples/        # Usage examples (own go.mod)
 ```
@@ -24,7 +24,7 @@ examples/        # Usage examples (own go.mod)
 
 ### raft/
 
-Multi-node consensus backend. Each node runs etcd raft + bbolt. Followers propose directly via `node.Propose()`, and raft handles forwarding internally.
+Multi-node consensus backend. Each node runs etcd raft + badger. Followers propose directly via `node.Propose()`, and raft handles forwarding internally.
 
 Key types: `Backend`, `Config`, `Server`
 

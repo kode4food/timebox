@@ -75,7 +75,7 @@ if err != nil {
 Create an executor for the aggregate state and address each aggregate with both a type and key:
 
 ```go
-accounts := store.Executor(newAccount, accountAppliers)
+accounts := store.Executor(newAccount, accountAppliers.Reduce)
 accountID := timebox.NewAggregateID("account", "ACC-123")
 
 account, err := accounts.Exec(accountID,

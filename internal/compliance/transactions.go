@@ -29,7 +29,7 @@ var counterAppliers = timebox.Appliers[counter]{
 func runTransactions(t *testing.T, p Profile) {
 	t.Run("Concurrent", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
-		exec := store.Executor(newCounter, counterAppliers)
+		exec := store.Executor(newCounter, counterAppliers.Reduce)
 		ids := make([]timebox.AggregateID, 24)
 		for i := range ids {
 			ids[i] = timebox.NewAggregateID("tx", timebox.ID(strconv.Itoa(i)))
@@ -61,7 +61,7 @@ func runTransactions(t *testing.T, p Profile) {
 
 	t.Run("Atomic", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
-		exec := store.Executor(newCounter, counterAppliers)
+		exec := store.Executor(newCounter, counterAppliers.Reduce)
 
 		first := timebox.NewAggregateID("tx", "first")
 		second := timebox.NewAggregateID("tx", "second")
@@ -118,7 +118,7 @@ func runTransactions(t *testing.T, p Profile) {
 
 	t.Run("RollsBack", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
-		exec := store.Executor(newCounter, counterAppliers)
+		exec := store.Executor(newCounter, counterAppliers.Reduce)
 
 		contended := timebox.NewAggregateID("tx", "contended")
 		partner := timebox.NewAggregateID("tx", "partner")
@@ -151,6 +151,35 @@ func runTransactions(t *testing.T, p Profile) {
 		// commit not rolled back, partner would hold two events
 		assertEvents(t, store, partner, 1)
 		assertEvents(t, store, contended, 2)
+	})
+
+	t.Run("TrimmedConflict", func(t *testing.T) {
+		cfg := timebox.Config{TrimEvents: true}
+		backend, first := openBackend(t, p, cfg, nil)
+		second, err := timebox.NewStore(backend, cfg)
+		assert.NoError(t, err)
+		id := timebox.NewAggregateID("tx", "trimmed-conflict")
+		firstExec := first.Executor(newCounter, counterAppliers.Reduce)
+		secondExec := second.Executor(newCounter, counterAppliers.Reduce)
+
+		_, err = firstExec.Exec(id, count(1))
+		assert.NoError(t, err)
+		_, err = secondExec.Exec(id, count(1))
+		assert.NoError(t, err)
+		assert.NoError(t, secondExec.SaveSnapshot(id))
+		_, err = secondExec.Exec(id, count(1))
+		assert.NoError(t, err)
+
+		state, err := firstExec.Exec(id, count(1))
+		assert.NoError(t, err)
+		assert.Equal(t, 4, state.Value)
+
+		reloaded, err := timebox.NewStore(backend, cfg)
+		assert.NoError(t, err)
+		reloadedExec := reloaded.Executor(newCounter, counterAppliers.Reduce)
+		state, err = reloadedExec.Get(id)
+		assert.NoError(t, err)
+		assert.Equal(t, 4, state.Value)
 	})
 }
 

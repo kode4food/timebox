@@ -111,10 +111,9 @@ func TestFollower(t *testing.T) {
 			return false
 		}
 
-		var snapState map[string]int
-		snap, err := leader.store.GetSnapshot(id, &snapState)
+		snap, err := leader.store.GetSnapshot[map[string]int](id)
 		return err == nil &&
-			snapState["value"] == 1 &&
+			snap.State["value"] == 1 &&
 			snap.NextSequence == 1 &&
 			len(snap.AdditionalEvents) == 1 &&
 			snap.AdditionalEvents[0].Sequence == 1
@@ -239,6 +238,38 @@ func TestArchiveReplicates(t *testing.T) {
 	}, 15*time.Second, 100*time.Millisecond)
 }
 
+func TestArchiveRestart(t *testing.T) {
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+	n := newNode(t, cfg)
+	waitForWrite(t, n.store)
+	id := timebox.NewAggregateID("order", "archive-restart")
+	assert.NoError(t, n.store.AppendEvents(id, 0, []*timebox.Event{
+		numberEvent(id, 1),
+	}))
+	assert.NoError(t, n.store.Archive(id))
+
+	closeNode(t, n)
+	corruptLastApplied(t, cfg.dataDir)
+	n = newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	var rec *timebox.ArchiveRecord
+	err := n.store.ConsumeArchive(t.Context(),
+		func(_ context.Context, item *timebox.ArchiveRecord) error {
+			rec = item
+			return nil
+		},
+	)
+	assert.NoError(t, err)
+	if assert.NotNil(t, rec) {
+		assert.Equal(t, id, rec.AggregateID)
+	}
+}
+
 func TestFollowerExec(t *testing.T) {
 	nodes := newCluster(t, 3)
 	waitReadyAll(t, nodes)
@@ -271,9 +302,9 @@ func TestFollowerExec(t *testing.T) {
 		return counterState{}
 	}
 
-	leaderExec := leader.store.Executor(newState, appliers)
+	leaderExec := leader.store.Executor(newState, appliers.Reduce)
 	for _, n := range followers {
-		exec := n.store.Executor(newState, appliers)
+		exec := n.store.Executor(newState, appliers.Reduce)
 		_, err := exec.Get(id)
 		if !assert.NoError(t, err) {
 			return
@@ -297,7 +328,7 @@ func TestFollowerExec(t *testing.T) {
 	start := make(chan struct{})
 
 	for _, n := range followers {
-		exec := n.store.Executor(newState, appliers)
+		exec := n.store.Executor(newState, appliers.Reduce)
 		go func(exec *timebox.Executor[counterState]) {
 			<-start
 			state, err := exec.Exec(id,
@@ -319,7 +350,7 @@ func TestFollowerExec(t *testing.T) {
 
 	assert.Eventually(t, func() bool {
 		for _, n := range nodes {
-			exec := n.store.Executor(newState, appliers)
+			exec := n.store.Executor(newState, appliers.Reduce)
 			state, err := exec.Get(id)
 			if err != nil || state.Value != 3 {
 				return false
@@ -610,12 +641,11 @@ func TestRestart(t *testing.T) {
 	n = newNode(t, cfg)
 	waitForWrite(t, n.store)
 
-	var snapState map[string]int
-	snap, err := n.store.GetSnapshot(id, &snapState)
+	snap, err := n.store.GetSnapshot[map[string]int](id)
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Equal(t, map[string]int{"value": 1}, snapState)
+	assert.Equal(t, map[string]int{"value": 1}, snap.State)
 	assert.Equal(t, int64(1), snap.NextSequence)
 	assert.Len(t, snap.AdditionalEvents, 1)
 	assert.Equal(t, int64(1), snap.AdditionalEvents[0].Sequence)

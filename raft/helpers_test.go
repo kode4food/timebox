@@ -495,9 +495,7 @@ func numberEvent(id timebox.AggregateID, value int) *timebox.Event {
 		AggregateID: id,
 		Timestamp:   time.Now().UTC(),
 		Type:        testEventType,
-		Data: json.RawMessage(
-			fmt.Sprintf("%d", value),
-		),
+		Data:        json.RawMessage(fmt.Sprintf("%d", value)),
 	}
 }
 
@@ -517,9 +515,7 @@ func largeEvent(id timebox.AggregateID, value, size int) *timebox.Event {
 func indexedEvent(
 	id timebox.AggregateID, status, env string, ts time.Time,
 ) *timebox.Event {
-	data := fmt.Sprintf(
-		`{"status":%q,"env":%q}`, status, env,
-	)
+	data := fmt.Sprintf(`{"status":%q,"env":%q}`, status, env)
 	return &timebox.Event{
 		AggregateID: id,
 		Timestamp:   ts,
@@ -540,7 +536,9 @@ func combinedIndexer(evs []*timebox.Event) []*timebox.Index {
 		if data["env"] != "prod" {
 			tags["prod"] = false
 		}
-		idxs = append(idxs, &timebox.Index{Status: new(data["status"]), Tags: tags})
+		idxs = append(idxs, &timebox.Index{
+			Status: new(data["status"]), Tags: tags,
+		})
 	}
 	return idxs
 }

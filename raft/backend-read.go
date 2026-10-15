@@ -69,8 +69,9 @@ func (b *Backend) LoadSnapshot(
 		if err != nil {
 			return err
 		}
+		data := append([]byte(nil), b.Get(aggregateSnapshotKey(encodedID))...)
 		rec = &timebox.SnapshotRecord{
-			Data:     append([]byte(nil), b.Get(aggregateSnapshotKey(encodedID))...),
+			Data:     data,
 			Sequence: meta.SnapshotSequence,
 			Events:   evs,
 		}

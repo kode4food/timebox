@@ -13,8 +13,7 @@ import (
 
 type (
 	Profile struct {
-		Open    Opener
-		Archive bool
+		Open Opener
 	}
 
 	// Opener opens a backend and a Store bound to it

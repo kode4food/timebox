@@ -33,7 +33,6 @@ type (
 
 		bgWG      sync.WaitGroup
 		readyCh   chan struct{}
-		archiveCh chan struct{}
 		readyOnce sync.Once
 		stopCh    chan struct{}
 		stopOnce  sync.Once
@@ -90,7 +89,6 @@ const (
 )
 
 var _ timebox.Backend = (*Backend)(nil)
-var _ timebox.Archiver = (*Backend)(nil)
 
 // Open opens one Raft Backend node
 func Open(cfgs ...Config) (*Backend, error) {
@@ -114,7 +112,6 @@ func (b *Backend) Close() error {
 	var errs []error
 
 	b.stop(nil)
-	b.notifyArchive()
 	errs = append(errs, b.transport.Close())
 	b.bgWG.Wait()
 	errs = append(errs, b.raftLog.Close())
@@ -154,9 +151,8 @@ func openBackend(cfg Config) (*Backend, error) {
 		peers:      buildPeerMap(cfg, tr),
 		peerQueues: map[uint64]*peerQueue{},
 
-		readyCh:   make(chan struct{}),
-		archiveCh: make(chan struct{}, 1),
-		stopCh:    make(chan struct{}),
+		readyCh: make(chan struct{}),
+		stopCh:  make(chan struct{}),
 
 		pending: map[uint64]proposalState{},
 		snapOut: map[uint64]outSnapshot{},

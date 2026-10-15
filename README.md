@@ -2,7 +2,7 @@
 
 ![Build Status](https://github.com/kode4food/timebox/actions/workflows/build.yml/badge.svg) [![Code Coverage](https://qlty.sh/gh/kode4food/projects/timebox/coverage.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![Maintainability](https://qlty.sh/gh/kode4food/projects/timebox/maintainability.svg)](https://qlty.sh/gh/kode4food/projects/timebox) [![GitHub](https://img.shields.io/github/license/kode4food/timebox)](https://github.com/kode4food/timebox/blob/main/LICENSE)
 
-Timebox is a small, opinionated event sourcing library for Go with append-only event storage, optimistic concurrency, snapshotting, and durable message scheduling. It supports Redis, PostgreSQL, or Raft as its persistence backend.
+Timebox is a small, opinionated event sourcing library for Go with append-only event storage, optimistic concurrency, snapshotting, durable message scheduling, and durable queues. It supports Redis, PostgreSQL, or Raft as its persistence backend.
 
 ## Documentation
 
@@ -11,6 +11,7 @@ Timebox is a small, opinionated event sourcing library for Go with append-only e
 - [Aggregates and events](https://kode4food.github.io/timebox/docs/aggregates/) covers identities, payloads, and appliers.
 - [Transactions](https://kode4food.github.io/timebox/docs/transactions/) shows how to commit changes across aggregates.
 - [Scheduler](https://kode4food.github.io/timebox/docs/scheduler/) explains how to deliver messages at a durable deadline.
+- [Queues](https://kode4food.github.io/timebox/docs/queues/) explains how to publish and consume durable, ordered messages.
 - [Snapshots](https://kode4food.github.io/timebox/docs/snapshots/) explains how to load state without replaying its full history.
 - [Indexing](https://kode4food.github.io/timebox/docs/indexing/) covers queries by aggregate status and tags.
 - [Archiving](https://kode4food.github.io/timebox/docs/archiving/) shows how to remove finished aggregates from live storage and export their records.

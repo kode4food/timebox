@@ -258,7 +258,7 @@ type FlowId string
 
 ### Line Width
 
-Maximum 80 characters per line (tabs count as 4 spaces). This applies to code _and_ comments. Keep short argument lists on a single line when they fit; only break lines when the 80-character limit would be exceeded. When wrapping function signatures or call arguments, pack as many arguments per line as will fit under the limit before wrapping again. When you must wrap, break after the opening paren:
+Maximum 80 characters per line (tabs count as 4 spaces). This applies to code _and_ comments. Keep short argument lists on a single line when they fit. Only break lines when the 80-character limit would be exceeded. When wrapping function signatures or call arguments, pack as many arguments per line as will fit under the limit before wrapping again. When you must wrap, break after the opening paren:
 
 ```go
 func NewArchiveWorker(
@@ -296,7 +296,7 @@ Run `goimports` on all files. It handles grouping and sorting automatically.
 
 1. `type` declarations (use a block only when declaring multiple types). Ordering rule: if a type uses another type, the using type goes first.
 2. `const` declarations (use a block only when declaring multiple constants)
-3. `var` declarations (use a block only when declaring multiple vars; exception: errors always use a `var` block)
+3. `var` declarations (use a block only when declaring multiple vars, except errors, which always use a `var` block)
 4. Exported functions (including constructors like `New...`)
 5. Exported methods
 6. Unexported methods

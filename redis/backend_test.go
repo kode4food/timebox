@@ -46,7 +46,7 @@ func TestAppendWithoutStore(t *testing.T) {
 	)
 }
 
-func TestConsumeArchiveServerDown(t *testing.T) {
+func TestArchiveServerDown(t *testing.T) {
 	server, err := miniredis.Run()
 	assert.NoError(t, err)
 	addr := server.Addr()
@@ -56,11 +56,7 @@ func TestConsumeArchiveServerDown(t *testing.T) {
 	defer func() { _ = b.Close() }()
 
 	server.Close()
-	err = b.ConsumeArchive(context.Background(),
-		func(_ context.Context, _ *timebox.ArchiveRecord) error {
-			return nil
-		},
-	)
+	err = b.Archive(timebox.NewAggregateID("order", "down"))
 	assert.Error(t, err)
 }
 

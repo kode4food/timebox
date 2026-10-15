@@ -2,6 +2,16 @@
 
 Notable changes to Timebox.
 
+## Next
+
+### Event sourcing
+
+- Executors accept reducers, with `Appliers.Reduce` providing default event dispatch and custom reducers handling event batches directly
+
+### Scheduling
+
+- Schedulers are explicitly named, with each name owning one aggregate whose projection maintains its active schedules as a heap
+
 ## 0.3
 
 ### Scheduling

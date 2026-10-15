@@ -36,11 +36,14 @@ type (
 	}
 )
 
+const testScheduler timebox.ID = "test"
+
 func TestRecovery(t *testing.T) {
 	store := newStore(t)
 	scheduleEvent(t, store, "recover", time.Now().Add(-time.Second))
 	emitted := make(chan *timebox.Message, 1)
 	runner, err := scheduler.New(scheduler.Config{
+		ID:             testScheduler,
 		Store:          store,
 		RescanInterval: 10 * time.Millisecond,
 		RetryDelay:     10 * time.Millisecond,
@@ -76,7 +79,7 @@ func TestRecovery(t *testing.T) {
 	cancel()
 	assert.ErrorIs(t, <-done, context.Canceled)
 
-	remaining, err := store.LoadSchedule("recover")
+	remaining, err := store.LoadSchedule(testScheduler, "recover")
 	assert.NoError(t, err)
 	assert.Nil(t, remaining)
 }
@@ -93,6 +96,7 @@ func TestReconcileRetry(t *testing.T) {
 	<-store.ScheduleChanges()
 	emitted := make(chan struct{}, 1)
 	runner, err := scheduler.New(scheduler.Config{
+		ID:         testScheduler,
 		Store:      store,
 		RetryDelay: time.Millisecond,
 		Processor: func(
@@ -129,6 +133,7 @@ func TestEarlier(t *testing.T) {
 	scheduleEvent(t, store, "same-time", later)
 	emitted := make(chan string, 1)
 	runner, err := scheduler.New(scheduler.Config{
+		ID:             testScheduler,
 		Store:          store,
 		RescanInterval: time.Hour,
 		RetryDelay:     10 * time.Millisecond,
@@ -184,6 +189,7 @@ func TestRetry(t *testing.T) {
 			var attempts atomic.Int32
 			emitted := make(chan struct{}, 1)
 			runner, err := scheduler.New(scheduler.Config{
+				ID:             testScheduler,
 				Store:          store,
 				RescanInterval: time.Hour,
 				RetryDelay:     10 * time.Millisecond,
@@ -192,7 +198,8 @@ func TestRetry(t *testing.T) {
 				) error {
 					if attempts.Add(1) == 1 {
 						if err := tx.Schedule(
-							"uncommitted", time.Now().Add(time.Hour), msg,
+							testScheduler, "uncommitted",
+							time.Now().Add(time.Hour), msg,
 						); err != nil {
 							return err
 						}
@@ -220,10 +227,10 @@ func TestRetry(t *testing.T) {
 			assert.Equal(t, int32(2), attempts.Load())
 			cancel()
 			assert.ErrorIs(t, <-done, context.Canceled)
-			remaining, err := store.LoadSchedule("retry")
+			remaining, err := store.LoadSchedule(testScheduler, "retry")
 			assert.NoError(t, err)
 			assert.Nil(t, remaining)
-			uncommitted, err := store.LoadSchedule("uncommitted")
+			uncommitted, err := store.LoadSchedule(testScheduler, "uncommitted")
 			assert.NoError(t, err)
 			assert.Nil(t, uncommitted)
 		})
@@ -236,6 +243,7 @@ func TestReschedule(t *testing.T) {
 	var attempts atomic.Int32
 	emitted := make(chan struct{}, 1)
 	runner, err := scheduler.New(scheduler.Config{
+		ID:             testScheduler,
 		Store:          store,
 		RescanInterval: time.Hour,
 		RetryDelay:     10 * time.Millisecond,
@@ -245,7 +253,7 @@ func TestReschedule(t *testing.T) {
 			attempt := attempts.Add(1)
 			if attempt == 1 {
 				at := time.Now().Add(20 * time.Millisecond)
-				return tx.Schedule("repeat", at, msg)
+				return tx.Schedule(testScheduler, "repeat", at, msg)
 			}
 			if attempt == 2 {
 				emitted <- struct{}{}
@@ -278,6 +286,7 @@ func TestCancel(t *testing.T) {
 	scheduleEvent(t, store, "cancel", time.Now().Add(40*time.Millisecond))
 	emitted := make(chan struct{}, 1)
 	runner, err := scheduler.New(scheduler.Config{
+		ID:             testScheduler,
 		Store:          store,
 		RescanInterval: time.Hour,
 		Processor: func(
@@ -295,7 +304,7 @@ func TestCancel(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			return tx.CancelSchedule("cancel")
+			return tx.CancelSchedule(testScheduler, "cancel")
 		}),
 	)
 	assert.Never(t,
@@ -321,6 +330,7 @@ func TestCancelStopsDueProcessing(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var emitted atomic.Int32
 	runner, err := scheduler.New(scheduler.Config{
+		ID:    testScheduler,
 		Store: store,
 		Processor: func(
 			*timebox.Transaction, *timebox.Message,
@@ -341,6 +351,7 @@ func TestReplace(t *testing.T) {
 	scheduleEvent(t, store, "replace", time.Now().Add(time.Hour))
 	emitted := make(chan *timebox.Message, 1)
 	runner, err := scheduler.New(scheduler.Config{
+		ID:             testScheduler,
 		Store:          store,
 		RescanInterval: time.Hour,
 		Processor: func(
@@ -358,6 +369,7 @@ func TestReplace(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	assert.NoError(t, peer.Transact(func(tx *timebox.Transaction) error {
 		return tx.Schedule(
+			testScheduler,
 			"replace", time.Now().Add(20*time.Millisecond),
 			newMessage(t, "replacement"),
 		)
@@ -391,25 +403,38 @@ func TestConfig(t *testing.T) {
 	cases := []configCase{
 		{
 			name: "Store",
-			cfg:  scheduler.Config{Processor: process},
-			err:  scheduler.ErrStoreRequired,
+			cfg: scheduler.Config{
+				ID: testScheduler, Processor: process,
+			},
+			err: scheduler.ErrStoreRequired,
+		},
+		{
+			name: "ID",
+			cfg: scheduler.Config{
+				Store: store, Processor: process,
+			},
+			err: timebox.ErrSchedulerIDRequired,
 		},
 		{
 			name: "Processor",
-			cfg:  scheduler.Config{Store: store},
-			err:  scheduler.ErrProcessorRequired,
+			cfg: scheduler.Config{
+				ID: testScheduler, Store: store,
+			},
+			err: scheduler.ErrProcessorRequired,
 		},
 		{
 			name: "Rescan",
 			cfg: scheduler.Config{
-				Store: store, Processor: process, RescanInterval: -1,
+				ID: testScheduler, Store: store, Processor: process,
+				RescanInterval: -1,
 			},
 			err: scheduler.ErrInvalidRescanInterval,
 		},
 		{
 			name: "Retry",
 			cfg: scheduler.Config{
-				Store: store, Processor: process, RetryDelay: -1,
+				ID: testScheduler, Store: store, Processor: process,
+				RetryDelay: -1,
 			},
 			err: scheduler.ErrInvalidRetryDelay,
 		},
@@ -432,6 +457,7 @@ func TestTimer(t *testing.T) {
 		delays: delays,
 	}
 	runner, err := scheduler.New(scheduler.Config{
+		ID:    testScheduler,
 		Store: store,
 		Processor: func(
 			*timebox.Transaction, *timebox.Message,
@@ -469,13 +495,12 @@ func (*testTimer) Stop() bool {
 	return true
 }
 
-func (b *failOnceBackend) ListAggregatesByStatus(
-	q timebox.StatusQuery,
-) ([]timebox.StatusEntry, error) {
-	if !b.failed.Swap(true) {
-		return nil, assert.AnError
+func (b *failOnceBackend) Append(reqs ...timebox.AppendRequest) error {
+	if len(reqs) == 1 && len(reqs[0].Events) == 0 &&
+		!b.failed.Swap(true) {
+		return assert.AnError
 	}
-	return b.Backend.ListAggregatesByStatus(q)
+	return b.Backend.Append(reqs...)
 }
 
 func newStore(t *testing.T) *timebox.Store {
@@ -501,7 +526,9 @@ func scheduleEvent(
 	t.Helper()
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule(key, at, newMessage(t, string(key)))
+			return tx.Schedule(
+				testScheduler, key, at, newMessage(t, string(key)),
+			)
 		}),
 	)
 }

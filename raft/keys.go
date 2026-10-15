@@ -8,17 +8,16 @@ import (
 )
 
 const (
-	stateRootPrefix   = "state/"
-	stateMetaPrefix   = stateRootPrefix + "meta/"
-	aggRootPrefix     = stateRootPrefix + "agg/"
-	archiveRootPrefix = stateRootPrefix + "archive/"
-	statusRootPrefix  = stateRootPrefix + "idx/status/"
-	tagRootPrefix     = stateRootPrefix + "idx/tag/"
-	metaSuffix        = "/meta"
-	snapshotSuffix    = "/snapshot"
-	eventPrefix       = "/event/"
-	seqWidth          = 20
-	lastAppliedName   = "last-applied-log"
+	stateRootPrefix  = "state/"
+	stateMetaPrefix  = stateRootPrefix + "meta/"
+	aggRootPrefix    = stateRootPrefix + "agg/"
+	statusRootPrefix = stateRootPrefix + "idx/status/"
+	tagRootPrefix    = stateRootPrefix + "idx/tag/"
+	metaSuffix       = "/meta"
+	snapshotSuffix   = "/snapshot"
+	eventPrefix      = "/event/"
+	seqWidth         = 20
+	lastAppliedName  = "last-applied-log"
 )
 
 var bucketName = []byte("timebox")
@@ -57,14 +56,6 @@ func aggregateEventKeyFromPrefix(prefix []byte, seq int64) []byte {
 	copy(key, prefix)
 	writeSequence(key[len(prefix):], seq)
 	return key
-}
-
-func archivePrefix() []byte {
-	return []byte(archiveRootPrefix)
-}
-
-func archiveRecordKey(streamID string) []byte {
-	return []byte(archiveRootPrefix + streamID)
 }
 
 func statusIndexPrefix(status string) []byte {

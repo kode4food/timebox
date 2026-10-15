@@ -220,7 +220,8 @@ func (b *Backend) sendPeerQueue(
 					return err
 				}
 				if msg.snap {
-					if err := b.writeSnapshotStream(w, msg.snapRef); err != nil {
+					err := b.writeSnapshotStream(w, msg.snapRef)
+					if err != nil {
 						return err
 					}
 					sent = append(sent, msg.snapRef)

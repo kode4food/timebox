@@ -5,7 +5,7 @@ weight: 50
 
 # Snapshots
 
-A snapshot stores an aggregate's projected state at a particular event sequence. When an executor loads that aggregate, it starts from the snapshot and applies only later events. This speeds up loading aggregates with long histories; it does not replace their event log by default.
+A snapshot stores an aggregate's projected state at a particular event sequence. When an executor loads that aggregate, it starts from the snapshot and applies only later events. This speeds up loading aggregates with long histories, while the event log remains the full source of truth by default.
 
 ## When snapshots are saved
 

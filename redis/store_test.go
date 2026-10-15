@@ -24,7 +24,6 @@ func TestStore(t *testing.T) {
 	})
 
 	compliance.Run(t, compliance.Profile{
-		Archive: true,
 		Open: func(
 			t *testing.T, cfg timebox.Config, pub timebox.Publisher,
 		) (timebox.Backend, *timebox.Store) {

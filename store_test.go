@@ -258,25 +258,6 @@ func TestEmptyAppendSkipsIndexer(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
-func TestArchiveUnsupported(t *testing.T) {
-	store, err := timebox.NewStore(&fakeBackend{})
-	assert.NoError(t, err)
-	assert.NotNil(t, store)
-
-	id := timebox.NewAggregateID("order", "1")
-
-	err = store.Archive(id)
-	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
-
-	err = store.ConsumeArchive(context.Background(),
-		func(context.Context, *timebox.ArchiveRecord) error {
-			return nil
-		},
-	)
-	assert.ErrorIs(t, err, timebox.ErrArchivingDisabled)
-
-}
-
 func TestListAggregates(t *testing.T) {
 	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
@@ -466,6 +447,10 @@ func (f *fakeBackend) ListAggregatesByTag(
 	string,
 ) ([]timebox.AggregateID, error) {
 	return nil, nil
+}
+
+func (f *fakeBackend) Archive(timebox.AggregateID) error {
+	return nil
 }
 
 func (f *fakeReadyBackend) Ready() <-chan struct{} {

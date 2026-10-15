@@ -1,6 +1,7 @@
 package timebox
 
 import (
+	"encoding/json"
 	"errors"
 
 	bin "github.com/kode4food/timebox/internal/binary"
@@ -10,18 +11,19 @@ type (
 	// Executor orchestrates loading aggregate state, executing commands, and
 	// persisting resulting events with optimistic retries
 	Executor[T any] struct {
-		store     *Store
-		appliers  Appliers[T]
-		construct Constructor[T]
-		cache     *cache[*projection[T]]
-		success   []SuccessAction[T]
+		store      *Store
+		reducer    Reducer[T]
+		construct  Constructor[T]
+		cache      *cache[*projection[T]]
+		success    []SuccessAction[T]
+		trimEvents bool
 	}
 
 	// Command is user code that inspects state and raises events on an
 	// Aggregator. Returning an error aborts the operation
 	Command[T any] func(T, *Aggregator[T]) error
 
-	// Constructors instantiate initial aggregate state
+	// Constructor instantiates initial aggregate state
 	Constructor[T any] func() T
 
 	projection[T any] struct {
@@ -36,17 +38,18 @@ var (
 	ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 )
 
-// Executor constructs an Executor bound to a Store with the given appliers
-// and state constructor
+// Executor constructs an Executor bound to a Store with the given reducer and
+// state constructor
 func (s *Store) Executor[T any](
-	cons Constructor[T], apps Appliers[T], onSuccess ...SuccessAction[T],
+	cons Constructor[T], reducer Reducer[T], onSuccess ...SuccessAction[T],
 ) *Executor[T] {
 	return &Executor[T]{
-		store:     s,
-		appliers:  apps,
-		construct: cons,
-		cache:     newCache[*projection[T]](s.config.CacheSize),
-		success:   onSuccess,
+		store:      s,
+		reducer:    reducer,
+		construct:  cons,
+		cache:      newCache[*projection[T]](s.config.CacheSize),
+		success:    onSuccess,
+		trimEvents: s.config.TrimEvents,
 	}
 }
 
@@ -82,7 +85,15 @@ func (e *Executor[T]) SaveSnapshot(id AggregateID) error {
 	if err != nil {
 		return err
 	}
-	return e.store.putSnapshot(id, state, seq)
+	return e.putSnapshot(id, state, seq)
+}
+
+func (s *Store) newInternalExecutor[T any](
+	cons Constructor[T], reducer Reducer[T], onSuccess ...SuccessAction[T],
+) *Executor[T] {
+	res := s.Executor(cons, reducer, onSuccess...)
+	res.trimEvents = true
+	return res
 }
 
 // complete refreshes the cached projection and runs success actions once the
@@ -121,42 +132,16 @@ func (e *Executor[T]) loadSnapshot(id AggregateID) (*projection[T], error) {
 	return e.loadFromStore(id, entry)
 }
 
-func (e *Executor[T]) loadState(id AggregateID) (T, error) {
-	entry := e.cache.Get(cacheKey(id), func() *projection[T] {
-		return &projection[T]{state: e.construct()}
-	})
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-
-	proj, err := e.loadFromStore(id, entry)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	return proj.state, nil
-}
-
 func (e *Executor[T]) loadFromStore(
 	id AggregateID, entry *cacheEntry[*projection[T]],
 ) (*projection[T], error) {
-	st := e.construct()
-
-	snap, err := e.store.GetSnapshot(id, &st)
+	proj, snapshot, err := e.readProjection(id)
 	if err != nil {
 		return nil, err
 	}
 
-	proj := &projection[T]{
-		state:   st,
-		nextSeq: snap.NextSequence,
-	}
-
-	if len(snap.AdditionalEvents) > 0 {
-		proj = e.applyEvents(st, snap.AdditionalEvents, snap.NextSequence)
-	}
-
-	if e.shouldSnapshot(snap) {
-		err := e.store.putSnapshot(id, proj.state, proj.nextSeq)
+	if snapshot {
+		err := e.putSnapshot(id, proj.state, proj.nextSeq)
 		if err != nil {
 			return nil, err
 		}
@@ -166,28 +151,54 @@ func (e *Executor[T]) loadFromStore(
 	return proj, nil
 }
 
+// readProjection replays an aggregate's snapshot and remaining events into its
+// current projection, with no cache or snapshot side effects
+func (e *Executor[T]) readProjection(
+	id AggregateID,
+) (*projection[T], bool, error) {
+	rec, err := e.store.backend.LoadSnapshot(LoadSnapshotRequest{
+		ID:         id,
+		TrimEvents: e.trimEvents,
+	})
+	if err != nil {
+		return nil, false, err
+	}
+
+	st := e.construct()
+	if len(rec.Data) > 0 {
+		st, err = decodeJSON[T](rec.Data)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	proj := &projection[T]{state: st, nextSeq: rec.Sequence}
+	if len(rec.Events) > 0 {
+		proj = e.applyEvents(st, rec.Events, rec.Sequence)
+	}
+	return proj, e.shouldSnapshot(rec), nil
+}
+
 func (e *Executor[T]) applyEvents(
 	st T, evs []*Event, startSeq int64,
 ) *projection[T] {
-	for _, ev := range evs {
-		if apply, ok := e.appliers[ev.Type]; ok {
-			st = apply(st, ev)
-		}
-	}
 	return &projection[T]{
-		state:   st,
+		state:   e.reducer(st, evs),
 		nextSeq: startSeq + int64(len(evs)),
 	}
 }
 
-func (e *Executor[_]) shouldSnapshot(snap *SnapshotResult) bool {
-	if len(snap.AdditionalEvents) == 0 {
+func (e *Executor[_]) shouldSnapshot(rec *SnapshotRecord) bool {
+	if len(rec.Events) == 0 {
 		return false
 	}
-	if snap.SnapshotSize == 0 {
+	if len(rec.Data) == 0 {
 		return true
 	}
-	rat := float64(snap.EventsSize) / float64(snap.SnapshotSize)
+	eventsSize := 0
+	for _, ev := range rec.Events {
+		eventsSize += len(ev.Data)
+	}
+	rat := float64(eventsSize) / float64(len(rec.Data))
 	return rat > e.store.config.SnapshotRatio
 }
 
@@ -201,6 +212,21 @@ func (e *Executor[T]) updateCache(id AggregateID, proj *projection[T]) {
 	if proj.nextSeq > entry.value.nextSeq {
 		entry.value = proj
 	}
+}
+
+func (e *Executor[T]) putSnapshot(
+	id AggregateID, value T, sequence int64,
+) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return e.store.backend.SaveSnapshot(SnapshotRequest{
+		ID:         id,
+		Data:       data,
+		Sequence:   sequence,
+		TrimEvents: e.trimEvents,
+	})
 }
 
 func cacheKey(id AggregateID) string {

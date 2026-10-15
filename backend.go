@@ -1,7 +1,6 @@
 package timebox
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -31,6 +30,11 @@ type (
 
 		// SaveSnapshot stores raw snapshot data using the supplied semantics
 		SaveSnapshot(SnapshotRequest) error
+
+		// Archive atomically bundles id's snapshot and remaining events into
+		// the shared archive queue, then removes id's live records. It is a
+		// no-op if id has no live records
+		Archive(id AggregateID) error
 	}
 
 	// Publisher reports committed events
@@ -38,8 +42,8 @@ type (
 
 	// Queries provides aggregate and index query operations
 	Queries interface {
-		// ListAggregates lists aggregate IDs of the provided type, or of
-		// every type when it is empty
+		// ListAggregates lists aggregate IDs of the provided type, or of every
+		// type when it is empty
 		ListAggregates(typ ID) ([]AggregateID, error)
 
 		// GetAggregateStatus loads the current indexed status for an aggregate
@@ -51,16 +55,6 @@ type (
 
 		// ListAggregatesByTag lists aggregates currently indexed by tag
 		ListAggregatesByTag(tag string) ([]AggregateID, error)
-	}
-
-	// Archiver provides optional archive lifecycle support for Store
-	Archiver interface {
-		// Archive moves an aggregate's persisted artifacts into archive storage
-		Archive(id AggregateID) error
-
-		// ConsumeArchive blocks until one archive record is available or ctx
-		// is done
-		ConsumeArchive(ctx context.Context, handler ArchiveHandler) error
 	}
 
 	// AppendRequest contains primitive inputs required for an atomic append
@@ -112,7 +106,7 @@ type (
 
 	// StatusQuery selects aggregates by status, optionally narrowed by
 	// aggregate type, key prefix, and a latest status time. Through is
-	// inclusive; a zero Through, Type, or KeyPrefix imposes no bound
+	// inclusive. A zero Through, Type, or KeyPrefix imposes no bound
 	StatusQuery struct {
 		Through   time.Time
 		Status    string
@@ -138,32 +132,11 @@ type (
 		Timestamp time.Time
 		ID        AggregateID
 	}
-
-	// ArchiveRecord stores stream metadata and aggregate artifacts
-	ArchiveRecord struct {
-		StreamID         string
-		AggregateID      AggregateID
-		SnapshotData     json.RawMessage
-		Events           []*Event
-		SnapshotSequence int64
-	}
-
-	// ArchiveHandler handles a single archive record
-	ArchiveHandler func(context.Context, *ArchiveRecord) error
 )
 
 var (
 	// ErrUnexpectedResult indicates data returned in an unexpected shape
 	ErrUnexpectedResult = errors.New("unexpected result")
-
-	// ErrArchivingDisabled indicates archiving is not enabled
-	ErrArchivingDisabled = errors.New("archiving not enabled for this store")
-
-	// ErrArchiveRecordMalformed indicates an archive record was malformed
-	ErrArchiveRecordMalformed = errors.New("archive record malformed")
-
-	// ErrArchiveHandlerMissing indicates a consume call is missing a handler
-	ErrArchiveHandlerMissing = errors.New("archive handler is required")
 
 	// ErrDuplicateAggregate indicates one append names an aggregate twice
 	ErrDuplicateAggregate = errors.New("aggregate appended twice")

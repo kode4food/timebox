@@ -14,10 +14,9 @@ func runSnapshots(t *testing.T, p Profile) {
 		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "missing")
 
-		var state map[string]int
-		snap, err := store.GetSnapshot(id, &state)
+		snap, err := store.GetSnapshot[map[string]int](id)
 		assert.NoError(t, err)
-		assert.Nil(t, state)
+		assert.Nil(t, snap.State)
 		assert.NotNil(t, snap)
 		assert.Equal(t, int64(0), snap.NextSequence)
 		assert.Equal(t, 0, snap.SnapshotSize)
@@ -31,12 +30,12 @@ func runSnapshots(t *testing.T, p Profile) {
 
 		assert.NoError(t, store.PutSnapshot(id, map[string]int{"v": 0}, 0))
 
-		var state map[string]int
-		snap, err := store.GetSnapshot(id, &state)
+		snap, err := store.GetSnapshot[map[string]int](id)
 		assert.NoError(t, err)
-		assert.Equal(t, map[string]int{"v": 0}, state)
+		assert.Equal(t, map[string]int{"v": 0}, snap.State)
 		assert.Equal(t, int64(0), snap.NextSequence)
-		assert.Equal(t, encodedSize(t, map[string]int{"v": 0}), snap.SnapshotSize)
+		wantSize := encodedSize(t, map[string]int{"v": 0})
+		assert.Equal(t, wantSize, snap.SnapshotSize)
 		assert.Equal(t, 0, snap.EventsSize)
 		assert.Empty(t, snap.AdditionalEvents)
 
@@ -55,10 +54,9 @@ func runSnapshots(t *testing.T, p Profile) {
 
 		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 
-		var empty map[string]int
-		snap, err := store.GetSnapshot(id, &empty)
+		snap, err := store.GetSnapshot[map[string]int](id)
 		assert.NoError(t, err)
-		assert.Nil(t, empty)
+		assert.Nil(t, snap.State)
 		assert.Equal(t, int64(0), snap.NextSequence)
 		assert.Equal(t, 0, snap.SnapshotSize)
 		assert.Equal(t, eventsDataSize(snap.AdditionalEvents), snap.EventsSize)
@@ -78,10 +76,9 @@ func runSnapshots(t *testing.T, p Profile) {
 			}),
 		)
 
-		var state map[string]int
-		snap, err = store.GetSnapshot(id, &state)
+		snap, err = store.GetSnapshot[map[string]int](id)
 		assert.NoError(t, err)
-		assert.Equal(t, map[string]int{"value": 1}, state)
+		assert.Equal(t, map[string]int{"value": 1}, snap.State)
 		assert.Equal(t, int64(1), snap.NextSequence)
 		assert.Equal(t,
 			encodedSize(t, map[string]int{"value": 1}),
@@ -145,10 +142,9 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.Equal(t, int64(3), evs[0].Sequence)
 		assert.Equal(t, int64(4), evs[1].Sequence)
 
-		var state map[string]int
-		snap, err := store.GetSnapshot(id, &state)
+		snap, err := store.GetSnapshot[map[string]int](id)
 		assert.NoError(t, err)
-		assert.Equal(t, map[string]int{"value": 3}, state)
+		assert.Equal(t, map[string]int{"value": 3}, snap.State)
 		assert.Equal(t, int64(3), snap.NextSequence)
 		assert.Equal(t,
 			encodedSize(t, map[string]int{"value": 3}),

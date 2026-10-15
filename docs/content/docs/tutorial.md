@@ -179,19 +179,19 @@ Create one executor for each state model and register its appliers under their e
 
 ```go
 func createProductExecutor(store *timebox.Store) *ProductExecutor {
-    return store.Executor(NewProductState, ProductAppliers{
+    return store.Executor(NewProductState, (ProductAppliers{
         StockReceived: timebox.MakeApplier(applyStockReceived),
         StockReserved: timebox.MakeApplier(applyStockReserved),
         StockShipped:  timebox.MakeApplier(applyStockShipped),
-    })
+    }).Reduce)
 }
 
 func createOrderExecutor(store *timebox.Store) *OrderExecutor {
-    return store.Executor(NewOrderState, OrderAppliers{
+    return store.Executor(NewOrderState, (OrderAppliers{
         OrderPlaced:    timebox.MakeApplier(applyOrderPlaced),
         OrderConfirmed: timebox.MakeApplier(applyOrderConfirmed),
         OrderShipped:   timebox.MakeApplier(applyOrderShipped),
-    })
+    }).Reduce)
 }
 ```
 

@@ -1,8 +1,11 @@
 package timebox
 
 import (
+	"container/heap"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -24,11 +27,20 @@ type (
 	// ScheduleKey identifies one replaceable deferred message
 	ScheduleKey string
 
-	// ScheduleVersion identifies one incarnation within a schedule aggregate
+	// ScheduleVersion identifies one incarnation within a scheduler
 	ScheduleVersion int64
 
+	// Schedules is a heap of active immutable schedules
+	Schedules []*Schedule
+
 	scheduleState struct {
-		Active *Schedule `json:"active,omitempty"`
+		Schedules   Schedules       `json:"schedules"`
+		NextVersion ScheduleVersion `json:"next_version"`
+	}
+
+	scheduleHeap struct {
+		items   *Schedules
+		indices map[ScheduleKey]int
 	}
 )
 
@@ -37,10 +49,12 @@ const (
 	scheduleChanged       EventType = "_tb.sched.changed"
 	scheduleCanceled      EventType = "_tb.sched.canceled"
 	scheduleConsumed      EventType = "_tb.sched.consumed"
-	scheduleActiveStatus            = "_tb.sched.active"
 )
 
 var (
+	// ErrSchedulerIDRequired indicates a scheduler ID was empty
+	ErrSchedulerIDRequired = errors.New("scheduler ID is required")
+
 	// ErrScheduleKeyRequired indicates a schedule key was empty
 	ErrScheduleKeyRequired = errors.New("schedule key is required")
 
@@ -53,106 +67,96 @@ var (
 	)
 )
 
-var scheduleAppliers = Appliers[scheduleState]{
-	scheduleChanged:  applyScheduleChanged,
-	scheduleCanceled: clearSchedule,
-	scheduleConsumed: clearSchedule,
+// Error describes a stale schedule incarnation
+func (s *ScheduleVersionConflictError) Error() string {
+	return fmt.Sprintf("schedule version conflict for %q: expected %d",
+		s.Key, s.ExpectedVersion)
 }
 
 // Schedule creates or replaces a durable deferred message
 func (t *Transaction) Schedule(
-	key ScheduleKey, at time.Time, message *Message,
+	scheduler ID, key ScheduleKey, at time.Time, message *Message,
 ) error {
-	if err := validateSchedule(key, message); err != nil {
+	if err := validateSchedule(scheduler, key, message); err != nil {
 		return err
 	}
-	id := makeScheduleID(key)
-	_, err := t.Exec(t.store.schedule, id,
-		func(_ scheduleState, ag *Aggregator[scheduleState]) error {
-			ver := ScheduleVersion(ag.NextSequence())
+	_, err := t.execInternal(t.store.schedule, makeScheduleID(scheduler),
+		func(st scheduleState, ag *Aggregator[scheduleState]) error {
 			return ag.Raise(scheduleChanged, &Schedule{
-				Message: cloneMessage(message),
+				Message: message,
 				At:      at.UTC(),
 				Key:     key,
-				Version: ver,
+				Version: st.NextVersion,
 			})
 		},
 	)
-	if err != nil {
-		return err
-	}
-	t.setScheduleStatus(id, scheduleActiveStatus, at)
-	return nil
+	return err
 }
 
 // CancelSchedule removes the current schedule for a key
-func (t *Transaction) CancelSchedule(key ScheduleKey) error {
-	if key == "" {
-		return ErrScheduleKeyRequired
+func (t *Transaction) CancelSchedule(scheduler ID, key ScheduleKey) error {
+	if err := validateScheduleKey(scheduler, key); err != nil {
+		return err
 	}
-	id := makeScheduleID(key)
-	changed := false
-	_, err := t.Exec(t.store.schedule, id,
+	_, err := t.execInternal(t.store.schedule, makeScheduleID(scheduler),
 		func(st scheduleState, ag *Aggregator[scheduleState]) error {
-			if st.Active == nil {
+			schedule := findSchedule(st.Schedules, key)
+			if schedule == nil {
 				return nil
 			}
-			changed = true
-			return ag.Raise(scheduleCanceled, st.Active.Version)
+			return ag.Raise(scheduleCanceled, []ScheduleKey{schedule.Key})
 		},
 	)
-	if err != nil || !changed {
-		return err
-	}
-	t.setScheduleStatus(id, "", time.Time{})
-	return nil
+	return err
 }
 
-// CancelSchedulePrefix removes active schedules whose keys share prefix
-func (t *Transaction) CancelSchedulePrefix(prefix ScheduleKey) error {
-	if prefix == "" {
-		return ErrScheduleKeyRequired
-	}
-	entries, err := t.store.backend.ListAggregatesByStatus(StatusQuery{
-		Status:    scheduleActiveStatus,
-		Type:      scheduleAggregateType,
-		KeyPrefix: ID(prefix),
-	})
-	if err != nil {
+// CancelSchedulePrefix removes schedules whose keys share a prefix
+func (t *Transaction) CancelSchedulePrefix(
+	scheduler ID, prefix ScheduleKey,
+) error {
+	if err := validateScheduleKey(scheduler, prefix); err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		if err := t.CancelSchedule(ScheduleKey(entry.ID.Key)); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := t.execInternal(t.store.schedule, makeScheduleID(scheduler),
+		func(st scheduleState, ag *Aggregator[scheduleState]) error {
+			keys := make([]ScheduleKey, 0)
+			for _, schedule := range st.Schedules {
+				if strings.HasPrefix(
+					string(schedule.Key), string(prefix),
+				) {
+					keys = append(keys, schedule.Key)
+				}
+			}
+			slices.Sort(keys)
+			if len(keys) == 0 {
+				return nil
+			}
+			return ag.Raise(scheduleCanceled, keys)
+		},
+	)
+	return err
 }
 
 // ConsumeSchedule conditionally removes one observed schedule incarnation
 func (t *Transaction) ConsumeSchedule(
-	key ScheduleKey, version ScheduleVersion,
+	scheduler ID, key ScheduleKey, version ScheduleVersion,
 ) error {
-	if key == "" {
-		return ErrScheduleKeyRequired
+	if err := validateScheduleKey(scheduler, key); err != nil {
+		return err
 	}
-	id := makeScheduleID(key)
-	_, err := t.Exec(t.store.schedule, id,
+	_, err := t.execInternal(t.store.schedule, makeScheduleID(scheduler),
 		func(st scheduleState, ag *Aggregator[scheduleState]) error {
-			if st.Active == nil || st.Active.Version != version {
+			schedule := findSchedule(st.Schedules, key)
+			if schedule == nil || schedule.Version != version {
 				return &ScheduleVersionConflictError{
 					Key:             key,
 					ExpectedVersion: version,
 				}
 			}
-			return ag.Raise(scheduleConsumed, version)
+			return ag.Raise(scheduleConsumed, key)
 		},
 	)
-	if err != nil {
-		return err
-	}
-	t.setScheduleStatus(id, "", time.Time{})
-	return nil
+	return err
 }
 
 // ScheduleChanges reports coalesced local schedule commit notifications
@@ -160,87 +164,192 @@ func (s *Store) ScheduleChanges() <-chan struct{} {
 	return s.changes
 }
 
-// LoadSchedule loads the active schedule for a key
-func (s *Store) LoadSchedule(key ScheduleKey) (*Schedule, error) {
-	if key == "" {
-		return nil, ErrScheduleKeyRequired
+// LoadSchedule loads one active schedule from a named scheduler
+func (s *Store) LoadSchedule(scheduler ID, key ScheduleKey) (*Schedule, error) {
+	if err := validateScheduleKey(scheduler, key); err != nil {
+		return nil, err
 	}
-	st, err := s.schedule.loadState(makeScheduleID(key))
+	st, err := s.loadScheduleState(scheduler)
 	if err != nil {
 		return nil, err
 	}
-	if st.Active == nil {
+	schedule := findSchedule(st.Schedules, key)
+	if schedule == nil {
 		return nil, nil
 	}
-	return cloneSchedule(st.Active), nil
+	return schedule, nil
 }
 
-// ListSchedules lists active schedules through the provided time, or all
-// schedules when through is zero
-func (s *Store) ListSchedules(through time.Time) ([]*Schedule, error) {
-	entries, err := s.backend.ListAggregatesByStatus(StatusQuery{
-		Status:  scheduleActiveStatus,
-		Through: through,
-	})
+// ListSchedules lists schedules through a time, or all when through is zero
+func (s *Store) ListSchedules(
+	scheduler ID, through time.Time,
+) ([]*Schedule, error) {
+	if scheduler == "" {
+		return nil, ErrSchedulerIDRequired
+	}
+	st, err := s.loadScheduleState(scheduler)
 	if err != nil {
 		return nil, err
 	}
-	res := make([]*Schedule, 0, len(entries))
-	for _, entry := range entries {
-		if entry.ID.Type != scheduleAggregateType {
-			continue
-		}
-		st, err := s.schedule.loadState(entry.ID)
-		if err != nil {
-			return nil, err
-		}
-		if st.Active == nil {
-			continue
-		}
-		res = append(res, cloneSchedule(st.Active))
+	if through.IsZero() {
+		return slices.Clone(st.Schedules), nil
 	}
-	return res, nil
+	return schedulesThrough(st.Schedules, through), nil
 }
 
-// Error describes a stale schedule incarnation
-func (s *ScheduleVersionConflictError) Error() string {
-	return fmt.Sprintf("schedule version conflict for %q: expected %d",
-		s.Key, s.ExpectedVersion)
+func (s *Store) notifyScheduleChange(_ scheduleState, evs []*Event) {
+	if len(evs) == 0 {
+		return
+	}
+	select {
+	case s.changes <- struct{}{}:
+	default:
+	}
 }
 
-func (t *Transaction) setScheduleStatus(
-	id AggregateID, status string, at time.Time,
-) {
-	p := t.parts[id]
-	p.request.Status = &status
-	p.request.StatusAt = at.UTC()
+func (s *Store) loadScheduleState(scheduler ID) (scheduleState, error) {
+	id := makeScheduleID(scheduler)
+	s.schedule.invalidate(id)
+	var res scheduleState
+	err := s.Transact(func(t *Transaction) error {
+		var err error
+		res, err = t.execInternal(
+			s.schedule, id,
+			func(scheduleState, *Aggregator[scheduleState]) error {
+				return nil
+			},
+		)
+		return err
+	})
+	return res, err
+}
+
+func (h *scheduleHeap) Replace(schedule *Schedule) {
+	if i, ok := h.indices[schedule.Key]; ok {
+		(*h.items)[i] = schedule
+		heap.Fix(h, i)
+		return
+	}
+	heap.Push(h, schedule)
+}
+
+func (h *scheduleHeap) Remove(key ScheduleKey) {
+	if i, ok := h.indices[key]; ok {
+		heap.Remove(h, i)
+	}
+}
+
+func (h *scheduleHeap) Len() int {
+	return len(*h.items)
+}
+
+func (h *scheduleHeap) Less(i, j int) bool {
+	l := (*h.items)[i]
+	r := (*h.items)[j]
+	if l.At.Equal(r.At) {
+		return l.Key < r.Key
+	}
+	return l.At.Before(r.At)
+}
+
+func (h *scheduleHeap) Swap(i, j int) {
+	(*h.items)[i], (*h.items)[j] = (*h.items)[j], (*h.items)[i]
+	h.indices[(*h.items)[i].Key] = i
+	h.indices[(*h.items)[j].Key] = j
+}
+
+func (h *scheduleHeap) Push(value any) {
+	schedule := value.(*Schedule)
+	h.indices[schedule.Key] = len(*h.items)
+	*h.items = append(*h.items, schedule)
+}
+
+func (h *scheduleHeap) Pop() any {
+	last := len(*h.items) - 1
+	schedule := (*h.items)[last]
+	(*h.items)[last] = nil
+	*h.items = (*h.items)[:last]
+	delete(h.indices, schedule.Key)
+	return schedule
 }
 
 func newScheduleState() scheduleState {
-	return scheduleState{}
+	return scheduleState{Schedules: Schedules{}}
 }
 
-func applyScheduleChanged(st scheduleState, ev *Event) scheduleState {
-	schedule, err := ev.GetValue[*Schedule]()
-	if err != nil {
+func reduceSchedules(st scheduleState, evs []*Event) scheduleState {
+	if len(evs) == 0 {
 		return st
 	}
-	st.Active = cloneSchedule(schedule)
+	st.Schedules = slices.Clone(st.Schedules)
+	h := newScheduleHeap(&st.Schedules)
+	for _, ev := range evs {
+		switch ev.Type {
+		case scheduleChanged:
+			schedule, err := ev.GetValue[*Schedule]()
+			if err == nil {
+				h.Replace(schedule)
+				st.NextVersion = schedule.Version + 1
+			}
+		case scheduleCanceled:
+			keys, err := ev.GetValue[[]ScheduleKey]()
+			if err == nil {
+				for _, key := range keys {
+					h.Remove(key)
+				}
+			}
+		case scheduleConsumed:
+			key, err := ev.GetValue[ScheduleKey]()
+			if err == nil {
+				h.Remove(key)
+			}
+		}
+	}
 	return st
 }
 
-func clearSchedule(st scheduleState, _ *Event) scheduleState {
-	st.Active = nil
-	return st
+func newScheduleHeap(items *Schedules) *scheduleHeap {
+	indices := make(map[ScheduleKey]int, len(*items))
+	for i, schedule := range *items {
+		indices[schedule.Key] = i
+	}
+	return &scheduleHeap{items: items, indices: indices}
 }
 
-func makeScheduleID(key ScheduleKey) AggregateID {
-	return NewAggregateID(scheduleAggregateType, ID(key))
+func findSchedule(schedules Schedules, key ScheduleKey) *Schedule {
+	for _, schedule := range schedules {
+		if schedule.Key == key {
+			return schedule
+		}
+	}
+	return nil
 }
 
-func validateSchedule(key ScheduleKey, message *Message) error {
-	if key == "" {
-		return ErrScheduleKeyRequired
+func schedulesThrough(schedules Schedules, through time.Time) []*Schedule {
+	res := make([]*Schedule, 0)
+	visit := []int{0}
+	for len(visit) > 0 {
+		last := len(visit) - 1
+		i := visit[last]
+		visit = visit[:last]
+		if i >= len(schedules) || schedules[i].At.After(through) {
+			continue
+		}
+		res = append(res, schedules[i])
+		visit = append(visit, 2*i+1, 2*i+2)
+	}
+	return res
+}
+
+func makeScheduleID(scheduler ID) AggregateID {
+	return NewAggregateID(scheduleAggregateType, scheduler)
+}
+
+func validateSchedule(
+	scheduler ID, key ScheduleKey, message *Message,
+) error {
+	if err := validateScheduleKey(scheduler, key); err != nil {
+		return err
 	}
 	if message == nil {
 		return ErrScheduleMessageRequired
@@ -254,35 +363,12 @@ func validateSchedule(key ScheduleKey, message *Message) error {
 	return nil
 }
 
-func cloneSchedule(schedule *Schedule) *Schedule {
-	if schedule == nil {
-		return nil
+func validateScheduleKey(scheduler ID, key ScheduleKey) error {
+	if scheduler == "" {
+		return ErrSchedulerIDRequired
 	}
-	return &Schedule{
-		Message: cloneMessage(schedule.Message),
-		At:      schedule.At,
-		Key:     schedule.Key,
-		Version: schedule.Version,
+	if key == "" {
+		return ErrScheduleKeyRequired
 	}
-}
-
-func cloneMessage(message *Message) *Message {
-	if message == nil {
-		return nil
-	}
-	return &Message{
-		Type:        message.Type,
-		AggregateID: message.AggregateID,
-		Data:        append([]byte(nil), message.Data...),
-	}
-}
-
-func (s *Store) notifyScheduleChange(_ scheduleState, evs []*Event) {
-	if len(evs) == 0 {
-		return
-	}
-	select {
-	case s.changes <- struct{}{}:
-	default:
-	}
+	return nil
 }

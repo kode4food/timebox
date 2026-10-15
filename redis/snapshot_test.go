@@ -37,8 +37,7 @@ func TestSnapshotCorrupt(t *testing.T) {
 	).Err()
 	assert.NoError(t, err)
 
-	var target map[string]any
-	res, err := store.GetSnapshot(id, &target)
+	res, err := store.GetSnapshot[map[string]any](id)
 	assert.Error(t, err)
 	assert.Nil(t, res)
 }

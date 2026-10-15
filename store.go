@@ -12,10 +12,12 @@ type (
 	// Store persists, queries, and snapshots aggregate events
 	Store struct {
 		Queries
-		backend  Backend
-		schedule *Executor[scheduleState]
-		changes  chan struct{}
-		config   Config
+		backend   Backend
+		schedule  *Executor[scheduleState]
+		queue     *Executor[queueState]
+		changes   chan struct{}
+		queueWake chan struct{}
+		config    Config
 	}
 
 	// VersionConflictError is returned when AppendEvents encounters a sequence
@@ -27,10 +29,10 @@ type (
 		ActualSequence   int64
 	}
 
-	// SnapshotResult holds the loaded snapshot, the sequence at which it was
-	// taken, and any events that need to be applied after it
-	SnapshotResult struct {
+	// SnapshotResult holds a decoded snapshot and any events stored after it
+	SnapshotResult[T any] struct {
 		AdditionalEvents []*Event
+		State            T
 		NextSequence     int64
 		SnapshotSize     int
 		EventsSize       int
@@ -44,15 +46,26 @@ func NewStore(b Backend, cfgs ...Config) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{
-		Queries: b,
-		backend: b,
-		changes: make(chan struct{}, 1),
-		config:  cfg,
+		Queries:   b,
+		backend:   b,
+		changes:   make(chan struct{}, 1),
+		queueWake: make(chan struct{}, 1),
+		config:    cfg,
 	}
-	s.schedule = s.Executor(
-		newScheduleState, scheduleAppliers, s.notifyScheduleChange,
+	s.schedule = s.newInternalExecutor(
+		newScheduleState, reduceSchedules, s.notifyScheduleChange,
+	)
+	s.queue = s.newInternalExecutor(
+		newQueueState, reduceQueue, s.notifyQueueChange,
 	)
 	return s, nil
+}
+
+func (e *VersionConflictError) Error() string {
+	return fmt.Sprintf(
+		"version conflict: expected sequence %d, but at %d (%d new events)",
+		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
+	)
 }
 
 // Config returns the Store configuration
@@ -97,11 +110,10 @@ func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
 	return res.Events, nil
 }
 
-// GetSnapshot loads the latest snapshot into target and returns any events
-// stored after the snapshot sequence
-func (s *Store) GetSnapshot(
-	id AggregateID, target any,
-) (*SnapshotResult, error) {
+// GetSnapshot loads the latest snapshot and any events stored after it
+func (s *Store) GetSnapshot[T any](
+	id AggregateID,
+) (*SnapshotResult[T], error) {
 	rec, err := s.backend.LoadSnapshot(LoadSnapshotRequest{
 		ID:         id,
 		TrimEvents: s.config.TrimEvents,
@@ -109,20 +121,18 @@ func (s *Store) GetSnapshot(
 	if err != nil {
 		return nil, err
 	}
-
-	if len(rec.Data) > 0 {
-		if err := json.Unmarshal(rec.Data, target); err != nil {
-			return nil, err
-		}
+	state, err := decodeJSON[T](rec.Data)
+	if err != nil {
+		return nil, err
 	}
 
 	eventsSize := 0
 	for _, ev := range rec.Events {
 		eventsSize += len(ev.Data)
 	}
-
-	return &SnapshotResult{
+	return &SnapshotResult[T]{
 		AdditionalEvents: rec.Events,
+		State:            state,
 		NextSequence:     rec.Sequence,
 		SnapshotSize:     len(rec.Data),
 		EventsSize:       eventsSize,
@@ -131,38 +141,9 @@ func (s *Store) GetSnapshot(
 
 // PutSnapshot saves a snapshot value and sequence if the provided sequence is
 // newer than any stored snapshot
-func (s *Store) PutSnapshot(id AggregateID, value any, sequence int64) error {
-	return s.putSnapshot(id, value, sequence)
-}
-
-// Archive moves aggregate artifacts to persistent archive storage
-func (s *Store) Archive(id AggregateID) error {
-	archiver, ok := s.backend.(Archiver)
-	if !ok {
-		return ErrArchivingDisabled
-	}
-	return archiver.Archive(id)
-}
-
-// ConsumeArchive reads one archive record and invokes handler
-func (s *Store) ConsumeArchive(
-	ctx context.Context, handler ArchiveHandler,
+func (s *Store) PutSnapshot[T any](
+	id AggregateID, value T, sequence int64,
 ) error {
-	archiver, ok := s.backend.(Archiver)
-	if !ok {
-		return ErrArchivingDisabled
-	}
-	return archiver.ConsumeArchive(ctx, handler)
-}
-
-func (e *VersionConflictError) Error() string {
-	return fmt.Sprintf(
-		"version conflict: expected sequence %d, but at %d (%d new events)",
-		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
-	)
-}
-
-func (s *Store) putSnapshot(id AggregateID, value any, sequence int64) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -211,6 +192,19 @@ func (s *Store) appendRequest(
 		Tags:             tags,
 		Events:           evs,
 		TrimEvents:       s.config.TrimEvents,
+	}
+}
+
+// rawAppendRequest sequences a bookkeeping append without the configured
+// Indexer, which is never meant to see Timebox's own aggregates
+func rawAppendRequest(trimEvents bool) appendBuilder {
+	return func(id AggregateID, atSeq int64, evs []*Event) AppendRequest {
+		return AppendRequest{
+			ID:               id,
+			ExpectedSequence: atSeq,
+			Events:           sequenceEvents(id, atSeq, evs),
+			TrimEvents:       trimEvents,
+		}
 	}
 }
 

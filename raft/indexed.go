@@ -29,9 +29,9 @@ func (b *Backend) GetAggregateStatus(
 	return status, err
 }
 
-// ListAggregatesByStatus lists aggregates matching the query, ordered by
-// status time. Type narrows the status-index scan; KeyPrefix and Through
-// filter each entry
+// ListAggregatesByStatus lists aggregates matching the query, ordered by status
+// time. Type narrows the status-index scan. KeyPrefix and Through filter each
+// entry
 func (b *Backend) ListAggregatesByStatus(
 	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {

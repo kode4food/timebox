@@ -55,7 +55,7 @@ func (m *Message) resolveValue[T any]() (T, error) {
 		return val, nil
 	}
 
-	data, err := unmarshalMessageValue[T](m.Data)
+	data, err := decodeJSON[T](m.Data)
 	if err != nil {
 		return data, err
 	}
@@ -69,11 +69,13 @@ func (m *Message) resolveValue[T any]() (T, error) {
 	return data, nil
 }
 
-func unmarshalMessageValue[T any](data json.RawMessage) (T, error) {
+func decodeJSON[T any](data []byte) (T, error) {
 	var res T
+	if len(data) == 0 {
+		return res, nil
+	}
 	if err := json.Unmarshal(data, &res); err != nil {
-		var zero T
-		return zero, err
+		return res, err
 	}
 	return res, nil
 }

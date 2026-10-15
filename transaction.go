@@ -22,6 +22,10 @@ type (
 		request    AppendRequest
 		staged     bool
 	}
+
+	// appendBuilder constructs the AppendRequest for one aggregate's raised
+	// events
+	appendBuilder func(AggregateID, int64, []*Event) AppendRequest
 )
 
 var (
@@ -70,6 +74,20 @@ func (s *Store) Transact(fn func(*Transaction) error) error {
 func (t *Transaction) Exec[T any](
 	e *Executor[T], id AggregateID, cmd Command[T],
 ) (T, error) {
+	return t.exec(e, id, cmd, t.store.appendRequest)
+}
+
+// execInternal is Exec for Timebox's own bookkeeping aggregates. It stages
+// cmd's events without exposing them to the configured Indexer
+func (t *Transaction) execInternal[T any](
+	e *Executor[T], id AggregateID, cmd Command[T],
+) (T, error) {
+	return t.exec(e, id, cmd, rawAppendRequest(e.trimEvents))
+}
+
+func (t *Transaction) exec[T any](
+	e *Executor[T], id AggregateID, cmd Command[T], build appendBuilder,
+) (T, error) {
 	var zero T
 	if e.store != t.store {
 		return zero, ErrStoreMismatch
@@ -82,7 +100,7 @@ func (t *Transaction) Exec[T any](
 		return zero, err
 	}
 	atSeq, evs := ag.flush()
-	p.stage(t.store.appendRequest(id, atSeq, evs))
+	p.stage(build(id, atSeq, evs))
 	return ag.Value(), nil
 }
 
@@ -101,14 +119,14 @@ func (t *Transaction) join[T any](
 	if err != nil {
 		return nil, nil, err
 	}
-	ag := newAggregator(id, e.appliers, proj.state, proj.nextSeq)
+	ag := newAggregator(id, e.reducer, proj.state, proj.nextSeq)
 	ag.tx = t
 
 	p := &participant{
 		aggregator: ag,
 		complete:   func() { e.complete(id, ag) },
 		reset: func(evs []*Event) {
-			if len(evs) == 0 {
+			if len(evs) == 0 || evs[0].Sequence != proj.nextSeq {
 				e.invalidate(id)
 				return
 			}

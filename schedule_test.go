@@ -35,7 +35,10 @@ type (
 	}
 )
 
-const counterChanged timebox.EventType = "counter.changed"
+const (
+	counterChanged timebox.EventType = "counter.changed"
+	testScheduler  timebox.ID        = "test"
+)
 
 var (
 	errStop = errors.New("stop")
@@ -51,7 +54,7 @@ func TestSchedule(t *testing.T) {
 		if _, err := tx.Exec(exec, target, changeCounter(1)); err != nil {
 			return err
 		}
-		return tx.Schedule("counter/one/expire", at, msg)
+		return tx.Schedule(testScheduler, "counter/one/expire", at, msg)
 	})
 	assert.NoError(t, err)
 
@@ -71,17 +74,17 @@ func TestScheduleABA(t *testing.T) {
 	second := newMessage(t, "second")
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
-		return tx.Schedule("replace", time.Now(), first)
+		return tx.Schedule(testScheduler, "replace", time.Now(), first)
 	})
 	assert.NoError(t, err)
 	old := loadSchedule(t, store, "replace")
 
 	err = store.Transact(func(tx *timebox.Transaction) error {
-		return tx.CancelSchedule("replace")
+		return tx.CancelSchedule(testScheduler, "replace")
 	})
 	assert.NoError(t, err)
 	err = store.Transact(func(tx *timebox.Transaction) error {
-		return tx.Schedule("replace", time.Now(), second)
+		return tx.Schedule(testScheduler, "replace", time.Now(), second)
 	})
 	assert.NoError(t, err)
 
@@ -89,7 +92,7 @@ func TestScheduleABA(t *testing.T) {
 	assert.Greater(t, current.Version, old.Version)
 
 	err = store.Transact(func(tx *timebox.Transaction) error {
-		return tx.ConsumeSchedule(old.Key, old.Version)
+		return tx.ConsumeSchedule(testScheduler, old.Key, old.Version)
 	})
 	var conflict *timebox.ScheduleVersionConflictError
 	assert.ErrorAs(t, err, &conflict)
@@ -106,10 +109,14 @@ func TestScheduleCompose(t *testing.T) {
 
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			if err := tx.Schedule("compose", time.Now(), first); err != nil {
+			if err := tx.Schedule(
+				testScheduler, "compose", time.Now(), first,
+			); err != nil {
 				return err
 			}
-			return tx.Schedule("compose", time.Now().Add(time.Hour), second)
+			return tx.Schedule(
+				testScheduler, "compose", time.Now().Add(time.Hour), second,
+			)
 		}),
 	)
 	schedule := loadSchedule(t, store, "compose")
@@ -119,22 +126,25 @@ func TestScheduleCompose(t *testing.T) {
 
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			if err := tx.ConsumeSchedule(
-				schedule.Key, schedule.Version,
-			); err != nil {
+			if err := tx.ConsumeSchedule(testScheduler,
+				schedule.Key, schedule.Version); err != nil {
 				return err
 			}
-			return tx.Schedule("compose", time.Now().Add(time.Hour), first)
+			return tx.Schedule(
+				testScheduler, "compose", time.Now().Add(time.Hour), first,
+			)
 		}),
 	)
 	replaced := loadSchedule(t, store, "compose")
 	assert.Greater(t, replaced.Version, schedule.Version)
 
 	err = store.Transact(func(tx *timebox.Transaction) error {
-		if err := tx.Schedule("compose", time.Now(), second); err != nil {
+		if err := tx.Schedule(
+			testScheduler, "compose", time.Now(), second,
+		); err != nil {
 			return err
 		}
-		return tx.ConsumeSchedule("compose", replaced.Version)
+		return tx.ConsumeSchedule(testScheduler, "compose", replaced.Version)
 	})
 	var conflict *timebox.ScheduleVersionConflictError
 	assert.ErrorAs(t, err, &conflict)
@@ -151,6 +161,7 @@ func TestScheduleRefresh(t *testing.T) {
 	assert.NoError(t,
 		first.Transact(func(tx *timebox.Transaction) error {
 			return tx.Schedule(
+				testScheduler,
 				"remote", time.Now().Add(time.Hour),
 				newMessage(t, "first"),
 			)
@@ -161,6 +172,7 @@ func TestScheduleRefresh(t *testing.T) {
 	assert.NoError(t,
 		first.Transact(func(tx *timebox.Transaction) error {
 			return tx.Schedule(
+				testScheduler,
 				"remote", time.Now().Add(2*time.Hour),
 				newMessage(t, "second"),
 			)
@@ -176,15 +188,14 @@ func TestScheduleConsume(t *testing.T) {
 	msg := newMessage(t, "consume")
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
-		return tx.Schedule("consume", time.Now(), msg)
+		return tx.Schedule(testScheduler, "consume", time.Now(), msg)
 	})
 	assert.NoError(t, err)
 	schedule := loadSchedule(t, store, "consume")
 
 	err = store.Transact(func(tx *timebox.Transaction) error {
-		if err := tx.ConsumeSchedule(
-			schedule.Key, schedule.Version,
-		); err != nil {
+		if err := tx.ConsumeSchedule(testScheduler,
+			schedule.Key, schedule.Version); err != nil {
 			return err
 		}
 		_, err := tx.Exec(exec, target, changeCounter(2))
@@ -192,7 +203,7 @@ func TestScheduleConsume(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	consumed, err := store.LoadSchedule("consume")
+	consumed, err := store.LoadSchedule(testScheduler, "consume")
 	assert.NoError(t, err)
 	assert.Nil(t, consumed)
 	st, err := exec.Get(target)
@@ -205,14 +216,16 @@ func TestScheduleRollback(t *testing.T) {
 	msg := newMessage(t, "rollback")
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
-		if err := tx.Schedule("rollback", time.Now(), msg); err != nil {
+		if err := tx.Schedule(
+			testScheduler, "rollback", time.Now(), msg,
+		); err != nil {
 			return err
 		}
 		return errStop
 	})
 	assert.ErrorIs(t, err, errStop)
 
-	schedule, err := store.LoadSchedule("rollback")
+	schedule, err := store.LoadSchedule(testScheduler, "rollback")
 	assert.NoError(t, err)
 	assert.Nil(t, schedule)
 }
@@ -227,6 +240,7 @@ func TestScheduleList(t *testing.T) {
 	} {
 		err := store.Transact(func(tx *timebox.Transaction) error {
 			return tx.Schedule(
+				testScheduler,
 				timebox.ScheduleKey(item.key), item.at,
 				newMessage(t, item.key),
 			)
@@ -234,7 +248,7 @@ func TestScheduleList(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	schedules, err := store.ListSchedules(time.Time{})
+	schedules, err := store.ListSchedules(testScheduler, time.Time{})
 	assert.NoError(t, err)
 	keys := make([]timebox.ScheduleKey, len(schedules))
 	for i, schedule := range schedules {
@@ -244,13 +258,13 @@ func TestScheduleList(t *testing.T) {
 		[]timebox.ScheduleKey{"first", "second", "third"}, keys,
 	)
 
-	due, err := store.ListSchedules(base.Add(2 * time.Hour))
+	due, err := store.ListSchedules(testScheduler, base.Add(2*time.Hour))
 	assert.NoError(t, err)
 	keys = make([]timebox.ScheduleKey, len(due))
 	for i, schedule := range due {
 		keys[i] = schedule.Key
 	}
-	assert.Equal(t,
+	assert.ElementsMatch(t,
 		[]timebox.ScheduleKey{"first", "second"}, keys,
 	)
 }
@@ -264,7 +278,7 @@ func TestScheduleRecovery(t *testing.T) {
 	at := time.Now().UTC().Add(time.Hour)
 	assert.NoError(t,
 		first.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule("restart", at, msg)
+			return tx.Schedule(testScheduler, "restart", at, msg)
 		}),
 	)
 
@@ -301,6 +315,11 @@ func TestScheduleJSON(t *testing.T) {
 func TestScheduleInvalid(t *testing.T) {
 	store, _ := newStore(t)
 	valid := newMessage(t, "valid")
+	err := store.Transact(func(tx *timebox.Transaction) error {
+		return tx.Schedule("", "valid", time.Now(), valid)
+	})
+	assert.ErrorIs(t, err, timebox.ErrSchedulerIDRequired)
+
 	cases := []validationCase{
 		{
 			name: "Key", message: valid,
@@ -327,7 +346,7 @@ func TestScheduleInvalid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := store.Transact(func(tx *timebox.Transaction) error {
 				return tx.Schedule(
-					tc.key, time.Now(), tc.message,
+					testScheduler, tc.key, time.Now(), tc.message,
 				)
 			})
 			assert.ErrorIs(t, err, tc.err)
@@ -341,7 +360,7 @@ func TestScheduleConcurrent(t *testing.T) {
 	msg := newMessage(t, "concurrent")
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule("concurrent", time.Now(), msg)
+			return tx.Schedule(testScheduler, "concurrent", time.Now(), msg)
 		}),
 	)
 	schedule := loadSchedule(t, store, "concurrent")
@@ -359,9 +378,8 @@ func TestScheduleConcurrent(t *testing.T) {
 					ready.Done()
 					<-start
 				}
-				if err := tx.ConsumeSchedule(
-					schedule.Key, schedule.Version,
-				); err != nil {
+				if err := tx.ConsumeSchedule(testScheduler,
+					schedule.Key, schedule.Version); err != nil {
 					return err
 				}
 				_, err := tx.Exec(exec, target, changeCounter(1))
@@ -400,14 +418,14 @@ func newStore(t *testing.T) (*timebox.Store, *timebox.Executor[counter]) {
 	assert.NoError(t, err)
 	exec := store.Executor(
 		func() counter { return counter{} },
-		timebox.Appliers[counter]{
+		(timebox.Appliers[counter]{
 			counterChanged: timebox.MakeApplier(
 				func(st counter, _ *timebox.Event, value int) counter {
 					st.Value += value
 					return st
 				},
 			),
-		},
+		}).Reduce,
 	)
 	return store, exec
 }
@@ -416,7 +434,7 @@ func loadSchedule(
 	t *testing.T, store *timebox.Store, key timebox.ScheduleKey,
 ) *timebox.Schedule {
 	t.Helper()
-	schedule, err := store.LoadSchedule(key)
+	schedule, err := store.LoadSchedule(testScheduler, key)
 	if !assert.NoError(t, err) || !assert.NotNil(t, schedule) {
 		return &timebox.Schedule{Message: &timebox.Message{}}
 	}

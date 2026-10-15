@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -20,10 +19,7 @@ type (
 
 		publisher timebox.Publisher
 		closed    bool
-		nextID    int64
 		aggs      map[timebox.AggregateID]*aggregate
-		archive   []*timebox.ArchiveRecord
-		archiveCh chan struct{}
 		mu        sync.RWMutex
 	}
 
@@ -62,8 +58,6 @@ func Open(cfgs ...Config) *Backend {
 	return &Backend{
 		publisher: cfg.Publisher,
 		aggs:      map[timebox.AggregateID]*aggregate{},
-		archive:   []*timebox.ArchiveRecord{},
-		archiveCh: make(chan struct{}, 1),
 	}
 }
 
@@ -78,7 +72,6 @@ func (b *Backend) Close() error {
 	defer b.mu.Unlock()
 
 	b.closed = true
-	b.notifyArchive()
 	return nil
 }
 
@@ -243,15 +236,6 @@ func (b *Backend) ListAggregatesByStatus(
 	return res, nil
 }
 
-func firstEventIndex(evs []*timebox.Event, seq int64) int {
-	for i, ev := range evs {
-		if ev.Sequence >= seq {
-			return i
-		}
-	}
-	return len(evs)
-}
-
 // ListAggregatesByTag lists aggregates for a tag
 func (b *Backend) ListAggregatesByTag(
 	tag string,
@@ -272,7 +256,8 @@ func (b *Backend) ListAggregatesByTag(
 	return res, nil
 }
 
-// Archive archives an aggregate and removes it from active storage
+// Archive atomically bundles id's snapshot and remaining events into the
+// shared archive queue, then removes id's live records
 func (b *Backend) Archive(id timebox.AggregateID) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -285,50 +270,22 @@ func (b *Backend) Archive(id timebox.AggregateID) error {
 		return nil
 	}
 
-	b.nextID++
-	rec := &timebox.ArchiveRecord{
-		StreamID:         time.Now().UTC().Format(time.RFC3339Nano),
-		AggregateID:      a.id,
+	record := &timebox.ArchiveRecord{
+		AggregateID:      id,
 		SnapshotData:     a.snapshotData,
 		SnapshotSequence: a.snapshotSeq,
 		Events:           a.events,
 	}
-	if b.nextID > 0 {
-		rec.StreamID = rec.StreamID + "-" + time.Duration(b.nextID).String()
+	q := b.aggregate(timebox.ArchiveQueueID)
+	ev, err := timebox.NewArchiveQueueEvent(
+		q.baseSeq+int64(len(q.events)), id, record,
+	)
+	if err != nil {
+		return err
 	}
-
-	b.archive = append(b.archive, rec)
+	q.events = append(q.events, ev)
 	delete(b.aggs, id)
-	b.notifyArchive()
 	return nil
-}
-
-// ConsumeArchive blocks until one archive record is available or ctx is done
-func (b *Backend) ConsumeArchive(
-	ctx context.Context, h timebox.ArchiveHandler,
-) error {
-	if h == nil {
-		return timebox.ErrArchiveHandlerMissing
-	}
-
-	for {
-		rec, err := b.nextArchive()
-		if err != nil {
-			return err
-		}
-		if rec != nil {
-			if err := h(ctx, rec); err != nil {
-				return err
-			}
-			return b.consumeArchive(rec.StreamID)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-b.archiveCh:
-		}
-	}
 }
 
 func (b *Backend) append(reqs []timebox.AppendRequest) error {
@@ -406,43 +363,18 @@ func (b *Backend) aggregate(id timebox.AggregateID) *aggregate {
 	return a
 }
 
-func (b *Backend) nextArchive() (*timebox.ArchiveRecord, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if err := b.checkClosed(); err != nil {
-		return nil, err
-	}
-	if len(b.archive) == 0 {
-		return nil, nil
-	}
-	return b.archive[0], nil
-}
-
-func (b *Backend) consumeArchive(id string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if err := b.checkClosed(); err != nil {
-		return err
-	}
-	if len(b.archive) == 0 || b.archive[0].StreamID != id {
-		return nil
-	}
-	b.archive = b.archive[1:]
-	return nil
-}
-
-func (b *Backend) notifyArchive() {
-	select {
-	case b.archiveCh <- struct{}{}:
-	default:
-	}
-}
-
 func (b *Backend) checkClosed() error {
 	if b.closed {
 		return ErrClosed
 	}
 	return nil
+}
+
+func firstEventIndex(evs []*timebox.Event, seq int64) int {
+	for i, ev := range evs {
+		if ev.Sequence >= seq {
+			return i
+		}
+	}
+	return len(evs)
 }
