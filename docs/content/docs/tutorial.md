@@ -15,7 +15,7 @@ The finished program uses the in-memory backend so it runs without infrastructur
 mkdir timebox-orders
 cd timebox-orders
 go mod init example.com/timebox-orders
-go get github.com/kode4food/timebox@v0.1.0
+go get github.com/kode4food/timebox@latest
 ```
 
 Create `main.go` with the package and imports:

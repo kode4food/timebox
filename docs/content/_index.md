@@ -20,7 +20,7 @@ Timebox is a small, opinionated event sourcing library for Go with append-only e
 ## Quick Start
 
 ```sh
-go get github.com/kode4food/timebox@v0.1.0
+go get github.com/kode4food/timebox@latest
 ```
 
 Start with the in-memory backend, define a state constructor and appliers, then execute a command:

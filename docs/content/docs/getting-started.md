@@ -13,7 +13,7 @@ weight: 10
 ## Install
 
 ```sh
-go get github.com/kode4food/timebox@v0.1.0
+go get github.com/kode4food/timebox@latest
 ```
 
 Backend packages are part of the same module:
