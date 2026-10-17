@@ -3,6 +3,7 @@ package raft
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -121,7 +122,7 @@ func (b *Backend) Close() error {
 
 func openBackend(cfg Config) (*Backend, error) {
 	projectionExists := pathExists(
-		kvPath(cfg.DataDir, projectionDirName, projectionDBName),
+		filepath.Join(cfg.DataDir, projectionDirName, projectionDBName),
 	)
 	db, err := openProjectionDB(cfg.DataDir)
 	if err != nil {

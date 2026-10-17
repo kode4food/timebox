@@ -15,6 +15,7 @@ type (
 		events   [][]byte
 		atSeq    int64
 		trim     bool
+		delete   bool
 	}
 
 	// luaAppendSpec records which projections a request needs, and so which
@@ -23,6 +24,7 @@ type (
 		trim   bool
 		status bool
 		tags   bool
+		delete bool
 	}
 
 	luaAppendOp struct {
@@ -37,6 +39,7 @@ const (
 	luaAppendStatus = 1
 	luaAppendTags   = 2
 	luaAppendTrim   = 4
+	luaAppendDelete = 8
 )
 
 // appendLuaCall adds one request's keys and args in the order the script's
@@ -49,6 +52,7 @@ func (b *Backend) appendLuaCall(
 		trim:   in.trim,
 		status: in.status != nil,
 		tags:   len(ops) > 0,
+		delete: in.delete,
 	}
 	keys = append(keys, b.buildLuaAppendKeys(in.id, spec)...)
 	args = append(args, buildLuaAppendArgs(
@@ -73,6 +77,15 @@ func (b *Backend) buildLuaAppendKeys(
 	if spec.trim {
 		keys = append(keys, b.buildKey(id, snapshotSeqSuffix))
 	}
+	if spec.delete {
+		keys = append(keys,
+			b.buildStatusHashKey(),
+			b.buildTagStateKey(id),
+			b.buildTagRootKey(),
+			b.buildKey(id, snapshotValSuffix),
+			b.buildKey(id, snapshotSeqSuffix),
+		)
+	}
 	return keys
 }
 
@@ -90,6 +103,9 @@ func buildLuaAppendArgs(
 	}
 	if spec.trim {
 		flags |= luaAppendTrim
+	}
+	if spec.delete {
+		flags |= luaAppendDelete
 	}
 
 	args := []any{flags, in.atSeq, len(in.events), joinedID}

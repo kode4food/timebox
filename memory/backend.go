@@ -335,6 +335,10 @@ func (b *Backend) checkSequence(req timebox.AppendRequest) error {
 }
 
 func (b *Backend) applyAppend(req timebox.AppendRequest) {
+	if req.Delete {
+		delete(b.aggs, req.ID)
+		return
+	}
 	a := b.aggregate(req.ID)
 	a.events = append(a.events, req.Events...)
 	if req.Status != nil {

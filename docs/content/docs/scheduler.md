@@ -5,7 +5,7 @@ weight: 40
 
 # Scheduler
 
-Use the scheduler for work that must happen later and survive a process restart. Each explicitly named scheduler is one event-sourced aggregate whose projected state contains its active schedules. Applications can use one scheduler name or partition work across several names. A schedule lives in the same backend as its target, and `Transaction.Schedule` commits it atomically with the target's events.
+Use the scheduler for work that must happen later and survive a process restart. For example, an order can schedule an expiry check when it is placed. The schedule lives in the same backend as the order, and `Transaction.Schedule` commits it atomically with the order's events.
 
 A schedule carries a `timebox.Message`: a type, an aggregate ID, and optional data. The message tells your application what to do when the deadline arrives. In the example below, `order.expire` requests a check, and the `order.expired` event is raised only when the order is still pending. `timebox.Event` embeds `Message` and adds the sequence and timestamp of a recorded event.
 
@@ -15,20 +15,19 @@ Assume `store` is a `*timebox.Store`, `orders` is an executor for `OrderState`, 
 
 ```go
 key := timebox.ScheduleKey("order/ORD-12345/expire")
-schedulerID := timebox.ID("orders")
 deadline := time.Now().Add(30 * time.Minute)
 err := store.Transact(func(tx *timebox.Transaction) error {
 	if _, err := tx.Exec(orders, orderID, placeOrder); err != nil {
 		return err
 	}
-	return tx.Schedule(schedulerID, key, deadline, &timebox.Message{
+	return tx.Schedule(key, deadline, &timebox.Message{
 		AggregateID: orderID,
 		Type:        "order.expire",
 	})
 })
 ```
 
-The message needs no data because its `AggregateID` identifies the order. Calling `tx.Schedule` again with the same scheduler ID and key replaces its message and deadline. If payment completes first, call `tx.CancelSchedule(schedulerID, key)` in the payment transaction. `tx.CancelSchedulePrefix(schedulerID, prefix)` cancels matching active keys in that scheduler.
+The message needs no data because its `AggregateID` identifies the order. Calling `tx.Schedule` again with the same key replaces its message and deadline. If payment completes first, the check still arrives, finds the order no longer pending, and does nothing. Each key is stored as its own small aggregate, and consuming a schedule removes that aggregate in the same commit, so delivered schedules leave nothing behind in the backend.
 
 ## Deliver the Message
 
@@ -36,7 +35,6 @@ Run a `scheduler.Scheduler` in a long-lived process using the same durable backe
 
 ```go
 runner, err := scheduler.New(scheduler.Config{
-	ID:    schedulerID,
 	Store: store,
 	Processor: func(
 		tx *timebox.Transaction, msg *timebox.Message,
@@ -68,4 +66,4 @@ return runner.Run(ctx)
 
 The expiry event has no payload fields, so the example uses `timebox.Empty{}`.
 
-The runner watches local schedule commits and reconciles its named scheduler through an optimistic empty append, so changes made by other stores or processes are included. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `store.LoadSchedule(schedulerID, key)` to inspect one active schedule and `store.ListSchedules(schedulerID, through)` to list active schedules due by a time. `time.Time{}` lists all. For recurring work, schedule the next occurrence under the same key in the processor's transaction.
+The runner watches local schedule commits and rescans the backend for changes made by other stores or processes. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `store.LoadSchedule(key)` to inspect one active schedule and `store.ListSchedules(through)` to list active schedules due by a time. `time.Time{}` lists all. For recurring work, schedule the next occurrence under the same key in the processor's transaction.

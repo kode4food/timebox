@@ -122,9 +122,15 @@ func (t *Transaction) join[T any](
 	ag := newAggregator(id, e.reducer, proj.state, proj.nextSeq)
 	ag.tx = t
 
-	p := &participant{
+	var p *participant
+	p = &participant{
 		aggregator: ag,
-		complete:   func() { e.complete(id, ag) },
+		complete: func() {
+			e.complete(id, ag)
+			if p.request.Delete {
+				e.invalidate(id)
+			}
+		},
 		reset: func(evs []*Event) {
 			if len(evs) == 0 || evs[0].Sequence != proj.nextSeq {
 				e.invalidate(id)

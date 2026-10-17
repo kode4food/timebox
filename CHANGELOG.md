@@ -8,9 +8,29 @@ Notable changes to Timebox.
 
 - Executors accept reducers, with `Appliers.Reduce` providing default event dispatch and custom reducers handling event batches directly
 
+### Persistence
+
+- `AppendRequest.Delete` removes an aggregate's events, snapshot, status, and tags atomically with the rest of the append, only if its expected sequence matches
+- Raft status queries with `Type` and `Through` stop at `Through`
+
 ### Scheduling
 
-- Schedulers are explicitly named, with each name owning one aggregate whose projection maintains its active schedules as a heap
+- Consumed schedules delete their aggregate in the same commit
+- Schedule versions derive from the scheduling time, so a key scheduled again after a delete never reuses an earlier version
+- The runner applies local commits directly and rescans only per `RescanInterval` or on `Wake`
+
+### Queues
+
+- Durable, ordered queues identified by name, with `Transaction.Publish` committing a message atomically with aggregate events
+- `Store.Consume` blocks until the oldest message is available, then commits the handler's work and the message's removal together
+
+### Archiving
+
+- Every backend, including PostgreSQL, archives by atomically appending an `ArchiveRecord` to a shared archive queue, and `Store.ConsumeArchive` drains it through `Store.Consume`
+
+### Removed
+
+- `Transaction.CancelSchedule` and `CancelSchedulePrefix`. Every schedule is delivered, and its processor decides whether the message still applies
 
 ## 0.3
 

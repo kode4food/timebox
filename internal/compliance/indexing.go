@@ -160,6 +160,115 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.Empty(t, statuses)
 			})
 
+			t.Run("StatusThrough", func(t *testing.T) {
+				store := openStore(t, p, timebox.Config{
+					Indexer:    newIndexer(t),
+					TrimEvents: trimEvents,
+				})
+				active := "active"
+				at := func(sec int64) time.Time {
+					return time.Unix(1_700_000_000+sec, 0).UTC()
+				}
+				ids := []timebox.AggregateID{
+					timebox.NewAggregateID("order", "c"),
+					timebox.NewAggregateID("order", "a"),
+					timebox.NewAggregateID("other", "b"),
+					timebox.NewAggregateID("order", "b"),
+				}
+				for i, id := range ids {
+					assert.NoError(t,
+						store.AppendEvents(id, 0, []*timebox.Event{
+							testEvent(t, at(int64(i)), "event.test", i,
+								&active, nil,
+							),
+						}),
+					)
+				}
+				// The same status at a later time replaces the entry
+				assert.NoError(t,
+					store.AppendEvents(ids[0], 1, []*timebox.Event{
+						testEvent(t, at(9), "event.test", 9, &active, nil),
+					}),
+				)
+
+				list := func(q timebox.StatusQuery) []timebox.StatusEntry {
+					entries, err := store.ListAggregatesByStatus(q)
+					assert.NoError(t, err)
+					return entries
+				}
+				assert.Equal(t, []timebox.StatusEntry{
+					{ID: ids[1], Timestamp: at(1)},
+					{ID: ids[3], Timestamp: at(3)},
+				}, list(timebox.StatusQuery{
+					Status:  active,
+					Type:    "order",
+					Through: at(3),
+				}))
+				assert.Equal(t, []timebox.StatusEntry{
+					{ID: ids[1], Timestamp: at(1)},
+					{ID: ids[2], Timestamp: at(2)},
+				}, list(timebox.StatusQuery{
+					Status:  active,
+					Through: at(2),
+				}))
+				assert.Equal(t, []timebox.StatusEntry{
+					{ID: ids[1], Timestamp: at(1)},
+					{ID: ids[3], Timestamp: at(3)},
+					{ID: ids[0], Timestamp: at(9)},
+				}, list(timebox.StatusQuery{Status: active, Type: "order"}))
+			})
+
+			t.Run("StatusKeyPrefix", func(t *testing.T) {
+				store := openStore(t, p, timebox.Config{
+					Indexer:    newIndexer(t),
+					TrimEvents: trimEvents,
+				})
+				active := "active"
+				ids := []timebox.AggregateID{
+					timebox.NewAggregateID("order", "abcd1"),
+					timebox.NewAggregateID("order", "abcd2"),
+					timebox.NewAggregateID("order", "abce1"),
+					timebox.NewAggregateID("order", "ab"),
+					timebox.NewAggregateID("other", "abcd9"),
+				}
+				for i, id := range ids {
+					assert.NoError(t,
+						store.AppendEvents(id, 0, []*timebox.Event{
+							testEvent(t,
+								time.Unix(1_700_000_000+int64(i), 0).UTC(),
+								"event.test", i, &active, nil,
+							),
+						}),
+					)
+				}
+
+				for _, tc := range []struct {
+					prefix timebox.ID
+					want   []timebox.AggregateID
+				}{
+					{"", ids[:4]},
+					{"a", ids[:4]},
+					{"abc", ids[:3]},
+					{"abcd", ids[:2]},
+					{"abcd1", ids[:1]},
+					{"abd", nil},
+				} {
+					entries, err := store.ListAggregatesByStatus(
+						timebox.StatusQuery{
+							Status:    active,
+							Type:      "order",
+							KeyPrefix: tc.prefix,
+						},
+					)
+					assert.NoError(t, err)
+					var got []timebox.AggregateID
+					for _, entry := range entries {
+						got = append(got, entry.ID)
+					}
+					assert.Equal(t, tc.want, got)
+				}
+			})
+
 			t.Run("StatusReplace", func(t *testing.T) {
 				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),

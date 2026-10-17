@@ -57,7 +57,9 @@ type (
 		ListAggregatesByTag(tag string) ([]AggregateID, error)
 	}
 
-	// AppendRequest contains primitive inputs required for an atomic append
+	// AppendRequest contains primitive inputs required for an atomic append.
+	// Delete removes the aggregate's events, snapshot, status, and tags instead
+	// of storing the request's events, only if ExpectedSequence matches
 	AppendRequest struct {
 		StatusAt         time.Time
 		Status           *string
@@ -66,6 +68,7 @@ type (
 		Events           []*Event
 		ExpectedSequence int64
 		TrimEvents       bool
+		Delete           bool
 	}
 
 	// LoadEventsRequest contains primitive inputs required for an event load

@@ -13,6 +13,7 @@ for i = 1, reqCount do
 	r.status = flags % 2 == 1
 	r.tags = math.floor(flags / 2) % 2 == 1
 	local trim = math.floor(flags / 4) % 2 == 1
+	local delete = math.floor(flags / 8) % 2 == 1
 
 	r.eventsKey = ki; ki = ki + 1
 	if r.status then
@@ -32,6 +33,10 @@ for i = 1, reqCount do
 	if trim then
 		r.offset = tonumber(redis.call('GET', KEYS[ki]) or "0")
 		ki = ki + 1
+	end
+	if delete then
+		-- status hash, tag state, tag root, snapshot value, snapshot sequence
+		r.deleteKey = ki; ki = ki + 5
 	end
 
 	local seq = r.offset + redis.call('LLEN', KEYS[r.eventsKey])
@@ -95,6 +100,26 @@ for i = 1, reqCount do
 				redis.call('SREM', member, r.aggID)
 			end
 		end
+	end
+end
+
+-- Runs after the writes above, so it also removes what a delete just stored
+for i = 1, reqCount do
+	local r = reqs[i]
+	if r.deleteKey then
+		local k = r.deleteKey
+		local status = redis.call('HGET', KEYS[k], r.aggID) or ""
+		if status ~= "" then
+			redis.call('ZREM', KEYS[k] .. ":" .. status, r.aggID)
+			redis.call('HDEL', KEYS[k], r.aggID)
+		end
+		local tags = redis.call('SMEMBERS', KEYS[k + 1])
+		for j = 1, #tags do
+			redis.call('SREM', KEYS[k + 2] .. ":" .. tags[j], r.aggID)
+		end
+		redis.call(
+			'DEL', KEYS[r.eventsKey], KEYS[k + 1], KEYS[k + 3], KEYS[k + 4]
+		)
 	end
 end
 

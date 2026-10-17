@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/dgraph-io/badger/v4"
@@ -194,10 +193,6 @@ func backupKVDBTo(db *kvDB, w io.Writer) error {
 	return err
 }
 
-func removeKVPath(path string) error {
-	return os.RemoveAll(path)
-}
-
 func defaultCompactors() int {
 	n := runtime.GOMAXPROCS(0) / 2
 	if n < 4 {
@@ -207,8 +202,4 @@ func defaultCompactors() int {
 		return 8
 	}
 	return n
-}
-
-func kvPath(dataDir, dirName, dbName string) string {
-	return filepath.Join(dataDir, dirName, dbName)
 }

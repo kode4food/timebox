@@ -156,6 +156,7 @@ func appendRequestTo(
 	c = bin.AppendOptString(c, req.Status)
 	c = bin.AppendInt64(c, req.StatusAt.UnixMilli())
 	c = appendBoolMap(c, req.Tags)
+	c = bin.AppendBool(c, req.Delete)
 	return timebox.BinEvent.AppendAll(c, req.Events)
 }
 
@@ -180,6 +181,10 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	del, data, err := bin.ReadBool(data)
+	if err != nil {
+		return nil, nil, err
+	}
 	events, data, err := timebox.BinEvent.ReadAll(data)
 	if err != nil {
 		return nil, nil, err
@@ -191,6 +196,7 @@ func decodeAppendRequest(data []byte) (*timebox.AppendRequest, []byte, error) {
 		StatusAt:         time.UnixMilli(statusAt).UTC(),
 		Tags:             tags,
 		Events:           events,
+		Delete:           del,
 	}, data, nil
 }
 

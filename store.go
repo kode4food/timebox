@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,8 @@ type (
 		changes   chan struct{}
 		queueWake chan struct{}
 		config    Config
+		changedMu sync.Mutex
+		changed   map[ScheduleKey]*Schedule
 	}
 
 	// VersionConflictError is returned when AppendEvents encounters a sequence
@@ -53,7 +56,7 @@ func NewStore(b Backend, cfgs ...Config) (*Store, error) {
 		config:    cfg,
 	}
 	s.schedule = s.newInternalExecutor(
-		newScheduleState, reduceSchedules, s.notifyScheduleChange,
+		newScheduleState, scheduleAppliers.Reduce, s.notifyScheduleChange,
 	)
 	s.queue = s.newInternalExecutor(
 		newQueueState, reduceQueue, s.notifyQueueChange,

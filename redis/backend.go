@@ -131,6 +131,7 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 			tags:     req.Tags,
 			events:   evs,
 			trim:     req.TrimEvents,
+			delete:   req.Delete,
 		})
 	}
 

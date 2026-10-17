@@ -44,6 +44,15 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if err := b.appendAll(ctx, tx, reqs); err != nil {
 		return err
 	}
+	for _, req := range reqs {
+		if !req.Delete {
+			continue
+		}
+		key, _ := aggregateKey(req.ID)
+		if err := b.deleteAggregateTx(ctx, tx, key); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
@@ -60,7 +69,7 @@ func (b *Backend) lockAppends(
 	for _, req := range reqs {
 		key, parts := aggregateKey(req.ID)
 		keys = append(keys, key)
-		if req.ExpectedSequence == 0 && check.Mutates(req) {
+		if req.ExpectedSequence == 0 && !req.Delete && check.Mutates(req) {
 			if inserts == nil {
 				inserts = map[string][]string{}
 			}
@@ -145,7 +154,7 @@ func (b *Backend) versionConflict(
 // appendCall builds the query and arguments one request needs
 func appendCall(req timebox.AppendRequest) (string, []any) {
 	key, parts := aggregateKey(req.ID)
-	if !check.Mutates(req) {
+	if req.Delete || !check.Mutates(req) {
 		return sqlCheckSequence, []any{key, req.ExpectedSequence}
 	}
 	evs := encodeAppendEvents(req.Events)

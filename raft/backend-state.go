@@ -16,7 +16,9 @@ import (
 const snapshotRefSize = 8
 
 func openProjectionDB(dataDir string) (*kvDB, error) {
-	return openKVDB(kvPath(dataDir, projectionDirName, projectionDBName))
+	return openKVDB(
+		filepath.Join(dataDir, projectionDirName, projectionDBName),
+	)
 }
 
 // State returns the current local Raft role
@@ -283,8 +285,8 @@ func (b *Backend) readSnapshotStream(
 
 func rebuildProjection(b *Backend, dataDir string, log *raftLog) error {
 	_ = b.db.Close()
-	path := kvPath(dataDir, projectionDirName, projectionDBName)
-	if err := removeKVPath(path); err != nil && !os.IsNotExist(err) {
+	path := filepath.Join(dataDir, projectionDirName, projectionDBName)
+	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 

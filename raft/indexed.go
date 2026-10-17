@@ -30,8 +30,8 @@ func (b *Backend) GetAggregateStatus(
 }
 
 // ListAggregatesByStatus lists aggregates matching the query, ordered by status
-// time. Type narrows the status-index scan. KeyPrefix and Through filter each
-// entry
+// time. Type narrows the status-index scan, and with Type set the scan stops
+// at Through. KeyPrefix filters each entry
 func (b *Backend) ListAggregatesByStatus(
 	q timebox.StatusQuery,
 ) ([]timebox.StatusEntry, error) {
@@ -45,7 +45,8 @@ func (b *Backend) ListAggregatesByStatus(
 		b := tx.Bucket(bucketName)
 		c := b.Cursor()
 		defer func() { _ = c.Close() }()
-		pfx := statusIndexPrefix(q.Status)
+		base := statusIndexPrefix(q.Status)
+		pfx := base
 		if q.Type != "" {
 			pfx = append(pfx, []byte(encodeAggregateType(q.Type))...)
 		}
@@ -54,8 +55,10 @@ func (b *Backend) ListAggregatesByStatus(
 			if err != nil {
 				return err
 			}
-			parts := strings.Split(string(k), "/")
-			id, err := decodeAggregateID(parts[len(parts)-1])
+			if ts > bound && q.Type != "" {
+				break
+			}
+			id, err := decodeStatusIndexID(string(k[len(base):]))
 			if err != nil {
 				return err
 			}

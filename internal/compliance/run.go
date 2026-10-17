@@ -15,4 +15,5 @@ func Run(t *testing.T, p Profile) {
 	t.Run("Queues", func(t *testing.T) { runQueues(t, p) })
 	t.Run("Schedules", func(t *testing.T) { runSchedules(t, p) })
 	t.Run("Archive", func(t *testing.T) { runArchive(t, p) })
+	t.Run("Delete", func(t *testing.T) { runDelete(t, p) })
 }

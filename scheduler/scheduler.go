@@ -12,9 +12,8 @@ import (
 )
 
 type (
-	// Scheduler maintains a disposable heap over a durable named scheduler
+	// Scheduler maintains a disposable heap over durable schedule aggregates
 	Scheduler struct {
-		id         timebox.ID
 		store      *timebox.Store
 		process    Processor
 		clock      Clock
@@ -27,7 +26,6 @@ type (
 
 	// Config configures a disposable schedule runner
 	Config struct {
-		ID               timebox.ID
 		Store            *timebox.Store
 		Processor        Processor
 		Clock            Clock
@@ -72,9 +70,6 @@ func New(cfg Config) (*Scheduler, error) {
 	if cfg.Store == nil {
 		return nil, ErrStoreRequired
 	}
-	if cfg.ID == "" {
-		return nil, timebox.ErrSchedulerIDRequired
-	}
 	if cfg.Processor == nil {
 		return nil, ErrProcessorRequired
 	}
@@ -97,7 +92,6 @@ func New(cfg Config) (*Scheduler, error) {
 		return nil, ErrInvalidRetryDelay
 	}
 	return &Scheduler{
-		id:         cfg.ID,
 		store:      cfg.Store,
 		process:    cfg.Processor,
 		clock:      cfg.Clock,
@@ -109,7 +103,7 @@ func New(cfg Config) (*Scheduler, error) {
 	}, nil
 }
 
-// Wake requests prompt reconciliation with the named scheduler aggregate
+// Wake requests prompt reconciliation with the durable schedule index
 func (s *Scheduler) Wake() {
 	select {
 	case s.wake <- struct{}{}:
@@ -124,37 +118,54 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 	timer := s.newTimer(0)
 	defer timer.Stop()
-	if err := s.reconcileSchedules(); err != nil {
-		s.logReconcileError(ctx, err)
-		resetTimer(timer, s.retryDelay)
-	} else {
-		resetTimer(timer, s.calculateDelay())
-	}
+	// Start collecting local changes before the first full scan, so none
+	// committed in between is missed
+	s.store.TakeScheduleChanges()
+	var nextScan time.Time
 
 	for {
-		process := false
+		now := s.clock()
+		if !now.Before(nextScan) {
+			nextScan = now.Add(s.rescan)
+			if err := s.reconcileSchedules(); err != nil {
+				s.logReconcileError(ctx, err)
+				nextScan = now.Add(s.retryDelay)
+			}
+		}
+		resetTimer(timer, min(s.calculateDelay(), nextScan.Sub(now)))
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-s.wake:
+			nextScan = time.Time{}
 		case <-s.store.ScheduleChanges():
+			s.applyChanges()
 		case <-timer.Channel():
-			process = true
-		}
-		if err := s.reconcileSchedules(); err != nil {
-			s.logReconcileError(ctx, err)
-			resetTimer(timer, s.retryDelay)
-			continue
-		}
-		if process {
 			s.processDue(ctx)
 		}
-		resetTimer(timer, s.calculateDelay())
+	}
+}
+
+// applyChanges folds this Store's own commits into the heap, leaving tasks
+// beyond the rescan window to the next full scan
+func (s *Scheduler) applyChanges() {
+	through := s.clock().Add(s.rescan)
+	for key, schedule := range s.store.TakeScheduleChanges() {
+		if schedule == nil || schedule.At.After(through) {
+			s.heap.Remove(key)
+			continue
+		}
+		item, ok := s.heap.byKey[key]
+		if ok && item.schedule.Version == schedule.Version {
+			continue
+		}
+		s.heap.Replace(schedule)
 	}
 }
 
 func (s *Scheduler) reconcileSchedules() error {
-	schedules, err := s.store.ListSchedules(s.id, s.clock().Add(s.rescan))
+	schedules, err := s.store.ListSchedules(s.clock().Add(s.rescan))
 	if err != nil {
 		return err
 	}
@@ -190,7 +201,7 @@ func (s *Scheduler) processDue(ctx context.Context) {
 
 			err := s.store.Transact(func(tx *timebox.Transaction) error {
 				if err := tx.ConsumeSchedule(
-					s.id, item.schedule.Key, item.schedule.Version,
+					item.schedule.Key, item.schedule.Version,
 				); err != nil {
 					return err
 				}
@@ -205,7 +216,7 @@ func (s *Scheduler) processDue(ctx context.Context) {
 }
 
 func (s *Scheduler) refreshProcessed(ctx context.Context, item *heapItem) {
-	schedule, err := s.store.LoadSchedule(s.id, item.schedule.Key)
+	schedule, err := s.store.LoadSchedule(item.schedule.Key)
 	if err != nil {
 		s.logError(ctx, item.schedule.Key, err)
 		s.retryItem(item)

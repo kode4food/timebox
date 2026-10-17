@@ -174,14 +174,14 @@ func (r *raftLog) storeMeta(
 		cur := segFirsts(r.segs)
 
 		for _, first := range r.prevSegs {
-			if !containsU64(cur, first) {
+			if !slices.Contains(cur, first) {
 				if err := sb.Delete(bin.AppendUint64(nil, first)); err != nil {
 					return err
 				}
 			}
 		}
 		for _, seg := range r.segs {
-			if !containsU64(r.prevSegs, seg.first) {
+			if !slices.Contains(r.prevSegs, seg.first) {
 				key := bin.AppendUint64(nil, seg.first)
 				value := bin.AppendUint64(nil, seg.id)
 				if err := sb.Put(
@@ -315,10 +315,6 @@ func loadProto(b *kvBucket, key []byte, m proto.Message) error {
 		return nil
 	}
 	return proto.Unmarshal(data, m)
-}
-
-func containsU64(s []uint64, v uint64) bool {
-	return slices.Contains(s, v)
 }
 
 func confStateEqual(a, b *raftpb.ConfState) bool {

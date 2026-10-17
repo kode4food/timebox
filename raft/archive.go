@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"bytes"
 	"context"
 
 	"github.com/kode4food/timebox"
@@ -23,7 +22,8 @@ func deleteAggregateTx(
 	b *kvBucket, encodedID string, meta *AggregateMeta,
 ) error {
 	if meta.Status != "" {
-		if err := b.Delete(statusIndexKey(meta.Status, encodedID)); err != nil {
+		key := statusIndexKey(meta.Status, encodedID, meta.StatusAt)
+		if err := b.Delete(key); err != nil {
 			return err
 		}
 	}
@@ -33,13 +33,12 @@ func deleteAggregateTx(
 		}
 	}
 
+	// A cursor in the batched apply transaction re-sorts its pending writes,
+	// so delete the event keys the meta already bounds
 	pfx := aggregateEventPrefix(encodedID)
-	keys, err := collectKeysTx(b, pfx)
-	if err != nil {
-		return err
-	}
-	for _, k := range keys {
-		if err := b.Delete(k); err != nil {
+	for seq := meta.BaseSequence; seq < meta.CurrentSequence; seq++ {
+		key := aggregateEventKeyFromPrefix(pfx, seq)
+		if err := b.Delete(key); err != nil {
 			return err
 		}
 	}
@@ -47,16 +46,4 @@ func deleteAggregateTx(
 		return err
 	}
 	return b.Delete(AggregateMetaKey(encodedID))
-}
-
-func collectKeysTx(b *kvBucket, pfx []byte) ([][]byte, error) {
-	c := b.Cursor()
-	defer func() { _ = c.Close() }()
-
-	var keys [][]byte
-	for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
-		keys = append(keys, append([]byte(nil), k...))
-		k, _ = c.Next()
-	}
-	return keys, nil
 }

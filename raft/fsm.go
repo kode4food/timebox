@@ -118,6 +118,9 @@ func (f *fsm) writeAppendTx(
 	b *kvBucket, meta *AggregateMeta, req *timebox.AppendRequest,
 ) error {
 	encodedID := encodeAggregateID(req.ID)
+	if req.Delete {
+		return deleteAggregateTx(b, encodedID, meta)
+	}
 	if err := writeEventsTx(
 		b, aggregateEventPrefix(encodedID), req.Events,
 	); err != nil {
@@ -250,9 +253,9 @@ func applyMutationsTx(
 	if req.Status != nil {
 		status := *req.Status
 		statusAt := req.StatusAt.UnixMilli()
-		if meta.Status != "" && meta.Status != status {
+		if meta.Status != "" {
 			if err := b.Delete(
-				statusIndexKey(meta.Status, encodedID),
+				statusIndexKey(meta.Status, encodedID, meta.StatusAt),
 			); err != nil {
 				return err
 			}
@@ -264,7 +267,7 @@ func applyMutationsTx(
 			meta.Status = status
 			meta.StatusAt = statusAt
 			if err := b.Put(
-				statusIndexKey(status, encodedID),
+				statusIndexKey(status, encodedID, statusAt),
 				bin.AppendInt64(nil, statusAt),
 			); err != nil {
 				return err

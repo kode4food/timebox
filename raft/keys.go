@@ -2,6 +2,7 @@ package raft
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 
 	"github.com/kode4food/timebox"
@@ -27,7 +28,8 @@ var bucketName = []byte("timebox")
 //   - state/agg/<aggregate>/snapshot stores raw Timebox snapshot bytes
 //   - state/agg/<aggregate>/event/<seq> stores raw event payloads
 //   - state/archive/<stream> stores queued archive records
-//   - state/idx/status/<status>/<aggregate> stores indexed status timestamps
+//   - state/idx/status/<status>/<type>.<time>/<key> stores indexed status
+//     timestamps, ordered by type and then status time
 //   - state/idx/tag/<tag>/<aggregate> stores tag membership
 //
 // Variable key parts are base64url encoded so iteration remains
@@ -62,10 +64,27 @@ func statusIndexPrefix(status string) []byte {
 	return []byte(statusRootPrefix + encodeKeyPart(status) + "/")
 }
 
-func statusIndexKey(status, encodedID string) []byte {
+// statusIndexKey orders entries by type, then status time, so a query bounded
+// by both stops at the bound
+func statusIndexKey(status, encodedID string, at int64) []byte {
+	typ, key, _ := strings.Cut(encodedID, ".")
 	return []byte(
-		statusRootPrefix + encodeKeyPart(status) + "/" + encodedID,
+		string(statusIndexPrefix(status)) + typ + "." + statusTime(at) +
+			"/" + key,
 	)
+}
+
+// decodeStatusIndexID reads the aggregate from the part of a status key that
+// follows its status prefix
+func decodeStatusIndexID(rest string) (timebox.AggregateID, error) {
+	typ, rest, _ := strings.Cut(rest, ".")
+	_, key, _ := strings.Cut(rest, "/")
+	return decodeAggregateID(typ + "." + key)
+}
+
+// statusTime flips the sign bit so negative times sort before positive ones
+func statusTime(at int64) string {
+	return fmt.Sprintf("%016x", uint64(at)^(1<<63))
 }
 
 func tagIndexPrefix(tag string) []byte {
