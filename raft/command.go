@@ -30,6 +30,7 @@ type (
 		BaseSequence     int64
 		SnapshotSequence int64
 		StatusAt         int64
+		Deleted          bool
 	}
 
 	// ApplyResult reports the local outcome of one applied Raft command
@@ -289,6 +290,7 @@ func marshalMeta(meta *AggregateMeta) []byte {
 	buf = bin.AppendString(buf, meta.Status)
 	buf = bin.AppendInt64(buf, meta.StatusAt)
 	buf = appendBoolMap(buf, meta.Tags)
+	buf = bin.AppendBool(buf, meta.Deleted)
 	return buf
 }
 
@@ -313,7 +315,11 @@ func unmarshalMeta(data []byte) (*AggregateMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	tags, _, err := readBoolMap(data)
+	tags, data, err := readBoolMap(data)
+	if err != nil {
+		return nil, err
+	}
+	deleted, _, err := bin.ReadBool(data)
 	if err != nil {
 		return nil, err
 	}
@@ -324,6 +330,7 @@ func unmarshalMeta(data []byte) (*AggregateMeta, error) {
 		Status:           status,
 		StatusAt:         statusAt,
 		Tags:             tags,
+		Deleted:          deleted,
 	}, nil
 }
 

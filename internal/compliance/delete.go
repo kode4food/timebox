@@ -51,7 +51,7 @@ func runDelete(t *testing.T, p Profile) {
 
 		snap, err := store.GetSnapshot[map[string]int](id)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(0), snap.NextSequence)
+		assert.Equal(t, int64(2), snap.NextSequence)
 		assert.Empty(t, snap.State)
 
 		archived, err := backend.LoadEvents(timebox.LoadEventsRequest{
@@ -60,11 +60,70 @@ func runDelete(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Empty(t, archived.Events)
 
-		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
+		assert.NoError(t, store.AppendEvents(id, 2, []*timebox.Event{ev}))
 		evs, err = store.GetEvents(id, 0)
 		assert.NoError(t, err)
 		if assert.Len(t, evs, 1) {
-			assert.Equal(t, int64(0), evs[0].Sequence)
+			assert.Equal(t, int64(2), evs[0].Sequence)
+		}
+
+		ids, err = store.ListAggregates("order")
+		assert.NoError(t, err)
+		assert.Equal(t, []timebox.AggregateID{id}, ids)
+	})
+
+	t.Run("Fence", func(t *testing.T) {
+		for _, trim := range []bool{false, true} {
+			name := "Untrimmed"
+			if trim {
+				name = "Trimmed"
+			}
+			t.Run(name, func(t *testing.T) {
+				backend, store := openBackend(t, p, timebox.Config{
+					TrimEvents: trim,
+				}, nil)
+				id := timebox.NewAggregateID("order", "delete-fence")
+				ev := testEvent(t,
+					time.Unix(1_700_000_034, 0).UTC(),
+					"event.test", 1, nil, nil,
+				)
+				assert.NoError(t,
+					store.AppendEvents(id, 0, []*timebox.Event{ev, ev}),
+				)
+				assert.NoError(t,
+					store.PutSnapshot(id, map[string]int{"value": 1}, 1),
+				)
+				assert.NoError(t, backend.Append(timebox.AppendRequest{
+					ID:               id,
+					ExpectedSequence: 2,
+					Events:           []*timebox.Event{ev},
+					Delete:           true,
+				}))
+
+				for _, seq := range []int64{0, 2} {
+					err := store.AppendEvents(id, seq, []*timebox.Event{ev})
+					var conflict *timebox.VersionConflictError
+					if assert.ErrorAs(t, err, &conflict) {
+						assert.Equal(t, int64(3), conflict.ActualSequence)
+					}
+				}
+				assert.NoError(t,
+					store.PutSnapshot(id, map[string]int{"value": 1}, 2),
+				)
+				snap, err := store.GetSnapshot[map[string]int](id)
+				assert.NoError(t, err)
+				assert.Equal(t, int64(3), snap.NextSequence)
+				assert.Empty(t, snap.State)
+
+				assert.NoError(t,
+					store.AppendEvents(id, 3, []*timebox.Event{ev}),
+				)
+				evs, err := store.GetEvents(id, 0)
+				assert.NoError(t, err)
+				if assert.Len(t, evs, 1) {
+					assert.Equal(t, int64(3), evs[0].Sequence)
+				}
+			})
 		}
 	})
 

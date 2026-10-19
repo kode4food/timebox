@@ -34,6 +34,7 @@ type (
 		status   string
 		statusAt time.Time
 		tags     map[string]bool
+		deleted  bool
 	}
 
 	// Config configures a memory Backend
@@ -173,8 +174,8 @@ func (b *Backend) ListAggregates(
 	}
 
 	var res []timebox.AggregateID
-	for id := range b.aggs {
-		if typ == "" || id.Type == typ {
+	for id, a := range b.aggs {
+		if !a.deleted && (typ == "" || id.Type == typ) {
 			res = append(res, id)
 		}
 	}
@@ -336,10 +337,19 @@ func (b *Backend) checkSequence(req timebox.AppendRequest) error {
 
 func (b *Backend) applyAppend(req timebox.AppendRequest) {
 	if req.Delete {
-		delete(b.aggs, req.ID)
+		seq := req.ExpectedSequence + int64(len(req.Events))
+		b.aggs[req.ID] = &aggregate{
+			id:          req.ID,
+			baseSeq:     seq,
+			events:      []*timebox.Event{},
+			snapshotSeq: seq,
+			tags:        map[string]bool{},
+			deleted:     true,
+		}
 		return
 	}
 	a := b.aggregate(req.ID)
+	a.deleted = a.deleted && !check.Mutates(req)
 	a.events = append(a.events, req.Events...)
 	if req.Status != nil {
 		a.status = *req.Status

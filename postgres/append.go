@@ -48,8 +48,7 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 		if !req.Delete {
 			continue
 		}
-		key, _ := aggregateKey(req.ID)
-		if err := b.deleteAggregateTx(ctx, tx, key); err != nil {
+		if err := b.markDeletedTx(ctx, tx, req); err != nil {
 			return err
 		}
 	}
@@ -149,6 +148,20 @@ func (b *Backend) versionConflict(
 		ActualSequence:   actual,
 		NewEvents:        evs,
 	}
+}
+
+// markDeletedTx clears an aggregate's records, keeping its sequence
+func (b *Backend) markDeletedTx(
+	ctx context.Context, tx pgx.Tx, req timebox.AppendRequest,
+) error {
+	key, _ := aggregateKey(req.ID)
+	seq := req.ExpectedSequence + int64(len(req.Events))
+	batch := &pgx.Batch{}
+	batch.Queue(sqlDeleteEvents, key)
+	batch.Queue(sqlDeleteTags, key)
+	batch.Queue(sqlMarkDeleted, key)
+	batch.Queue(sqlPutSnapshot, key, seq, seq, []byte{})
+	return tx.SendBatch(ctx, batch).Close()
 }
 
 // appendCall builds the query and arguments one request needs

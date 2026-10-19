@@ -6,6 +6,7 @@ import (
 
 	"github.com/kode4food/timebox"
 	bin "github.com/kode4food/timebox/internal/binary"
+	"github.com/kode4food/timebox/internal/check"
 )
 
 type (
@@ -119,8 +120,19 @@ func (f *fsm) writeAppendTx(
 ) error {
 	encodedID := encodeAggregateID(req.ID)
 	if req.Delete {
-		return deleteAggregateTx(b, encodedID, meta)
+		if err := deleteAggregateTx(b, encodedID, meta); err != nil {
+			return err
+		}
+		seq := meta.CurrentSequence + int64(len(req.Events))
+		return b.Put(AggregateMetaKey(encodedID), marshalMeta(&AggregateMeta{
+			Tags:             map[string]bool{},
+			CurrentSequence:  seq,
+			BaseSequence:     seq,
+			SnapshotSequence: seq,
+			Deleted:          true,
+		}))
 	}
+	meta.Deleted = meta.Deleted && !check.Mutates(*req)
 	if err := writeEventsTx(
 		b, aggregateEventPrefix(encodedID), req.Events,
 	); err != nil {

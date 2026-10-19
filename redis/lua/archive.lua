@@ -8,7 +8,8 @@
 -- KEYS[5] = id tag state key
 -- KEYS[6] = tag root key
 -- KEYS[7] = archive queue events key
--- KEYS[8] = archive queue snapshot sequence key
+-- KEYS[8] = archive queue base sequence key
+-- KEYS[9] = id base sequence key
 -- ARGV[1] = id aggregate id string, for status and tag lookups
 -- ARGV[2] = id aggregate id type
 -- ARGV[3] = id aggregate id key
@@ -51,8 +52,8 @@ local message = {
 	data = record,
 }
 
-local offset = tonumber(redis.call('GET', KEYS[8]) or "0")
-local seq = offset + redis.call('LLEN', KEYS[7])
+local base = tonumber(redis.call('GET', KEYS[8]) or "0")
+local seq = base + redis.call('LLEN', KEYS[7])
 local ev = {
 	timestamp = ARGV[4],
 	type = "_tb.queue.added",
@@ -71,5 +72,5 @@ for i = 1, #tags do
 	local memberKey = KEYS[6] .. ":" .. tag
 	redis.call('SREM', memberKey, ARGV[1])
 end
-redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[5])
+redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[5], KEYS[9])
 return {1}

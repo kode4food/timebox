@@ -58,8 +58,7 @@ type (
 	}
 
 	// AppendRequest contains primitive inputs required for an atomic append.
-	// Delete removes the aggregate's events, snapshot, status, and tags instead
-	// of storing the request's events, only if ExpectedSequence matches
+	// Delete clears the aggregate's records but keeps its sequence
 	AppendRequest struct {
 		StatusAt         time.Time
 		Status           *string
@@ -67,15 +66,13 @@ type (
 		ID               AggregateID
 		Events           []*Event
 		ExpectedSequence int64
-		TrimEvents       bool
 		Delete           bool
 	}
 
 	// LoadEventsRequest contains primitive inputs required for an event load
 	LoadEventsRequest struct {
-		ID         AggregateID
-		FromSeq    int64
-		TrimEvents bool
+		ID      AggregateID
+		FromSeq int64
 	}
 
 	// EventsResult contains raw persisted events and the sequence to assign to
@@ -88,8 +85,7 @@ type (
 	// LoadSnapshotRequest contains primitive inputs required for a snapshot
 	// load
 	LoadSnapshotRequest struct {
-		ID         AggregateID
-		TrimEvents bool
+		ID AggregateID
 	}
 
 	// SnapshotRecord contains raw snapshot data and any raw trailing events

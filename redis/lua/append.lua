@@ -12,10 +12,10 @@ for i = 1, reqCount do
 	r.aggID = ARGV[ai]; ai = ai + 1
 	r.status = flags % 2 == 1
 	r.tags = math.floor(flags / 2) % 2 == 1
-	local trim = math.floor(flags / 4) % 2 == 1
-	local delete = math.floor(flags / 8) % 2 == 1
+	local delete = math.floor(flags / 4) % 2 == 1
 
 	r.eventsKey = ki; ki = ki + 1
+	r.baseKey = ki; ki = ki + 1
 	if r.status then
 		r.statusKey = ki; ki = ki + 1
 		r.newStatus = ARGV[ai]; ai = ai + 1
@@ -29,19 +29,15 @@ for i = 1, reqCount do
 	end
 	r.firstEvent = ai; ai = ai + r.count
 
-	r.offset = 0
-	if trim then
-		r.offset = tonumber(redis.call('GET', KEYS[ki]) or "0")
-		ki = ki + 1
-	end
 	if delete then
 		-- status hash, tag state, tag root, snapshot value, snapshot sequence
 		r.deleteKey = ki; ki = ki + 5
 	end
 
-	local seq = r.offset + redis.call('LLEN', KEYS[r.eventsKey])
+	local base = tonumber(redis.call('GET', KEYS[r.baseKey]) or "0")
+	local seq = base + redis.call('LLEN', KEYS[r.eventsKey])
 	if r.atSeq ~= seq then
-		local from = r.atSeq - r.offset
+		local from = r.atSeq - base
 		if r.atSeq < seq and from >= 0 then
 			local evs = redis.call(
 				'LRANGE', KEYS[r.eventsKey], from, -1
@@ -117,9 +113,10 @@ for i = 1, reqCount do
 		for j = 1, #tags do
 			redis.call('SREM', KEYS[k + 2] .. ":" .. tags[j], r.aggID)
 		end
-		redis.call(
-			'DEL', KEYS[r.eventsKey], KEYS[k + 1], KEYS[k + 3], KEYS[k + 4]
-		)
+		local seq = r.atSeq + r.count
+		redis.call('DEL', KEYS[r.eventsKey], KEYS[k + 1], KEYS[k + 3])
+		redis.call('SET', KEYS[k + 4], seq)
+		redis.call('SET', KEYS[r.baseKey], seq)
 	end
 end
 

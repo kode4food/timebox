@@ -28,8 +28,7 @@ func runArchive(t *testing.T, p Profile) {
 		assert.Equal(t, first, consumeArchiveID(t, store))
 
 		evs, err := backend.LoadEvents(timebox.LoadEventsRequest{
-			ID:         timebox.ArchiveQueueID,
-			TrimEvents: true,
+			ID: timebox.ArchiveQueueID,
 		})
 		assert.NoError(t, err)
 		if assert.Len(t, evs.Events, 1) {

@@ -18,11 +18,12 @@ func (b *Backend) Archive(id timebox.AggregateID) error {
 	tagStateKey := b.buildTagStateKey(id)
 	tagRootKey := b.buildTagRootKey()
 	archiveEventsKey := b.buildKey(timebox.ArchiveQueueID, eventsSuffix)
-	archiveSeqKey := b.buildKey(timebox.ArchiveQueueID, snapshotSeqSuffix)
+	archiveBaseKey := b.buildKey(timebox.ArchiveQueueID, baseSuffix)
+	baseKey := b.buildKey(id, baseSuffix)
 
 	keys := []string{
 		snapKey, snapSeqKey, eventsKey, statusKey, tagStateKey, tagRootKey,
-		archiveEventsKey, archiveSeqKey,
+		archiveEventsKey, archiveBaseKey, baseKey,
 	}
 	args := []any{
 		joinAggregateID(id),

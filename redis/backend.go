@@ -22,9 +22,9 @@ type Backend struct {
 	client       *redis.Client
 	prefix       string
 	appendScript *redis.Script
-	getEvents    map[bool]*redis.Script
-	putSnapshot  map[bool]*redis.Script
-	getSnapshot  map[bool]*redis.Script
+	getEvents    *redis.Script
+	putSnapshot  *redis.Script
+	getSnapshot  *redis.Script
 	archive      *redis.Script
 }
 
@@ -32,6 +32,7 @@ const (
 	connectTimeout = 5 * time.Second
 
 	eventsSuffix = "events"
+	baseSuffix   = "base"
 
 	idxPrefix    = "idx"
 	statusSuffix = idxPrefix + ":status"
@@ -86,19 +87,10 @@ func newBackend(cfg Config) (*Backend, error) {
 		client:       client,
 		prefix:       buildStorePrefix(cfg),
 		appendScript: redis.NewScript(luaAppend),
-		getEvents: map[bool]*redis.Script{
-			false: redis.NewScript(luaGetEvents),
-			true:  redis.NewScript(luaGetEventsTrim),
-		},
-		putSnapshot: map[bool]*redis.Script{
-			false: redis.NewScript(luaPutSnapshot),
-			true:  redis.NewScript(luaPutSnapshotTrim),
-		},
-		getSnapshot: map[bool]*redis.Script{
-			false: redis.NewScript(luaGetSnapshot),
-			true:  redis.NewScript(luaGetSnapshotTrim),
-		},
-		archive: redis.NewScript(luaArchive),
+		getEvents:    redis.NewScript(luaGetEvents),
+		putSnapshot:  redis.NewScript(luaPutSnapshot),
+		getSnapshot:  redis.NewScript(luaGetSnapshot),
+		archive:      redis.NewScript(luaArchive),
 	}, nil
 }
 
@@ -130,7 +122,6 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 			statusAt: req.StatusAt,
 			tags:     req.Tags,
 			events:   evs,
-			trim:     req.TrimEvents,
 			delete:   req.Delete,
 		})
 	}
@@ -152,52 +143,37 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 func (b *Backend) LoadEvents(
 	req timebox.LoadEventsRequest,
 ) (*timebox.EventsResult, error) {
-	trimEvents := req.TrimEvents
-	eventsKey := b.buildKey(req.ID, eventsSuffix)
-	keys := []string{eventsKey}
-	if trimEvents {
-		keys = append(keys, b.buildKey(req.ID, snapshotSeqSuffix))
+	keys := []string{
+		b.buildKey(req.ID, eventsSuffix), b.buildKey(req.ID, baseSuffix),
 	}
-	args := []any{req.FromSeq}
 
-	result, err := b.getEvents[trimEvents].Run(
-		context.Background(), b.client, keys, args...,
+	result, err := b.getEvents.Run(
+		context.Background(), b.client, keys, req.FromSeq,
 	).Result()
 	if err != nil {
 		return nil, err
 	}
 
-	if trimEvents {
-		res := result.([]any)
-		if len(res) < 2 {
-			return nil, errors.Join(
-				timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-			)
-		}
-
-		offset, ok := res[0].(int64)
-		if !ok {
-			return nil, errors.Join(
-				timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-			)
-		}
-
-		evs, err := decodeEvents(res[1].([]any))
-		if err != nil {
-			return nil, err
-		}
-		return &timebox.EventsResult{
-			StartSequence: max(req.FromSeq, offset),
-			Events:        evs,
-		}, nil
+	res, ok := result.([]any)
+	if !ok || len(res) < 2 {
+		return nil, errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
 	}
 
-	evs, err := decodeEvents(result.([]any))
+	base, ok := res[0].(int64)
+	if !ok {
+		return nil, errors.Join(
+			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
+		)
+	}
+
+	evs, err := decodeEvents(res[1].([]any))
 	if err != nil {
 		return nil, err
 	}
 	return &timebox.EventsResult{
-		StartSequence: req.FromSeq,
+		StartSequence: max(req.FromSeq, base),
 		Events:        evs,
 	}, nil
 }
@@ -209,9 +185,10 @@ func (b *Backend) LoadSnapshot(
 	snapKey := b.buildKey(req.ID, snapshotValSuffix)
 	snapSeqKey := b.buildKey(req.ID, snapshotSeqSuffix)
 	eventsKey := b.buildKey(req.ID, eventsSuffix)
-	keys := []string{snapKey, snapSeqKey, eventsKey}
+	baseKey := b.buildKey(req.ID, baseSuffix)
+	keys := []string{snapKey, snapSeqKey, eventsKey, baseKey}
 
-	result, err := b.getSnapshot[req.TrimEvents].Run(
+	result, err := b.getSnapshot.Run(
 		context.Background(), b.client, keys,
 	).Result()
 	if err != nil {
@@ -253,16 +230,20 @@ func (b *Backend) LoadSnapshot(
 
 // SaveSnapshot saves a snapshot if the provided sequence is not older
 func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
-	trimEvents := req.TrimEvents
-	snapKey := b.buildKey(req.ID, snapshotValSuffix)
-	snapSeqKey := b.buildKey(req.ID, snapshotSeqSuffix)
-	keys := []string{snapKey, snapSeqKey}
-	if trimEvents {
-		keys = []string{snapKey, snapSeqKey, b.buildKey(req.ID, eventsSuffix)}
+	keys := []string{
+		b.buildKey(req.ID, snapshotValSuffix),
+		b.buildKey(req.ID, snapshotSeqSuffix),
+		b.buildKey(req.ID, eventsSuffix),
+		b.buildKey(req.ID, baseSuffix),
+	}
+	trim := "0"
+	if req.TrimEvents {
+		trim = "1"
 	}
 
-	_, err := b.putSnapshot[trimEvents].Run(
-		context.Background(), b.client, keys, string(req.Data), req.Sequence,
+	_, err := b.putSnapshot.Run(
+		context.Background(), b.client, keys,
+		string(req.Data), req.Sequence, trim,
 	).Result()
 	return err
 }
@@ -274,7 +255,7 @@ func (b *Backend) ListAggregates(
 ) ([]timebox.AggregateID, error) {
 	searchKeys := []string{
 		b.listAggregateKey(eventsSuffix),
-		b.listAggregateKey(snapshotSeqSuffix),
+		b.listAggregateKey(snapshotValSuffix),
 	}
 
 	seen := map[timebox.AggregateID]struct{}{}

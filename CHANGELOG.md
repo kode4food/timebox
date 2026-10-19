@@ -10,13 +10,13 @@ Notable changes to Timebox.
 
 ### Persistence
 
-- `AppendRequest.Delete` removes an aggregate's events, snapshot, status, and tags atomically with the rest of the append, only if its expected sequence matches
-- Raft status queries with `Type` and `Through` stop at `Through`
+- `AppendRequest.Delete` removes an aggregate's events, snapshot, status, and tags atomically with the rest of the append, only if its expected sequence matches. The aggregate keeps its sequence, so sequences are never reused
 
 ### Scheduling
 
+- Scheduling the same deadline and message again is a no-op that raises no event
+- `ConsumeSchedule(key, through)` removes and returns the schedule if it is due by `through`
 - Consumed schedules delete their aggregate in the same commit
-- Schedule versions derive from the scheduling time, so a key scheduled again after a delete never reuses an earlier version
 - The runner applies local commits directly and rescans only per `RescanInterval` or on `Wake`
 
 ### Queues
@@ -31,6 +31,8 @@ Notable changes to Timebox.
 ### Removed
 
 - `Transaction.CancelSchedule` and `CancelSchedulePrefix`. Every schedule is delivered, and its processor decides whether the message still applies
+- `Schedule.Version`, `ScheduleVersion`, and `ScheduleVersionConflictError`
+- `TrimEvents` on `AppendRequest`, `LoadEventsRequest`, and `LoadSnapshotRequest`. `SnapshotRequest.TrimEvents` remains
 
 ## 0.3
 

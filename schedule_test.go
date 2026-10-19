@@ -14,6 +14,11 @@ import (
 )
 
 type (
+	scheduleBackend struct {
+		timebox.Backend
+		requests []timebox.AppendRequest
+	}
+
 	counter struct {
 		Value int
 	}
@@ -41,6 +46,12 @@ var (
 	errStop = errors.New("stop")
 )
 
+// Append records the latest request batch before appending it
+func (s *scheduleBackend) Append(reqs ...timebox.AppendRequest) error {
+	s.requests = reqs
+	return s.Backend.Append(reqs...)
+}
+
 func TestSchedule(t *testing.T) {
 	store, exec := newStore(t)
 	target := timebox.NewAggregateID("counter", "one")
@@ -56,7 +67,6 @@ func TestSchedule(t *testing.T) {
 	assert.NoError(t, err)
 
 	schedule := loadSchedule(t, store, "counter/one/expire")
-	assert.Positive(t, schedule.Version)
 	assert.Equal(t, at, schedule.At)
 	assert.Equal(t, target, schedule.Message.AggregateID)
 
@@ -65,38 +75,32 @@ func TestSchedule(t *testing.T) {
 	assert.Equal(t, payload{Name: "first"}, got)
 }
 
-func TestScheduleABA(t *testing.T) {
-	store, _ := newStore(t)
-	first := newMessage(t, "first")
-	second := newMessage(t, "second")
-
-	err := store.Transact(func(tx *timebox.Transaction) error {
-		return tx.Schedule("replace", time.Now(), first)
-	})
+func TestScheduleNoop(t *testing.T) {
+	backend := &scheduleBackend{Backend: memory.Open()}
+	t.Cleanup(func() { assert.NoError(t, backend.Close()) })
+	store, err := timebox.NewStore(backend)
 	assert.NoError(t, err)
-	old := loadSchedule(t, store, "replace")
+	at := time.Now().Add(time.Hour)
+	msg := newMessage(t, "same")
+	assert.NoError(t, store.Transact(func(tx *timebox.Transaction) error {
+		if err := tx.Schedule("same", at, msg); err != nil {
+			return err
+		}
+		return tx.Schedule("same", at, msg)
+	}))
+	if assert.Len(t, backend.requests, 1) {
+		assert.Len(t, backend.requests[0].Events, 1)
+	}
+	first := loadSchedule(t, store, "same")
 
-	err = store.Transact(func(tx *timebox.Transaction) error {
-		return tx.ConsumeSchedule(old.Key, old.Version)
-	})
-	assert.NoError(t, err)
-	err = store.Transact(func(tx *timebox.Transaction) error {
-		return tx.Schedule("replace", time.Now(), second)
-	})
-	assert.NoError(t, err)
-
-	current := loadSchedule(t, store, "replace")
-	assert.Greater(t, current.Version, old.Version)
-
-	err = store.Transact(func(tx *timebox.Transaction) error {
-		return tx.ConsumeSchedule(old.Key, old.Version)
-	})
-	var conflict *timebox.ScheduleVersionConflictError
-	assert.ErrorAs(t, err, &conflict)
-	assert.Equal(t, old.Version, conflict.ExpectedVersion)
-
-	remaining := loadSchedule(t, store, "replace")
-	assert.Equal(t, current, remaining)
+	assert.NoError(t, store.Transact(func(tx *timebox.Transaction) error {
+		return tx.Schedule("same", at.UTC(), newMessage(t, "same"))
+	}))
+	if assert.Len(t, backend.requests, 1) {
+		assert.Empty(t, backend.requests[0].Events)
+		assert.Nil(t, backend.requests[0].Status)
+	}
+	assert.Equal(t, first, loadSchedule(t, store, "same"))
 }
 
 func TestScheduleCompose(t *testing.T) {
@@ -117,27 +121,33 @@ func TestScheduleCompose(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, payload{Name: "second"}, got)
 
+	later := time.Now().UTC().Add(2 * time.Hour)
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
-			if err := tx.ConsumeSchedule(
-				schedule.Key, schedule.Version,
-			); err != nil {
+			_, err := tx.ConsumeSchedule(schedule.Key, schedule.At)
+			if err != nil {
 				return err
 			}
-			return tx.Schedule("compose", time.Now().Add(time.Hour), first)
+			return tx.Schedule("compose", later, first)
 		}),
 	)
-	replaced := loadSchedule(t, store, "compose")
-	assert.Greater(t, replaced.Version, schedule.Version)
+	assert.Equal(t, later, loadSchedule(t, store, "compose").At)
 
+	var consumed *timebox.Schedule
 	err = store.Transact(func(tx *timebox.Transaction) error {
 		if err := tx.Schedule("compose", time.Now(), second); err != nil {
 			return err
 		}
-		return tx.ConsumeSchedule("compose", replaced.Version)
+		consumed, err = tx.ConsumeSchedule("compose", time.Now())
+		return err
 	})
-	var conflict *timebox.ScheduleVersionConflictError
-	assert.ErrorAs(t, err, &conflict)
+	assert.NoError(t, err)
+	if assert.NotNil(t, consumed) {
+		assert.Equal(t, second, consumed.Message)
+	}
+	remaining, err := store.LoadSchedule("compose")
+	assert.NoError(t, err)
+	assert.Nil(t, remaining)
 }
 
 func TestScheduleRefresh(t *testing.T) {
@@ -167,7 +177,7 @@ func TestScheduleRefresh(t *testing.T) {
 		}),
 	)
 	updated := loadSchedule(t, second, "remote")
-	assert.Greater(t, updated.Version, original.Version)
+	assert.True(t, updated.At.After(original.At))
 }
 
 func TestScheduleConsume(t *testing.T) {
@@ -182,12 +192,11 @@ func TestScheduleConsume(t *testing.T) {
 	schedule := loadSchedule(t, store, "consume")
 
 	err = store.Transact(func(tx *timebox.Transaction) error {
-		if err := tx.ConsumeSchedule(
-			schedule.Key, schedule.Version,
-		); err != nil {
+		_, err := tx.ConsumeSchedule(schedule.Key, schedule.At)
+		if err != nil {
 			return err
 		}
-		_, err := tx.Exec(exec, target, changeCounter(2))
+		_, err = tx.Exec(exec, target, changeCounter(2))
 		return err
 	})
 	assert.NoError(t, err)
@@ -210,9 +219,8 @@ func TestScheduleConsumeNoSnapshot(t *testing.T) {
 
 	errAbort := errors.New("abort")
 	err := store.Transact(func(tx *timebox.Transaction) error {
-		if err := tx.ConsumeSchedule(
-			schedule.Key, schedule.Version,
-		); err != nil {
+		_, err := tx.ConsumeSchedule(schedule.Key, schedule.At)
+		if err != nil {
 			return err
 		}
 		return errAbort
@@ -308,11 +316,10 @@ func TestScheduleRecovery(t *testing.T) {
 func TestScheduleJSON(t *testing.T) {
 	data := []byte(`{"Message":{"type":"schedule.test",` +
 		`"aggregate_id":["target","one"],"data":{"name":"one"}},` +
-		`"Key":"one","Version":2}`)
+		`"Key":"one"}`)
 	var schedule timebox.Schedule
 	assert.NoError(t, json.Unmarshal(data, &schedule))
 	assert.Equal(t, timebox.ScheduleKey("one"), schedule.Key)
-	assert.Equal(t, timebox.ScheduleVersion(2), schedule.Version)
 	assert.Equal(t, timebox.EventType("schedule.test"),
 		schedule.Message.Type)
 
@@ -385,12 +392,11 @@ func TestScheduleConcurrent(t *testing.T) {
 					ready.Done()
 					<-start
 				}
-				if err := tx.ConsumeSchedule(
-					schedule.Key, schedule.Version,
-				); err != nil {
+				consumed, err := tx.ConsumeSchedule(schedule.Key, schedule.At)
+				if err != nil || consumed == nil {
 					return err
 				}
-				_, err := tx.Exec(exec, target, changeCounter(1))
+				_, err = tx.Exec(exec, target, changeCounter(1))
 				return err
 			})
 		}()
@@ -398,21 +404,12 @@ func TestScheduleConcurrent(t *testing.T) {
 	ready.Wait()
 	close(start)
 
-	var succeeded, stale int
 	for range 2 {
-		err := <-errs
-		var conflict *timebox.ScheduleVersionConflictError
-		switch {
-		case err == nil:
-			succeeded++
-		case errors.As(err, &conflict):
-			stale++
-		default:
-			assert.NoError(t, err)
-		}
+		assert.NoError(t, <-errs)
 	}
-	assert.Equal(t, 1, succeeded)
-	assert.Equal(t, 1, stale)
+	remaining, err := store.LoadSchedule("concurrent")
+	assert.NoError(t, err)
+	assert.Nil(t, remaining)
 	st, err := exec.Get(target)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, st.Value)

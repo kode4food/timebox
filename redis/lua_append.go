@@ -14,14 +14,12 @@ type (
 		id       timebox.AggregateID
 		events   [][]byte
 		atSeq    int64
-		trim     bool
 		delete   bool
 	}
 
 	// luaAppendSpec records which projections a request needs, and so which
 	// of its keys and args the script should expect
 	luaAppendSpec struct {
-		trim   bool
 		status bool
 		tags   bool
 		delete bool
@@ -38,8 +36,7 @@ const (
 	// carries. Lua 5.1 has no bitwise operators, so the script divides
 	luaAppendStatus = 1
 	luaAppendTags   = 2
-	luaAppendTrim   = 4
-	luaAppendDelete = 8
+	luaAppendDelete = 4
 )
 
 // appendLuaCall adds one request's keys and args in the order the script's
@@ -49,7 +46,6 @@ func (b *Backend) appendLuaCall(
 ) ([]string, []any) {
 	ops := newLuaAppendOps(in.tags)
 	spec := luaAppendSpec{
-		trim:   in.trim,
 		status: in.status != nil,
 		tags:   len(ops) > 0,
 		delete: in.delete,
@@ -66,16 +62,13 @@ func (b *Backend) appendLuaCall(
 func (b *Backend) buildLuaAppendKeys(
 	id timebox.AggregateID, spec luaAppendSpec,
 ) []string {
-	keys := []string{b.buildKey(id, eventsSuffix)}
+	keys := []string{b.buildKey(id, eventsSuffix), b.buildKey(id, baseSuffix)}
 	if spec.status {
 		keys = append(keys, b.buildStatusHashKey())
 	}
 	if spec.tags {
 		keys = append(keys, b.buildTagStateKey(id))
 		keys = append(keys, b.buildTagRootKey())
-	}
-	if spec.trim {
-		keys = append(keys, b.buildKey(id, snapshotSeqSuffix))
 	}
 	if spec.delete {
 		keys = append(keys,
@@ -100,9 +93,6 @@ func buildLuaAppendArgs(
 	}
 	if spec.tags {
 		flags |= luaAppendTags
-	}
-	if spec.trim {
-		flags |= luaAppendTrim
 	}
 	if spec.delete {
 		flags |= luaAppendDelete

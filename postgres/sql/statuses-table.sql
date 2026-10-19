@@ -3,5 +3,6 @@ CREATE TABLE IF NOT EXISTS timebox_statuses (
 	aggregate_parts TEXT[] NOT NULL,
 	status TEXT NOT NULL DEFAULT '',
 	status_at BIGINT NOT NULL DEFAULT 0,
+	deleted BOOLEAN NOT NULL DEFAULT FALSE,
 	PRIMARY KEY (aggregate_key)
 )

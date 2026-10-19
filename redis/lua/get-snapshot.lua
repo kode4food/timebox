@@ -2,9 +2,15 @@
 -- KEYS[1] = snapshot key
 -- KEYS[2] = snapshot sequence key
 -- KEYS[3] = event list key
+-- KEYS[4] = base sequence key
 -- Returns: {snapshot_data, snapshot_seq, newEvents}
 
 local snapData = redis.call('GET', KEYS[1])
 local snapSeq = tonumber(redis.call('GET', KEYS[2]) or "0")
-local newEvents = redis.call('LRANGE', KEYS[3], snapSeq, -1)
+local base = tonumber(redis.call('GET', KEYS[4]) or "0")
+local startIndex = snapSeq - base
+if startIndex < 0 then
+	startIndex = 0
+end
+local newEvents = redis.call('LRANGE', KEYS[3], startIndex, -1)
 return {snapData or "", snapSeq, newEvents}

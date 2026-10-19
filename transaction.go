@@ -82,7 +82,7 @@ func (t *Transaction) Exec[T any](
 func (t *Transaction) execInternal[T any](
 	e *Executor[T], id AggregateID, cmd Command[T],
 ) (T, error) {
-	return t.exec(e, id, cmd, rawAppendRequest(e.trimEvents))
+	return t.exec(e, id, cmd, rawAppendRequest)
 }
 
 func (t *Transaction) exec[T any](

@@ -12,20 +12,10 @@ type (
 		Message *Message
 		At      time.Time
 		Key     ScheduleKey
-		Version ScheduleVersion
-	}
-
-	// ScheduleVersionConflictError indicates a stale schedule incarnation
-	ScheduleVersionConflictError struct {
-		Key             ScheduleKey
-		ExpectedVersion ScheduleVersion
 	}
 
 	// ScheduleKey identifies one replaceable deferred message
 	ScheduleKey string
-
-	// ScheduleVersion identifies one incarnation within a schedule aggregate
-	ScheduleVersion int64
 
 	scheduleState struct {
 		Active *Schedule `json:"active,omitempty"`
@@ -57,7 +47,8 @@ var scheduleAppliers = Appliers[scheduleState]{
 	scheduleConsumed: clearSchedule,
 }
 
-// Schedule creates or replaces a durable deferred message
+// Schedule creates or replaces a durable deferred message. Scheduling the same
+// deadline and message again is a no-op
 func (t *Transaction) Schedule(
 	key ScheduleKey, at time.Time, message *Message,
 ) error {
@@ -65,55 +56,51 @@ func (t *Transaction) Schedule(
 		return err
 	}
 	id := makeScheduleID(key)
+	changed := false
 	_, err := t.execInternal(t.store.schedule, id,
 		func(st scheduleState, ag *Aggregator[scheduleState]) error {
+			if matchesSchedule(st.Active, at, message) {
+				return nil
+			}
+			changed = true
 			return ag.Raise(scheduleChanged, &Schedule{
-				Message: cloneMessage(message),
+				Message: message,
 				At:      at.UTC(),
 				Key:     key,
-				Version: nextScheduleVersion(st.Active),
 			})
 		},
 	)
-	if err != nil {
+	if err != nil || !changed {
 		return err
 	}
 	t.setScheduleStatus(id, scheduleActiveStatus, at)
 	return nil
 }
 
-// ConsumeSchedule conditionally removes one observed schedule incarnation
+// ConsumeSchedule removes and returns the schedule for key if it is due by
+// through. It returns nil when nothing is due
 func (t *Transaction) ConsumeSchedule(
-	key ScheduleKey, version ScheduleVersion,
-) error {
+	key ScheduleKey, through time.Time,
+) (*Schedule, error) {
 	if key == "" {
-		return ErrScheduleKeyRequired
+		return nil, ErrScheduleKeyRequired
 	}
 	id := makeScheduleID(key)
-	// A deleted key restarts at sequence 0, so a stale cached copy could match
-	// a newer incarnation's sequence, and an executor load would snapshot
-	proj, _, err := t.store.schedule.readProjection(id)
-	if err != nil {
-		return err
-	}
-	t.store.schedule.invalidate(id)
-	t.store.schedule.updateCache(id, proj)
-	_, err = t.execInternal(t.store.schedule, id,
+	var res *Schedule
+	_, err := t.execInternal(t.store.schedule, id,
 		func(st scheduleState, ag *Aggregator[scheduleState]) error {
-			if st.Active == nil || st.Active.Version != version {
-				return &ScheduleVersionConflictError{
-					Key:             key,
-					ExpectedVersion: version,
-				}
+			if st.Active == nil || st.Active.At.After(through) {
+				return nil
 			}
-			return ag.Raise(scheduleConsumed, version)
+			res = st.Active
+			return ag.Raise(scheduleConsumed, Empty{})
 		},
 	)
-	if err != nil {
-		return err
+	if err != nil || res == nil {
+		return nil, err
 	}
 	t.parts[id].request.Delete = true
-	return nil
+	return res, nil
 }
 
 // ScheduleChanges reports coalesced local schedule commit notifications
@@ -141,7 +128,7 @@ func (s *Store) LoadSchedule(key ScheduleKey) (*Schedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cloneSchedule(proj.state.Active), nil
+	return proj.state.Active, nil
 }
 
 // ListSchedules lists active schedules through the provided time, or all
@@ -164,15 +151,9 @@ func (s *Store) ListSchedules(through time.Time) ([]*Schedule, error) {
 		if proj.state.Active == nil {
 			continue
 		}
-		res = append(res, cloneSchedule(proj.state.Active))
+		res = append(res, proj.state.Active)
 	}
 	return res, nil
-}
-
-// Error describes a stale schedule incarnation
-func (s *ScheduleVersionConflictError) Error() string {
-	return fmt.Sprintf("schedule version conflict for %q: expected %d",
-		s.Key, s.ExpectedVersion)
 }
 
 func (t *Transaction) setScheduleStatus(
@@ -191,23 +172,13 @@ func (s *Store) notifyScheduleChange(st scheduleState, evs []*Event) {
 	s.changedMu.Lock()
 	if s.changed != nil {
 		key := ScheduleKey(evs[0].AggregateID.Key)
-		s.changed[key] = cloneSchedule(st.Active)
+		s.changed[key] = st.Active
 	}
 	s.changedMu.Unlock()
 	select {
 	case s.changes <- struct{}{}:
 	default:
 	}
-}
-
-// nextScheduleVersion uses the clock so a deleted key scheduled again never
-// reuses a version
-func nextScheduleVersion(prev *Schedule) ScheduleVersion {
-	ver := ScheduleVersion(time.Now().UnixNano())
-	if prev != nil && ver <= prev.Version {
-		return prev.Version + 1
-	}
-	return ver
 }
 
 func newScheduleState() scheduleState {
@@ -219,7 +190,7 @@ func applyScheduleChanged(st scheduleState, ev *Event) scheduleState {
 	if err != nil {
 		return st
 	}
-	st.Active = cloneSchedule(schedule)
+	st.Active = schedule
 	return st
 }
 
@@ -248,25 +219,6 @@ func validateSchedule(key ScheduleKey, message *Message) error {
 	return nil
 }
 
-func cloneSchedule(schedule *Schedule) *Schedule {
-	if schedule == nil {
-		return nil
-	}
-	return &Schedule{
-		Message: cloneMessage(schedule.Message),
-		At:      schedule.At,
-		Key:     schedule.Key,
-		Version: schedule.Version,
-	}
-}
-
-func cloneMessage(message *Message) *Message {
-	if message == nil {
-		return nil
-	}
-	return &Message{
-		Type:        message.Type,
-		AggregateID: message.AggregateID,
-		Data:        append([]byte(nil), message.Data...),
-	}
+func matchesSchedule(s *Schedule, at time.Time, msg *Message) bool {
+	return s != nil && s.At.Equal(at) && s.Message.Equal(msg)
 }

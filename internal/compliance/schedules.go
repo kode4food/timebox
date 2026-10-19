@@ -20,6 +20,11 @@ type (
 		at  time.Time
 	}
 
+	scheduleChange struct {
+		name   string
+		change func(*timebox.Schedule)
+	}
+
 	scheduleState struct {
 		Value int
 	}
@@ -48,25 +53,96 @@ func runSchedules(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 
 		first := loadSchedule(t, store, "one")
-		assert.Positive(t, first.Version)
+		store.TakeScheduleChanges()
+		err = store.Transact(func(tx *timebox.Transaction) error {
+			return tx.Schedule("one", at.Local(), newScheduleMessage(t, "one"))
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, first, loadSchedule(t, store, "one"))
+		assert.Empty(t, store.TakeScheduleChanges())
 
 		err = store.Transact(func(tx *timebox.Transaction) error {
 			return tx.Schedule("one", at.Add(time.Hour), msg)
 		})
 		assert.NoError(t, err)
 		second := loadSchedule(t, store, "one")
-		assert.Greater(t, second.Version, first.Version)
+		assert.Equal(t, at.Add(time.Hour), second.At)
 
+		var consumed *timebox.Schedule
 		err = store.Transact(func(tx *timebox.Transaction) error {
-			return tx.ConsumeSchedule(second.Key, second.Version)
+			var err error
+			consumed, err = tx.ConsumeSchedule("one", second.At)
+			return err
 		})
 		assert.NoError(t, err)
-		consumed, err := store.LoadSchedule("one")
+		assert.Equal(t, second, consumed)
+		consumed, err = store.LoadSchedule("one")
 		assert.NoError(t, err)
 		assert.Nil(t, consumed)
 		ids, err := backend.ListAggregates("")
 		assert.NoError(t, err)
 		assert.Empty(t, ids)
+	})
+
+	t.Run("Replace", func(t *testing.T) {
+		for _, tc := range []scheduleChange{
+			{name: "Deadline", change: func(s *timebox.Schedule) {
+				s.At = s.At.Add(time.Hour)
+			}},
+			{name: "Type", change: func(s *timebox.Schedule) {
+				s.Message.Type = "other"
+			}},
+			{name: "TargetType", change: func(s *timebox.Schedule) {
+				s.Message.AggregateID.Type = "other"
+			}},
+			{name: "TargetKey", change: func(s *timebox.Schedule) {
+				s.Message.AggregateID.Key = "other"
+			}},
+			{name: "Data", change: func(s *timebox.Schedule) {
+				s.Message.Data = json.RawMessage(`{"Value":2}`)
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				store := openStore(t, p, timebox.Config{})
+				at := time.Now().UTC().Add(time.Hour)
+				msg := newScheduleMessage(t, "replace")
+				err := store.Transact(func(tx *timebox.Transaction) error {
+					return tx.Schedule("replace", at, msg)
+				})
+				assert.NoError(t, err)
+				first := loadSchedule(t, store, "replace")
+				tc.change(first)
+				err = store.Transact(func(tx *timebox.Transaction) error {
+					return tx.Schedule(first.Key, first.At, first.Message)
+				})
+				assert.NoError(t, err)
+				next := loadSchedule(t, store, "replace")
+				assert.Equal(t, first.At, next.At)
+				assert.Equal(t, first.Message, next.Message)
+			})
+		}
+	})
+
+	t.Run("Refresh", func(t *testing.T) {
+		backend, first := openBackend(t, p, timebox.Config{}, nil)
+		second, err := timebox.NewStore(backend)
+		assert.NoError(t, err)
+		at := time.Now().UTC().Add(time.Hour)
+		msg := newScheduleMessage(t, "refresh")
+		assert.NoError(t, first.Transact(func(tx *timebox.Transaction) error {
+			return tx.Schedule("refresh", at, msg)
+		}))
+		assert.NoError(t, second.Transact(func(tx *timebox.Transaction) error {
+			_, err := tx.ConsumeSchedule("refresh", at)
+			return err
+		}))
+		assert.NoError(t, second.Transact(func(tx *timebox.Transaction) error {
+			return tx.Schedule("refresh", at.Add(time.Hour), msg)
+		}))
+		assert.NoError(t, first.Transact(func(tx *timebox.Transaction) error {
+			return tx.Schedule("refresh", at, msg)
+		}))
+		assert.Equal(t, at, loadSchedule(t, first, "refresh").At)
 	})
 
 	t.Run("ConsumeReschedule", func(t *testing.T) {
@@ -75,14 +151,12 @@ func runSchedules(t *testing.T, p Profile) {
 		at := time.Now().UTC().Add(time.Hour)
 		assert.NoError(t,
 			store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule("repeat", time.Now(), msg)
+				return tx.Schedule("repeat", at, msg)
 			}),
 		)
-		first := loadSchedule(t, store, "repeat")
 		assert.NoError(t,
 			store.Transact(func(tx *timebox.Transaction) error {
-				err := tx.ConsumeSchedule(first.Key, first.Version)
-				if err != nil {
+				if _, err := tx.ConsumeSchedule("repeat", at); err != nil {
 					return err
 				}
 				return tx.Schedule("repeat", at, msg)
@@ -90,39 +164,54 @@ func runSchedules(t *testing.T, p Profile) {
 		)
 		next := loadSchedule(t, store, "repeat")
 		assert.Equal(t, at, next.At)
-		assert.Greater(t, next.Version, first.Version)
 
 		due, err := store.ListSchedules(at)
 		assert.NoError(t, err)
 		assert.Len(t, due, 1)
 	})
 
-	t.Run("ABA", func(t *testing.T) {
+	t.Run("NotDue", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
-		msg := newScheduleMessage(t, "aba")
+		at := time.Now().UTC().Add(time.Hour)
+		msg := newScheduleMessage(t, "later")
+		assert.NoError(t,
+			store.Transact(func(tx *timebox.Transaction) error {
+				return tx.Schedule("later", at, msg)
+			}),
+		)
+		var consumed *timebox.Schedule
+		assert.NoError(t,
+			store.Transact(func(tx *timebox.Transaction) error {
+				var err error
+				consumed, err = tx.ConsumeSchedule("later", time.Now())
+				return err
+			}),
+		)
+		assert.Nil(t, consumed)
+		assert.Equal(t, at, loadSchedule(t, store, "later").At)
+	})
 
-		assert.NoError(t,
-			store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule("aba", time.Now(), msg)
-			}),
-		)
-		old := loadSchedule(t, store, "aba")
-		assert.NoError(t,
-			store.Transact(func(tx *timebox.Transaction) error {
-				return tx.ConsumeSchedule(old.Key, old.Version)
-			}),
-		)
-		assert.NoError(t,
-			store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule("aba", time.Now(), msg)
-			}),
-		)
+	t.Run("Stale", func(t *testing.T) {
+		backend, first := openBackend(t, p, timebox.Config{}, nil)
+		second, err := timebox.NewStore(backend)
+		assert.NoError(t, err)
+		msg := newScheduleMessage(t, "stale")
+		at := time.Now().UTC()
+		assert.NoError(t, first.Transact(func(tx *timebox.Transaction) error {
+			return tx.Schedule("stale", at, msg)
+		}))
+		assert.NoError(t, second.Transact(func(tx *timebox.Transaction) error {
+			_, err := tx.ConsumeSchedule("stale", at)
+			return err
+		}))
 
-		err := store.Transact(func(tx *timebox.Transaction) error {
-			return tx.ConsumeSchedule(old.Key, old.Version)
-		})
-		var conflict *timebox.ScheduleVersionConflictError
-		assert.ErrorAs(t, err, &conflict)
+		var consumed *timebox.Schedule
+		assert.NoError(t, first.Transact(func(tx *timebox.Transaction) error {
+			var err error
+			consumed, err = tx.ConsumeSchedule("stale", at)
+			return err
+		}))
+		assert.Nil(t, consumed)
 	})
 
 	t.Run("Atomic", func(t *testing.T) {
@@ -143,12 +232,11 @@ func runSchedules(t *testing.T, p Profile) {
 
 		schedule := loadSchedule(t, store, "atomic")
 		err = store.Transact(func(tx *timebox.Transaction) error {
-			if err := tx.ConsumeSchedule(
-				schedule.Key, schedule.Version,
-			); err != nil {
+			_, err := tx.ConsumeSchedule(schedule.Key, schedule.At)
+			if err != nil {
 				return err
 			}
-			_, err := tx.Exec(exec, id, changeScheduleState(1))
+			_, err = tx.Exec(exec, id, changeScheduleState(1))
 			return err
 		})
 		assert.NoError(t, err)

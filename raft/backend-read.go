@@ -98,10 +98,18 @@ func (b *Backend) ListAggregates(
 		if typ != "" {
 			pfx = append(pfx, encodeAggregateType(typ)...)
 		}
-		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
+		for k, v := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
 			key := string(k)
 			if !strings.HasSuffix(key, metaSuffix) {
-				k, _ = c.Next()
+				k, v = c.Next()
+				continue
+			}
+			meta, err := unmarshalMeta(v)
+			if err != nil {
+				return err
+			}
+			if meta.Deleted {
+				k, v = c.Next()
 				continue
 			}
 			enc := strings.TrimPrefix(key, aggRootPrefix)
@@ -111,7 +119,7 @@ func (b *Backend) ListAggregates(
 				return err
 			}
 			ids = append(ids, nextID)
-			k, _ = c.Next()
+			k, v = c.Next()
 		}
 		return nil
 	})

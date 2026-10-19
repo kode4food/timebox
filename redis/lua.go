@@ -12,18 +12,9 @@ var (
 	//go:embed lua/get-events.lua
 	luaGetEvents string
 
-	//go:embed lua/get-events-trim.lua
-	luaGetEventsTrim string
-
 	//go:embed lua/get-snapshot.lua
 	luaGetSnapshot string
 
-	//go:embed lua/get-snapshot-trim.lua
-	luaGetSnapshotTrim string
-
 	//go:embed lua/put-snapshot.lua
 	luaPutSnapshot string
-
-	//go:embed lua/put-snapshot-trim.lua
-	luaPutSnapshotTrim string
 )

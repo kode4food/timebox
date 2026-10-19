@@ -27,7 +27,7 @@ err := store.Transact(func(tx *timebox.Transaction) error {
 })
 ```
 
-The message needs no data because its `AggregateID` identifies the order. Calling `tx.Schedule` again with the same key replaces its message and deadline. If payment completes first, the check still arrives, finds the order no longer pending, and does nothing. Each key is stored as its own small aggregate, and consuming a schedule removes that aggregate in the same commit, so delivered schedules leave nothing behind in the backend.
+The message needs no data because its `AggregateID` identifies the order. Calling `tx.Schedule` again with the same key replaces its message and deadline. Scheduling the same deadline and message again is a no-op. If payment completes first, the check still arrives, finds the order no longer pending, and does nothing. Each key is stored as its own small aggregate, and consuming a schedule removes that aggregate in the same commit, so a delivered schedule leaves only its sequence number behind in the backend.
 
 ## Deliver the Message
 

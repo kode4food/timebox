@@ -1,6 +1,7 @@
 package timebox
 
 import (
+	"bytes"
 	"encoding/json"
 	"sync"
 	"time"
@@ -44,6 +45,12 @@ func (m *Message) GetValue[T any]() (T, error) {
 	}
 	m.mu.RUnlock()
 	return m.resolveValue[T]()
+}
+
+// Equal reports whether two messages are equivalent
+func (m *Message) Equal(other *Message) bool {
+	return m.Type == other.Type && m.AggregateID == other.AggregateID &&
+		bytes.Equal(m.Data, other.Data)
 }
 
 func (m *Message) resolveValue[T any]() (T, error) {

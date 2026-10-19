@@ -156,10 +156,7 @@ func (e *Executor[T]) loadFromStore(
 func (e *Executor[T]) readProjection(
 	id AggregateID,
 ) (*projection[T], bool, error) {
-	rec, err := e.store.backend.LoadSnapshot(LoadSnapshotRequest{
-		ID:         id,
-		TrimEvents: e.trimEvents,
-	})
+	rec, err := e.store.backend.LoadSnapshot(LoadSnapshotRequest{ID: id})
 	if err != nil {
 		return nil, false, err
 	}

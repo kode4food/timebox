@@ -30,7 +30,7 @@ Rules:
 
 1. Give each concept one authoritative owner.
 2. Keep exported signatures in the language of the receiving public package.
-3. Preserve the core append contract in every backend: `Append` takes any number of `AppendRequest` values and applies all of them or none, with aggregate-local optimistic concurrency, atomic event-batch append, aligned derived index updates, and a `VersionConflictError` naming the first failing request's aggregate. A request with `Delete` set checks its expected sequence like any other, then removes the aggregate's events, snapshot, status, and tags in the same atomic step instead of storing its events.
+3. Preserve the core append contract in every backend: `Append` takes any number of `AppendRequest` values and applies all of them or none, with aggregate-local optimistic concurrency, atomic event-batch append, aligned derived index updates, and a `VersionConflictError` naming the first failing request's aggregate. A request with `Delete` set checks its expected sequence like any other, then removes the aggregate's events, snapshot, status, and tags in the same atomic step instead of storing its events. Its sequence still advances past those events and survives the delete, so sequences are never reused.
 4. Treat snapshots as accelerative state, never as the authoritative event source.
 5. Keep `AggregateID` a comparable type and key pair with both components always populated. A singleton aggregate takes `SingletonKey`. Queries over a whole type take an `ID` type rather than a partial `AggregateID`. Canonicalize IDs to strings only at storage and wire boundaries.
 6. Add interfaces only for real lifecycle or substitution seams.

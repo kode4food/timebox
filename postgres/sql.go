@@ -86,4 +86,7 @@ var (
 
 	//go:embed sql/delete-status.sql
 	sqlDeleteStatus string
+
+	//go:embed sql/mark-deleted.sql
+	sqlMarkDeleted string
 )

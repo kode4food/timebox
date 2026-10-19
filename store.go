@@ -100,9 +100,8 @@ func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 // GetEvents returns all events for an aggregate starting at fromSeq
 func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
 	res, err := s.backend.LoadEvents(LoadEventsRequest{
-		ID:         id,
-		FromSeq:    fromSeq,
-		TrimEvents: s.config.TrimEvents,
+		ID:      id,
+		FromSeq: fromSeq,
 	})
 	if err != nil {
 		return nil, err
@@ -117,10 +116,7 @@ func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
 func (s *Store) GetSnapshot[T any](
 	id AggregateID,
 ) (*SnapshotResult[T], error) {
-	rec, err := s.backend.LoadSnapshot(LoadSnapshotRequest{
-		ID:         id,
-		TrimEvents: s.config.TrimEvents,
-	})
+	rec, err := s.backend.LoadSnapshot(LoadSnapshotRequest{ID: id})
 	if err != nil {
 		return nil, err
 	}
@@ -194,20 +190,16 @@ func (s *Store) appendRequest(
 		StatusAt:         statusAt,
 		Tags:             tags,
 		Events:           evs,
-		TrimEvents:       s.config.TrimEvents,
 	}
 }
 
 // rawAppendRequest sequences a bookkeeping append without the configured
 // Indexer, which is never meant to see Timebox's own aggregates
-func rawAppendRequest(trimEvents bool) appendBuilder {
-	return func(id AggregateID, atSeq int64, evs []*Event) AppendRequest {
-		return AppendRequest{
-			ID:               id,
-			ExpectedSequence: atSeq,
-			Events:           sequenceEvents(id, atSeq, evs),
-			TrimEvents:       trimEvents,
-		}
+func rawAppendRequest(id AggregateID, atSeq int64, evs []*Event) AppendRequest {
+	return AppendRequest{
+		ID:               id,
+		ExpectedSequence: atSeq,
+		Events:           sequenceEvents(id, atSeq, evs),
 	}
 }
 

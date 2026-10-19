@@ -156,10 +156,6 @@ func (s *Scheduler) applyChanges() {
 			s.heap.Remove(key)
 			continue
 		}
-		item, ok := s.heap.byKey[key]
-		if ok && item.schedule.Version == schedule.Version {
-			continue
-		}
 		s.heap.Replace(schedule)
 	}
 }
@@ -174,7 +170,7 @@ func (s *Scheduler) reconcileSchedules() error {
 	for _, schedule := range schedules {
 		seen[schedule.Key] = struct{}{}
 		item, ok := s.heap.byKey[schedule.Key]
-		if ok && item.schedule.Version == schedule.Version {
+		if ok && item.schedule.At.Equal(schedule.At) {
 			continue
 		}
 		s.heap.Replace(schedule)
@@ -200,12 +196,13 @@ func (s *Scheduler) processDue(ctx context.Context) {
 			item = heap.Pop(s.heap).(*heapItem)
 
 			err := s.store.Transact(func(tx *timebox.Transaction) error {
-				if err := tx.ConsumeSchedule(
-					item.schedule.Key, item.schedule.Version,
-				); err != nil {
+				schedule, err := tx.ConsumeSchedule(
+					item.schedule.Key, s.clock(),
+				)
+				if err != nil || schedule == nil {
 					return err
 				}
-				return s.process(tx, item.schedule.Message)
+				return s.process(tx, schedule.Message)
 			})
 			if err != nil {
 				s.logError(ctx, item.schedule.Key, err)
@@ -225,7 +222,7 @@ func (s *Scheduler) refreshProcessed(ctx context.Context, item *heapItem) {
 	if schedule == nil {
 		return
 	}
-	if schedule.Version != item.schedule.Version {
+	if !schedule.At.Equal(item.schedule.At) {
 		s.heap.Replace(schedule)
 		return
 	}
@@ -240,9 +237,6 @@ func (s *Scheduler) retryItem(item *heapItem) {
 func (s *Scheduler) logError(
 	ctx context.Context, key timebox.ScheduleKey, err error,
 ) {
-	if _, ok := errors.AsType[*timebox.ScheduleVersionConflictError](err); ok {
-		return
-	}
 	if errors.Is(err, ErrRetry) {
 		return
 	}

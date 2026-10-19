@@ -72,6 +72,10 @@ BEGIN
 		COALESCE(p_event_data, ARRAY[]::BYTEA[])
 	) WITH ORDINALITY AS ev(event_at, event_type, data, ord);
 
+	UPDATE timebox_statuses
+	SET deleted = FALSE
+	WHERE aggregate_key = p_aggregate_key AND deleted;
+
 	IF p_status IS NOT NULL THEN
 		UPDATE timebox_statuses
 		SET status = p_status,
