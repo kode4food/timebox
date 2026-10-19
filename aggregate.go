@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type (
@@ -108,7 +107,7 @@ func (a *Aggregator[T]) Raise[V any](typ EventType, value V) error {
 	}
 
 	ev := &Event{
-		Timestamp:   time.Now(),
+		Timestamp:   a.tx.Now(),
 		Sequence:    a.nextSeq,
 		AggregateID: a.id,
 		Type:        typ,

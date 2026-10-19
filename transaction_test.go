@@ -3,6 +3,7 @@ package timebox_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -69,6 +70,51 @@ func TestTransactionRollsBackOnConflict(t *testing.T) {
 	// contended. Had it not rolled back, partner would hold two events
 	assertEventCount(t, store, partner, 1)
 	assertEventCount(t, store, contended, 2)
+}
+
+func TestTransactionClock(t *testing.T) {
+	base := time.Unix(1000, 0).UTC()
+	reads := 0
+	store, executor := setupTestExecutorWithConfig(t,
+		func(cfg *timebox.Config) {
+			cfg.Clock = func() time.Time {
+				reads++
+				return base.Add(time.Duration(reads) * time.Second)
+			}
+		},
+	)
+
+	contended := timebox.NewAggregateID("counter", "contended")
+	partner := timebox.NewAggregateID("counter", "partner")
+
+	var nows []time.Time
+	err := store.Transact(func(tx *timebox.Transaction) error {
+		nows = append(nows, tx.Now())
+		if _, err := tx.Exec(executor, partner, raiseCount(1)); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(executor, contended, raiseCount(1)); err != nil {
+			return err
+		}
+		if len(nows) == 1 {
+			if err := store.AppendEvents(contended, 0, []*timebox.Event{
+				{Type: EventIncremented, Data: []byte("9")},
+			}); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(executor, partner, raiseCount(1))
+		return err
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, []time.Time{
+		base.Add(time.Second), base.Add(2 * time.Second),
+	}, nows)
+
+	// each retry reads the clock once, and every event it raises shares that
+	for _, ev := range assertEventCount(t, store, partner, 2) {
+		assert.True(t, nows[1].Equal(ev.Timestamp))
+	}
 }
 
 func TestTransactionDiscardsOnError(t *testing.T) {

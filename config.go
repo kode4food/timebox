@@ -1,11 +1,15 @@
 package timebox
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 type (
 	// Config configures Store behavior
 	Config struct {
 		Indexer       Indexer
+		Clock         func() time.Time
 		SnapshotRatio float64
 		MaxRetries    int
 		CacheSize     int
@@ -77,6 +81,9 @@ func (cfg Config) With(other Config) Config {
 	}
 	if other.Indexer != nil {
 		cfg.Indexer = other.Indexer
+	}
+	if other.Clock != nil {
+		cfg.Clock = other.Clock
 	}
 	return cfg
 }

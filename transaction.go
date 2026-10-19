@@ -3,12 +3,14 @@ package timebox
 import (
 	"errors"
 	"maps"
+	"time"
 )
 
 type (
 	// Transaction collects the append intent of several Aggregators and
 	// commits it as a single atomic append. It is not safe for concurrent use
 	Transaction struct {
+		now   time.Time
 		store *Store
 		parts map[AggregateID]*participant
 	}
@@ -46,6 +48,7 @@ var (
 func (s *Store) Transact(fn func(*Transaction) error) error {
 	for range s.config.MaxRetries {
 		t := &Transaction{
+			now:   s.config.Clock(),
 			store: s,
 			parts: map[AggregateID]*participant{},
 		}
@@ -66,6 +69,12 @@ func (s *Store) Transact(fn func(*Transaction) error) error {
 		t.reset(confErr)
 	}
 	return ErrMaxRetriesExceeded
+}
+
+// Now returns the Store clock's time for this attempt, read once so every
+// event raised and every decision made within it share one instant
+func (t *Transaction) Now() time.Time {
+	return t.now
 }
 
 // Exec runs cmd against the aggregate and enlists the resulting events in the

@@ -48,6 +48,9 @@ func NewStore(b Backend, cfgs ...Config) (*Store, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	if cfg.Clock == nil {
+		cfg.Clock = time.Now
+	}
 	s := &Store{
 		Queries:   b,
 		backend:   b,
