@@ -27,6 +27,9 @@ var (
 	//go:embed sql/append-function.sql
 	sqlAppendFunction string
 
+	//go:embed sql/check-function.sql
+	sqlCheckFunction string
+
 	//go:embed sql/append.sql
 	sqlAppend string
 
@@ -36,8 +39,14 @@ var (
 	//go:embed sql/lock-keys.sql
 	sqlLockKeys string
 
+	//go:embed sql/share-key.sql
+	sqlShareKey string
+
 	//go:embed sql/check-sequence.sql
 	sqlCheckSequence string
+
+	//go:embed sql/check-sequences.sql
+	sqlCheckSequences string
 
 	//go:embed sql/insert-aggregate.sql
 	sqlInsertAggregate string

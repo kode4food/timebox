@@ -2,26 +2,24 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/kode4food/timebox"
 	"github.com/kode4food/timebox/internal/check"
 )
 
-type (
-	appendResult struct {
-		actualSeq int64
-		success   bool
-	}
+type encodedEvents struct {
+	ats   []int64
+	types []string
+	data  [][]byte
+}
 
-	encodedEvents struct {
-		ats   []int64
-		types []string
-		data  [][]byte
-	}
-)
+const conflictCode = "TB409"
 
 // Append appends every request's events if each expected sequence matches
 func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
@@ -30,100 +28,82 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	}
 
 	ctx := context.Background()
-	tx, err := b.pool.Begin(ctx)
-	if err != nil {
-		return err
+	if !slices.ContainsFunc(reqs, check.Mutates) {
+		return b.checkSequences(ctx, reqs)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Lock in a statement of its own: the append function reads the next
+	// A batch runs as one implicit transaction, so the append stays atomic
+	batch := &pgx.Batch{}
+
+	// Lock in statements of their own: the append function reads the next
 	// sequence through a subquery that would otherwise use a stale snapshot
-	if err := b.lockAppends(ctx, tx, reqs); err != nil {
-		return err
-	}
-	if err := b.appendAll(ctx, tx, reqs); err != nil {
-		return err
+	queueLocks(batch, reqs)
+	first := batch.Len()
+	for _, req := range reqs {
+		q, args := appendCall(req)
+		batch.Queue(q, args...)
 	}
 	for _, req := range reqs {
 		if !req.Delete {
 			continue
 		}
-		if err := b.markDeletedTx(ctx, tx, req); err != nil {
-			return err
-		}
+		queueDelete(batch, req)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := b.sendAppend(ctx, batch, reqs, first); err != nil {
 		return err
 	}
 	b.publisher.PublishAppends(reqs...)
 	return nil
 }
 
-// Lock in key order, but append in request order to report the first conflict
-func (b *Backend) lockAppends(
-	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
+func (b *Backend) checkSequences(
+	ctx context.Context, reqs []timebox.AppendRequest,
 ) error {
 	keys := make([]string, 0, len(reqs))
-	var inserts map[string][]string
 	for _, req := range reqs {
-		key, parts := aggregateKey(req.ID)
+		key, _ := aggregateKey(req.ID)
 		keys = append(keys, key)
-		if req.ExpectedSequence == 0 && !req.Delete && check.Mutates(req) {
-			if inserts == nil {
-				inserts = map[string][]string{}
-			}
-			inserts[key] = parts
-		}
 	}
-	slices.Sort(keys)
-	for _, key := range keys {
-		if parts, ok := inserts[key]; ok {
-			if err := b.insertAggregate(ctx, tx, key, parts); err != nil {
-				return err
-			}
-		}
-	}
-
-	q, arg := sqlLockKeys, any(keys)
-	if len(keys) == 1 {
-		q, arg = sqlLockKey, any(keys[0])
-	}
-	_, err := tx.Exec(ctx, q, arg)
-	return err
-}
-
-func (b *Backend) appendAll(
-	ctx context.Context, tx pgx.Tx, reqs []timebox.AppendRequest,
-) error {
-	batch := &pgx.Batch{}
-	for _, req := range reqs {
-		q, args := appendCall(req)
-		batch.Queue(q, args...)
-	}
-	br := tx.SendBatch(ctx, batch)
-
-	failed := -1
-	var failedSeq int64
-	var scanErr error
-	for i := range reqs {
-		res, err := scanAppendResult(br.QueryRow())
-		if err != nil && scanErr == nil {
-			scanErr = err
-		}
-		if !res.success && failed < 0 {
-			failed, failedSeq = i, res.actualSeq
-		}
-	}
-	if err := br.Close(); err != nil {
+	rows, err := b.pool.Query(ctx, sqlCheckSequences, keys)
+	if err != nil {
 		return err
 	}
-	if scanErr != nil {
-		return scanErr
+	seqs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return err
 	}
-	if failed < 0 {
-		return nil
+	for i, req := range reqs {
+		if seqs[i] == req.ExpectedSequence {
+			continue
+		}
+		return b.versionConflict(ctx, b.pool, req, seqs[i])
 	}
-	return b.versionConflict(ctx, tx, reqs[failed], failedSeq)
+	return nil
+}
+
+// sendAppend expects the request statements to start at batch index first
+func (b *Backend) sendAppend(
+	ctx context.Context, batch *pgx.Batch, reqs []timebox.AppendRequest,
+	first int,
+) error {
+	br := b.pool.SendBatch(ctx, batch)
+	var failed int
+	var err error
+	for i := range batch.Len() {
+		if _, err = br.Exec(); err != nil {
+			failed = i - first
+			break
+		}
+	}
+	closeErr := br.Close()
+	if err == nil {
+		return closeErr
+	}
+	actual, ok := parseConflict(err)
+	if !ok {
+		return err
+	}
+	return b.versionConflict(ctx, b.pool, reqs[failed], actual)
 }
 
 func (b *Backend) versionConflict(
@@ -150,18 +130,62 @@ func (b *Backend) versionConflict(
 	}
 }
 
-// markDeletedTx clears an aggregate's records, keeping its sequence
-func (b *Backend) markDeletedTx(
-	ctx context.Context, tx pgx.Tx, req timebox.AppendRequest,
-) error {
+// Lock in key order, but append in request order to report the first conflict.
+// A check-only request takes a shared lock, so checks never wait on each other
+func queueLocks(batch *pgx.Batch, reqs []timebox.AppendRequest) {
+	keys := make([]string, 0, len(reqs))
+	var inserts map[string][]string
+	var shared map[string]bool
+	for _, req := range reqs {
+		key, parts := aggregateKey(req.ID)
+		keys = append(keys, key)
+		switch {
+		case !check.Mutates(req):
+			if shared == nil {
+				shared = map[string]bool{}
+			}
+			shared[key] = true
+		case req.ExpectedSequence == 0 && !req.Delete:
+			if inserts == nil {
+				inserts = map[string][]string{}
+			}
+			inserts[key] = parts
+		}
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if parts, ok := inserts[key]; ok {
+			batch.Queue(sqlInsertAggregate, key, parts)
+		}
+	}
+
+	if shared == nil && len(keys) == 1 {
+		batch.Queue(sqlLockKey, keys[0])
+		return
+	}
+	if shared == nil {
+		batch.Queue(sqlLockKeys, keys)
+		return
+	}
+
+	// One statement per key keeps the key order while mixing lock strengths
+	for _, key := range keys {
+		q := sqlLockKey
+		if shared[key] {
+			q = sqlShareKey
+		}
+		batch.Queue(q, key)
+	}
+}
+
+// queueDelete clears an aggregate's records, keeping its sequence
+func queueDelete(batch *pgx.Batch, req timebox.AppendRequest) {
 	key, _ := aggregateKey(req.ID)
 	seq := req.ExpectedSequence + int64(len(req.Events))
-	batch := &pgx.Batch{}
 	batch.Queue(sqlDeleteEvents, key)
 	batch.Queue(sqlDeleteTags, key)
 	batch.Queue(sqlMarkDeleted, key)
 	batch.Queue(sqlPutSnapshot, key, seq, seq, []byte{})
-	return tx.SendBatch(ctx, batch).Close()
 }
 
 // appendCall builds the query and arguments one request needs
@@ -187,10 +211,13 @@ func appendCall(req timebox.AppendRequest) (string, []any) {
 	}
 }
 
-func scanAppendResult(row pgx.Row) (appendResult, error) {
-	var res appendResult
-	err := row.Scan(&res.success, &res.actualSeq)
-	return res, err
+func parseConflict(err error) (int64, bool) {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != conflictCode {
+		return 0, false
+	}
+	seq, err := strconv.ParseInt(pgErr.Detail, 10, 64)
+	return seq, err == nil
 }
 
 func encodeAppendEvents(evs []*timebox.Event) encodedEvents {

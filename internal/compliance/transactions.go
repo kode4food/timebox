@@ -116,6 +116,65 @@ func runTransactions(t *testing.T, p Profile) {
 		assert.Empty(t, ids)
 	})
 
+	t.Run("CheckedConflict", func(t *testing.T) {
+		backend, store := openBackend(t, p, timebox.Config{}, nil)
+		written := timebox.NewAggregateID("tx", "written")
+		checked := timebox.NewAggregateID("tx", "checked")
+
+		err := backend.Append(
+			timebox.AppendRequest{
+				ID: written,
+				Events: []*timebox.Event{
+					testEvent(t,
+						time.Unix(1_700_000_011, 0).UTC(),
+						"counted", 1, nil, nil,
+					),
+				},
+			},
+			timebox.AppendRequest{ID: checked, ExpectedSequence: 1},
+		)
+
+		var conflict *timebox.VersionConflictError
+		if assert.ErrorAs(t, err, &conflict) {
+			assert.Equal(t, checked, conflict.ID)
+		}
+		assertEvents(t, store, written, 0)
+	})
+
+	t.Run("CrossedChecks", func(t *testing.T) {
+		store := openStore(t, p, timebox.Config{})
+		exec := store.Executor(newCounter, counterAppliers.Reduce)
+		ids := []timebox.AggregateID{
+			timebox.NewAggregateID("tx", "first"),
+			timebox.NewAggregateID("tx", "second"),
+		}
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range 8 {
+			written := ids[i%2]
+			checked := ids[1-i%2]
+			wg.Go(func() {
+				<-start
+				err := store.Transact(func(tx *timebox.Transaction) error {
+					if _, err := tx.Exec(exec, checked, inspect); err != nil {
+						return err
+					}
+					_, err := tx.Exec(exec, written, count(1))
+					return err
+				})
+				assert.NoError(t, err)
+			})
+		}
+		close(start)
+		wg.Wait()
+		for _, id := range ids {
+			st, err := exec.Get(id)
+			assert.NoError(t, err)
+			assert.Equal(t, 4, st.Value)
+		}
+	})
+
 	t.Run("RollsBack", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		exec := store.Executor(newCounter, counterAppliers.Reduce)
@@ -191,6 +250,10 @@ func count(by int) timebox.Command[counter] {
 	return func(_ counter, ag *timebox.Aggregator[counter]) error {
 		return ag.Raise("counted", indexData{Value: by})
 	}
+}
+
+func inspect(counter, *timebox.Aggregator[counter]) error {
+	return nil
 }
 
 func assertEvents(

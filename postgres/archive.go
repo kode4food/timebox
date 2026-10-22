@@ -94,14 +94,12 @@ func (b *Backend) appendArchiveEventTx(
 		Events:           []*timebox.Event{ev},
 	}
 	q, args := appendCall(req)
-	res, err := scanAppendResult(tx.QueryRow(ctx, q, args...))
-	if err != nil {
-		return err
+	_, err := tx.Exec(ctx, q, args...)
+	if actual, ok := parseConflict(err); ok {
+		// The raise aborted tx, so the conflict's events load outside it
+		return b.versionConflict(ctx, b.pool, req, actual)
 	}
-	if !res.success {
-		return b.versionConflict(ctx, tx, req, res.actualSeq)
-	}
-	return nil
+	return err
 }
 
 func (b *Backend) deleteAggregateTx(

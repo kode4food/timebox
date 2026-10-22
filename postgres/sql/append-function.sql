@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION timebox_append(
+CREATE OR REPLACE FUNCTION timebox_append_events(
 	p_aggregate_key TEXT,
 	p_aggregate_parts TEXT[],
 	p_expected_sequence BIGINT,
@@ -9,16 +9,12 @@ CREATE OR REPLACE FUNCTION timebox_append(
 	p_event_ats BIGINT[],
 	p_event_types TEXT[],
 	p_event_data BYTEA[]
-) RETURNS TABLE(
-	success BOOLEAN,
-	actual_sequence BIGINT
-) AS $$
+) RETURNS VOID AS $$
 DECLARE
 	v_base_seq BIGINT := 0;
 	v_snapshot_seq BIGINT := 0;
 	v_next_seq BIGINT := 0;
 	v_current_seq BIGINT := 0;
-	v_event_count BIGINT := COALESCE(array_length(p_event_data, 1), 0);
 BEGIN
 	IF p_expected_sequence = 0 THEN
 		INSERT INTO timebox_statuses (
@@ -45,19 +41,16 @@ BEGIN
 	WHERE i.aggregate_key = p_aggregate_key
 	FOR UPDATE OF i;
 
+	-- Raising rolls back every other request in the batched append
 	IF NOT FOUND THEN
-		success := FALSE;
-		actual_sequence := 0;
-		RETURN NEXT;
-		RETURN;
+		RAISE EXCEPTION 'timebox version conflict'
+			USING ERRCODE = 'TB409', DETAIL = '0';
 	END IF;
 
 	v_current_seq := GREATEST(v_next_seq, v_snapshot_seq);
 	IF p_expected_sequence <> v_current_seq THEN
-		success := FALSE;
-		actual_sequence := v_current_seq;
-		RETURN NEXT;
-		RETURN;
+		RAISE EXCEPTION 'timebox version conflict'
+			USING ERRCODE = 'TB409', DETAIL = v_current_seq::text;
 	END IF;
 
 	INSERT INTO timebox_events (
@@ -98,9 +91,5 @@ BEGIN
 		WHERE item.enabled
 		ON CONFLICT (aggregate_key, tag) DO NOTHING;
 	END IF;
-
-	success := TRUE;
-	actual_sequence := v_current_seq + v_event_count;
-	RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql
