@@ -27,6 +27,9 @@ var (
 	//go:embed sql/append-function.sql
 	sqlAppendFunction string
 
+	//go:embed sql/sequence-function.sql
+	sqlSequenceFunction string
+
 	//go:embed sql/check-function.sql
 	sqlCheckFunction string
 
@@ -62,6 +65,9 @@ var (
 
 	//go:embed sql/get-snapshot.sql
 	sqlGetSnapshot string
+
+	//go:embed sql/get-snapshot-events.sql
+	sqlGetSnapshotEvents string
 
 	//go:embed sql/snapshot-base-seq.sql
 	sqlSnapshotBaseSeq string

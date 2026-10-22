@@ -141,27 +141,37 @@ func (b *Backend) LoadSnapshot(
 	ctx := context.Background()
 	key, _ := aggregateKey(req.ID)
 
-	var snapData []byte
-	var snapSeq int64
-	err := b.pool.QueryRow(ctx, sqlGetSnapshot, key).
-		Scan(&snapData, &snapSeq)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
-
-	evs, err := b.loadEvents(ctx, b.pool, eventRange{
-		id:      req.ID,
-		key:     key,
-		fromSeq: snapSeq,
-	})
+	rows, err := b.pool.Query(ctx, sqlGetSnapshotEvents, key)
 	if err != nil {
 		return nil, err
 	}
-	return &timebox.SnapshotRecord{
-		Data:     snapData,
-		Sequence: snapSeq,
-		Events:   evs,
-	}, nil
+	defer rows.Close()
+
+	res := &timebox.SnapshotRecord{}
+	for rows.Next() {
+		var snapshot bool
+		var seq int64
+		var at int64
+		var typ string
+		var data []byte
+		err := rows.Scan(&snapshot, &seq, &at, &typ, &data)
+		if err != nil {
+			return nil, err
+		}
+		if snapshot {
+			res.Data = data
+			res.Sequence = seq
+			continue
+		}
+		res.Events = append(res.Events, &timebox.Event{
+			Timestamp:   time.Unix(0, at).UTC(),
+			Sequence:    seq,
+			Type:        timebox.EventType(typ),
+			AggregateID: req.ID,
+			Data:        data,
+		})
+	}
+	return res, rows.Err()
 }
 
 // SaveSnapshot saves a snapshot if the provided sequence is not

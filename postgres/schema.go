@@ -19,6 +19,7 @@ var schemaStatements = []string{
 	sqlEventsTable,
 	sqlSnapshotsTable,
 	sqlAppendFunction,
+	sqlSequenceFunction,
 	sqlCheckFunction,
 }
 
