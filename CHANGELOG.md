@@ -2,39 +2,38 @@
 
 Notable changes to Timebox.
 
-## Next
+## 0.4
 
 ### Event sourcing
 
-- Executors accept reducers, with `Appliers.Reduce` providing default event dispatch and custom reducers handling event batches directly
+- Executors accept a `Reducer`, with `Appliers.Reduce` as the default
+- `Config.Clock` sets the Store's time source, exposed as `Transaction.Now`
 
 ### Persistence
 
-- `AppendRequest.Delete` removes an aggregate's events, snapshot, status, and tags atomically with the rest of the append, only if its expected sequence matches. The aggregate keeps its sequence, so sequences are never reused
+- `AppendRequest.Delete` removes an aggregate atomically, keeping its sequence
+- Faster PostgreSQL appends and reads
 
 ### Scheduling
 
-- Scheduling the same deadline and message again is a no-op that raises no event
-- `ConsumeSchedule(key, through)` removes and returns the schedule if it is due by `through`
-- `Transaction.LoadSchedule(key)` reads the active schedule within a Transaction, and the commit is checked against what it read
-- Consumed schedules delete their aggregate in the same commit
-- The runner applies local commits directly and rescans only per `RescanInterval` or on `Wake`
+- `Transaction.LoadSchedule` reads a schedule within a Transaction
+- `ConsumeSchedule(key, through)` removes and returns a due schedule
+- Rescheduling the same deadline and message is a no-op
 
 ### Queues
 
-- Durable, ordered queues identified by name, with `Transaction.Publish` committing a message atomically with aggregate events
-- `Store.Consume` blocks until the oldest message is available, then commits the handler's work and the message's removal together
+- Durable named queues through `Transaction.Publish` and `Store.Consume`
 
 ### Archiving
 
-- Every backend, including PostgreSQL, archives by atomically appending an `ArchiveRecord` to a shared archive queue, and `Store.ConsumeArchive` drains it through `Store.Consume`
+- Every backend, including PostgreSQL, supports archiving through `Store.ConsumeArchive`
 
 ### Removed
 
-- `Transaction.CancelSchedule` and `CancelSchedulePrefix`. Every schedule is delivered, and its processor decides whether the message still applies
+- `Transaction.CancelSchedule` and `CancelSchedulePrefix`
 - `Schedule.Version`, `ScheduleVersion`, and `ScheduleVersionConflictError`
-- `TrimEvents` on `AppendRequest`, `LoadEventsRequest`, and `LoadSnapshotRequest`. `SnapshotRequest.TrimEvents` remains
-- `Store.LoadSchedule`. Read schedules through `Transaction.LoadSchedule`
+- `TrimEvents` on `AppendRequest`, `LoadEventsRequest`, and `LoadSnapshotRequest`
+- `Store.LoadSchedule`
 
 ## 0.3
 
