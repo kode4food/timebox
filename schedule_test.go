@@ -145,7 +145,7 @@ func TestScheduleCompose(t *testing.T) {
 	if assert.NotNil(t, consumed) {
 		assert.Equal(t, second, consumed.Message)
 	}
-	remaining, err := store.LoadSchedule("compose")
+	remaining, err := readSchedule(store, "compose")
 	assert.NoError(t, err)
 	assert.Nil(t, remaining)
 }
@@ -201,7 +201,7 @@ func TestScheduleConsume(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	consumed, err := store.LoadSchedule("consume")
+	consumed, err := readSchedule(store, "consume")
 	assert.NoError(t, err)
 	assert.Nil(t, consumed)
 	st, err := exec.Get(target)
@@ -246,7 +246,7 @@ func TestScheduleRollback(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, errStop)
 
-	schedule, err := store.LoadSchedule("rollback")
+	schedule, err := readSchedule(store, "rollback")
 	assert.NoError(t, err)
 	assert.Nil(t, schedule)
 }
@@ -407,12 +407,38 @@ func TestScheduleConcurrent(t *testing.T) {
 	for range 2 {
 		assert.NoError(t, <-errs)
 	}
-	remaining, err := store.LoadSchedule("concurrent")
+	remaining, err := readSchedule(store, "concurrent")
 	assert.NoError(t, err)
 	assert.Nil(t, remaining)
 	st, err := exec.Get(target)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, st.Value)
+}
+
+func TestScheduleLoadInTransaction(t *testing.T) {
+	store, _ := newStore(t)
+	at := time.Now().UTC().Add(time.Hour)
+	msg := newMessage(t, "staged")
+
+	assert.NoError(t, store.Transact(func(tx *timebox.Transaction) error {
+		_, err := tx.LoadSchedule("")
+		assert.ErrorIs(t, err, timebox.ErrScheduleKeyRequired)
+
+		loaded, err := tx.LoadSchedule("staged")
+		if err != nil {
+			return err
+		}
+		assert.Nil(t, loaded)
+		if err := tx.Schedule("staged", at, msg); err != nil {
+			return err
+		}
+		loaded, err = tx.LoadSchedule("staged")
+		if err != nil {
+			return err
+		}
+		assert.Equal(t, at, loaded.At)
+		return nil
+	}))
 }
 
 func newStore(t *testing.T) (*timebox.Store, *timebox.Executor[counter]) {
@@ -439,11 +465,23 @@ func loadSchedule(
 	t *testing.T, store *timebox.Store, key timebox.ScheduleKey,
 ) *timebox.Schedule {
 	t.Helper()
-	schedule, err := store.LoadSchedule(key)
+	schedule, err := readSchedule(store, key)
 	if !assert.NoError(t, err) || !assert.NotNil(t, schedule) {
 		return &timebox.Schedule{Message: &timebox.Message{}}
 	}
 	return schedule
+}
+
+func readSchedule(
+	store *timebox.Store, key timebox.ScheduleKey,
+) (*timebox.Schedule, error) {
+	var res *timebox.Schedule
+	err := store.Transact(func(tx *timebox.Transaction) error {
+		var err error
+		res, err = tx.LoadSchedule(key)
+		return err
+	})
+	return res, err
 }
 
 func newMessage(t *testing.T, name string) *timebox.Message {

@@ -77,6 +77,20 @@ func (t *Transaction) Schedule(
 	return nil
 }
 
+// LoadSchedule returns the active schedule for key as the Transaction sees it.
+// The commit is checked against the schedule it read
+func (t *Transaction) LoadSchedule(key ScheduleKey) (*Schedule, error) {
+	if key == "" {
+		return nil, ErrScheduleKeyRequired
+	}
+	st, err := t.execInternal(t.store.schedule, makeScheduleID(key),
+		func(scheduleState, *Aggregator[scheduleState]) error {
+			return nil
+		},
+	)
+	return st.Active, err
+}
+
 // ConsumeSchedule removes and returns the schedule for key if it is due by
 // through. It returns nil when nothing is due
 func (t *Transaction) ConsumeSchedule(
@@ -117,18 +131,6 @@ func (s *Store) TakeScheduleChanges() map[ScheduleKey]*Schedule {
 	res := s.changed
 	s.changed = map[ScheduleKey]*Schedule{}
 	return res
-}
-
-// LoadSchedule loads the active schedule for a key
-func (s *Store) LoadSchedule(key ScheduleKey) (*Schedule, error) {
-	if key == "" {
-		return nil, ErrScheduleKeyRequired
-	}
-	proj, _, err := s.schedule.readProjection(makeScheduleID(key))
-	if err != nil {
-		return nil, err
-	}
-	return proj.state.Active, nil
 }
 
 // ListSchedules lists active schedules through the provided time, or all

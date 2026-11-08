@@ -16,6 +16,7 @@ Notable changes to Timebox.
 
 - Scheduling the same deadline and message again is a no-op that raises no event
 - `ConsumeSchedule(key, through)` removes and returns the schedule if it is due by `through`
+- `Transaction.LoadSchedule(key)` reads the active schedule within a Transaction, and the commit is checked against what it read
 - Consumed schedules delete their aggregate in the same commit
 - The runner applies local commits directly and rescans only per `RescanInterval` or on `Wake`
 
@@ -33,6 +34,7 @@ Notable changes to Timebox.
 - `Transaction.CancelSchedule` and `CancelSchedulePrefix`. Every schedule is delivered, and its processor decides whether the message still applies
 - `Schedule.Version`, `ScheduleVersion`, and `ScheduleVersionConflictError`
 - `TrimEvents` on `AppendRequest`, `LoadEventsRequest`, and `LoadSnapshotRequest`. `SnapshotRequest.TrimEvents` remains
+- `Store.LoadSchedule`. Read schedules through `Transaction.LoadSchedule`
 
 ## 0.3
 

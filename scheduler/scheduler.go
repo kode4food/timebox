@@ -213,7 +213,12 @@ func (s *Scheduler) processDue(ctx context.Context) {
 }
 
 func (s *Scheduler) refreshProcessed(ctx context.Context, item *heapItem) {
-	schedule, err := s.store.LoadSchedule(item.schedule.Key)
+	var schedule *timebox.Schedule
+	err := s.store.Transact(func(tx *timebox.Transaction) error {
+		var err error
+		schedule, err = tx.LoadSchedule(item.schedule.Key)
+		return err
+	})
 	if err != nil {
 		s.logError(ctx, item.schedule.Key, err)
 		s.retryItem(item)

@@ -81,7 +81,7 @@ func TestRecovery(t *testing.T) {
 	cancel()
 	assert.ErrorIs(t, <-done, context.Canceled)
 
-	remaining, err := store.LoadSchedule("recover")
+	remaining, err := readSchedule(store, "recover")
 	assert.NoError(t, err)
 	assert.Nil(t, remaining)
 }
@@ -266,10 +266,10 @@ func TestRetry(t *testing.T) {
 			assert.Equal(t, int32(2), attempts.Load())
 			cancel()
 			assert.ErrorIs(t, <-done, context.Canceled)
-			remaining, err := store.LoadSchedule("retry")
+			remaining, err := readSchedule(store, "retry")
 			assert.NoError(t, err)
 			assert.Nil(t, remaining)
-			uncommitted, err := store.LoadSchedule("uncommitted")
+			uncommitted, err := readSchedule(store, "uncommitted")
 			assert.NoError(t, err)
 			assert.Nil(t, uncommitted)
 		})
@@ -496,6 +496,18 @@ func newStore(t *testing.T) *timebox.Store {
 	t.Helper()
 	store, _ := newStores(t)
 	return store
+}
+
+func readSchedule(
+	store *timebox.Store, key timebox.ScheduleKey,
+) (*timebox.Schedule, error) {
+	var res *timebox.Schedule
+	err := store.Transact(func(tx *timebox.Transaction) error {
+		var err error
+		res, err = tx.LoadSchedule(key)
+		return err
+	})
+	return res, err
 }
 
 func newStores(t *testing.T) (*timebox.Store, *timebox.Store) {

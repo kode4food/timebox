@@ -76,7 +76,7 @@ func runSchedules(t *testing.T, p Profile) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, second, consumed)
-		consumed, err = store.LoadSchedule("one")
+		consumed, err = readSchedule(store, "one")
 		assert.NoError(t, err)
 		assert.Nil(t, consumed)
 		ids, err := backend.ListAggregates("")
@@ -214,6 +214,36 @@ func runSchedules(t *testing.T, p Profile) {
 		assert.Nil(t, consumed)
 	})
 
+	t.Run("LoadChecked", func(t *testing.T) {
+		backend, first := openBackend(t, p, timebox.Config{}, nil)
+		second, err := timebox.NewStore(backend)
+		assert.NoError(t, err)
+		at := time.Now().UTC().Add(time.Hour)
+
+		attempts := 0
+		assert.NoError(t, first.Transact(func(tx *timebox.Transaction) error {
+			attempts++
+			active, err := tx.LoadSchedule("checked")
+			if err != nil || active != nil {
+				return err
+			}
+			// a competing writer lands between the load and the commit
+			if err := second.Transact(func(tx *timebox.Transaction) error {
+				return tx.Schedule(
+					"checked", at, newScheduleMessage(t, "second"),
+				)
+			}); err != nil {
+				return err
+			}
+			return tx.Schedule("checked", at, newScheduleMessage(t, "first"))
+		}))
+		assert.Equal(t, 2, attempts)
+		assert.Equal(t,
+			newScheduleMessage(t, "second").AggregateID,
+			loadSchedule(t, first, "checked").Message.AggregateID,
+		)
+	})
+
 	t.Run("Atomic", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		exec := store.Executor(
@@ -241,7 +271,7 @@ func runSchedules(t *testing.T, p Profile) {
 		})
 		assert.NoError(t, err)
 
-		consumed, err := store.LoadSchedule("atomic")
+		consumed, err := readSchedule(store, "atomic")
 		assert.NoError(t, err)
 		assert.Nil(t, consumed)
 		st, err := exec.Get(id)
@@ -319,11 +349,23 @@ func loadSchedule(
 	t *testing.T, store *timebox.Store, key timebox.ScheduleKey,
 ) *timebox.Schedule {
 	t.Helper()
-	schedule, err := store.LoadSchedule(key)
+	schedule, err := readSchedule(store, key)
 	if !assert.NoError(t, err) || !assert.NotNil(t, schedule) {
 		return &timebox.Schedule{Message: &timebox.Message{}}
 	}
 	return schedule
+}
+
+func readSchedule(
+	store *timebox.Store, key timebox.ScheduleKey,
+) (*timebox.Schedule, error) {
+	var res *timebox.Schedule
+	err := store.Transact(func(tx *timebox.Transaction) error {
+		var err error
+		res, err = tx.LoadSchedule(key)
+		return err
+	})
+	return res, err
 }
 
 func changeScheduleState(value int) timebox.Command[scheduleState] {
