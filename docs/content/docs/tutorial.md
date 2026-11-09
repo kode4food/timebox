@@ -7,7 +7,7 @@ weight: 15
 
 This tutorial builds a small order service from an empty Go module. It receives inventory, atomically reserves stock while placing an order, confirms and ships the order, and queries the resulting event history, status index, and customer tags.
 
-The finished program uses the in-memory backend so it runs without infrastructure. The final step shows how to replace memory with durable storage without changing the domain code.
+The finished program uses the in-memory backend, so it runs anywhere. The final step swaps in durable storage while the domain code stays the same.
 
 ## 1. Create the Project
 
@@ -66,11 +66,11 @@ type (
 )
 ```
 
-These values are projections, not stored records. Timebox reconstructs them from their event histories.
+These values are projections, which Timebox reconstructs from their event histories.
 
 ## 3. Define the Events
 
-Event names and payloads are the durable history of the application. Name them for facts that happened, not commands someone attempted.
+Event names and payloads are the durable history of the application. Name them for facts that happened.
 
 ```go
 type (
@@ -110,7 +110,7 @@ const (
 )
 ```
 
-Payloads are JSON encoded when raised. Changing an existing payload later means preserving the ability to read events already stored with the old shape.
+Payloads are JSON encoded when raised. A changed payload must still read events stored with the old shape.
 
 ## 4. Rebuild State with Appliers
 
@@ -199,7 +199,7 @@ Appliers must be deterministic and free of side effects because they run during 
 
 ## 5. Add Status and Tag Indexes
 
-Indexes are derived in the same atomic append as their events. This indexer makes orders queryable by lifecycle status, customer, and SKU without replaying every order.
+Indexes are derived in the same atomic append as their events. This indexer makes orders queryable by lifecycle status, customer, and SKU.
 
 ```go
 func orderIndexer(events []*timebox.Event) []*timebox.Index {
@@ -231,7 +231,7 @@ func orderIndexer(events []*timebox.Event) []*timebox.Index {
 }
 ```
 
-The same store also receives inventory events. The indexer ignores those event types. Tags added when an order is placed remain attached as its status changes.
+The same store also receives inventory events. The indexer skips those event types. Tags added when an order is placed remain attached as its status changes.
 
 ## 6. Receive Stock
 
@@ -253,11 +253,11 @@ func receiveStock(
 }
 ```
 
-`Raise` serializes the event and applies it to the current state immediately. Returning an error from the command would discard everything raised during that execution.
+`Raise` serializes the event and applies it to the current state immediately. Returning an error from the command discards everything raised during that execution.
 
 ## 7. Reserve Stock and Place the Order Atomically
 
-Stock must not be reserved unless the order is also created. Use one transaction across both aggregates.
+Reserving stock and creating the order belong together, so use one transaction across both aggregates.
 
 ```go
 var (
@@ -308,7 +308,7 @@ func placeOrder(args placeOrderArgs) error {
 }
 ```
 
-Every backend checks both aggregate sequences before appending either batch. A conflict reloads state and reruns the transaction, so transaction functions must not perform external side effects. Use `Aggregator.OnSuccess` for work that should begin only after commit.
+Every backend checks both aggregate sequences before appending either batch. A conflict reloads state and reruns the transaction, so put external side effects in `Aggregator.OnSuccess`, which runs after commit.
 
 ## 8. Confirm the Order
 
@@ -334,7 +334,7 @@ func confirmOrder(
 
 ## 9. Ship the Order and Inventory Atomically
 
-Shipping changes both aggregates again: the order gains a tracking number while reserved inventory becomes shipped inventory. Keeping those changes in one transaction prevents an order from appearing shipped while its stock remains reserved.
+Shipping changes both aggregates again: the order gains a tracking number while reserved inventory becomes shipped inventory. One transaction keeps the shipped order and its shipped stock in step.
 
 ```go
 type shipOrderArgs struct {
@@ -379,11 +379,11 @@ func shipOrder(args shipOrderArgs) error {
 }
 ```
 
-The state returned by the first `tx.Exec` includes the newly raised shipping event, so the inventory update can use the order's quantity. Neither aggregate commits unless both commands succeed.
+The state returned by the first `tx.Exec` includes the newly raised shipping event, so the inventory update can use the order's quantity. Both aggregates commit together once both commands succeed.
 
 ## 10. Wire and Run the Service
 
-Add `main` and `run`. The memory backend provides the complete Timebox contract without an external service.
+Add `main` and `run`. The memory backend provides the complete Timebox contract in process.
 
 ```go
 func main() {

@@ -51,7 +51,7 @@ defer backend.Close()
 store, err := backend.NewStore()
 ```
 
-Atomic operations run through Lua scripts. `Shard` adds a Redis hash tag so all Timebox keys occupy one cluster slot, which is required for atomic multi-key operations on Redis Cluster.
+On Redis Cluster, set `Shard`. It adds a hash tag that places every Timebox key in one cluster slot, as atomic multi-key operations require.
 
 ## Raft
 
@@ -83,7 +83,7 @@ if err := store.WaitReady(ctx); err != nil {
 }
 ```
 
-The Raft backend replicates writes, persists a segmented write-ahead log, and serves reads from local materialized state. Configure the same voter set on every node with a unique `LocalID`, `Address`, and `DataDir` per node.
+The Raft backend replicates writes across its voters and serves reads locally. Configure the same voter set on every node with a unique `LocalID`, `Address`, and `DataDir` per node.
 
 `Publisher` receives committed events after they are durably applied:
 

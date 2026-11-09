@@ -27,9 +27,9 @@ err := store.Transact(func(tx *timebox.Transaction) error {
 })
 ```
 
-The message needs no data because its `AggregateID` identifies the order. Calling `tx.Schedule` again with the same key replaces its message and deadline. Scheduling the same deadline and message again is a no-op. If payment completes first, the check still arrives, finds the order no longer pending, and does nothing. Each key is stored as its own small aggregate, and consuming a schedule removes that aggregate in the same commit, so a delivered schedule leaves only its sequence number behind in the backend.
+The message needs no data because its `AggregateID` identifies the order. Calling `tx.Schedule` again with the same key replaces its message and deadline. Scheduling the same deadline and message again is a no-op. If payment completes first, the check still arrives and finds the order paid, so the order stays as it is.
 
-`tx.LoadSchedule(key)` reads the active schedule as part of the transaction, and the commit is checked against what it read. A transaction can therefore schedule a key only when nothing is pending, and a concurrent writer reruns against the schedule that won:
+`tx.LoadSchedule(key)` reads the active schedule as part of the transaction, and the commit is checked against what it read. A transaction can therefore schedule a key exactly when it is free, and a concurrent writer reruns against the schedule that won:
 
 ```go
 err := store.Transact(func(tx *timebox.Transaction) error {
@@ -74,8 +74,22 @@ if err != nil {
 return runner.Run(ctx)
 ```
 
-`Run` blocks until its context ends. The scheduler can be recreated after a restart because schedules remain in the backend. Before calling the processor, the runner stages the schedule's consumption in the processor's transaction. It commits consumption and the processor's state changes together when the processor returns nil. A schedule that is no longer due delivers nothing, and a concurrent replacement fails the sequence check and aborts the commit. An error leaves the schedule active for retry. Return `scheduler.ErrRetry` to retry without logging an expected delay. The processor can run more than once after a transaction conflict, so keep external I/O out of it.
-
-The expiry event has no payload fields, so the example uses `timebox.Empty{}`.
+`Run` blocks until its context ends. Schedules persist in the backend, so a scheduler recreated after a restart picks them up. The runner consumes the schedule in the processor's transaction, so the consumption and the processor's state changes commit together when the processor returns nil. A concurrent replacement aborts the commit, and the runner delivers the replacement at its own deadline. An error leaves the schedule active for retry. Return `scheduler.ErrRetry` to retry quietly when a delay is expected. The processor can run more than once after a transaction conflict, so put external I/O in `OnSuccess`.
 
 The runner watches local schedule commits and rescans the backend for changes made by other stores or processes. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `tx.LoadSchedule(key)` to inspect one active schedule and `store.ListSchedules(through)` to list active schedules due by a time. `time.Time{}` lists all. For recurring work, schedule the next occurrence under the same key in the processor's transaction.
+
+## Deliver from Your Own Loop
+
+`tx.ConsumeSchedule(key, through)` removes and returns the schedule under `key` if it is due by `through`, or returns nil when nothing is due. It commits with the rest of the transaction, so a delivery loop of your own can act on the message atomically:
+
+```go
+err := store.Transact(func(tx *timebox.Transaction) error {
+	due, err := tx.ConsumeSchedule(key, tx.Now())
+	if err != nil || due == nil {
+		return err
+	}
+	return handle(tx, due.Message)
+})
+```
+
+Combine it with `store.ListSchedules(through)` to find keys worth trying, and with `store.ScheduleChanges()` to learn when local commits change the set.

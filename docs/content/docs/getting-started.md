@@ -58,7 +58,7 @@ var accountAppliers = timebox.Appliers[Account]{
 
 ## Open a Store
 
-The memory backend is useful for tests and single-process tools:
+Use the memory backend for tests and single-process tools:
 
 ```go
 backend := memory.Open()
@@ -94,16 +94,16 @@ Commands can raise several events. Returning an error discards all events raised
 
 ## Read State and Events
 
-`Get` reconstructs the latest state without raising an event:
+`Get` returns the latest state:
 
 ```go
 account, err := accounts.Get(accountID)
 ```
 
-Raw events remain available when an event consumer or audit path needs them:
+`GetEvents` returns the raw events for an event consumer or audit path:
 
 ```go
 events, err := store.GetEvents(accountID, 0)
 ```
 
-For a complete build-along example, continue with [Tutorial: Place an Order]({{< relref "/docs/tutorial" >}}). A larger order lifecycle is also available in [`examples/order.go`](https://github.com/kode4food/timebox/blob/main/examples/order.go).
+Continue with [Tutorial: Place an Order]({{< relref "/docs/tutorial" >}}). [`examples/order.go`](https://github.com/kode4food/timebox/blob/main/examples/order.go) shows a larger order lifecycle.

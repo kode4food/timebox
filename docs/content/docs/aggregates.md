@@ -39,8 +39,6 @@ Use `Event.GetValue` when reading an event directly:
 data, err := event.GetValue[OrderCreatedData]()
 ```
 
-Timebox caches a compatible decoded value, including the value supplied to a newly raised event.
-
 ## Message Handlers
 
 `Handler`, `MakeHandler`, and `MakeDispatcher` work with `Message`, so the same dispatcher can route recorded event messages and deferred schedule messages by type. An `Event` embeds its message. Pass that field to a handler or dispatcher:
@@ -51,7 +49,7 @@ err := dispatch(&event.Message)
 err = dispatch(scheduledMessage)
 ```
 
-Use `MakeHandler` when a handler needs a decoded payload. Event appliers remain separate because they can also use recorded metadata such as the event timestamp.
+Use `MakeHandler` when a handler needs a decoded payload. Appliers receive the full recorded event, including metadata such as its timestamp.
 
 ## Appliers
 
@@ -71,13 +69,13 @@ var orderAppliers = timebox.Appliers[Order]{
 }
 ```
 
-Appliers run both while replaying stored history and immediately after `Raise`. They should not perform I/O or other side effects.
+Appliers run while replaying stored history and immediately after `Raise`, so keep them free of I/O and other side effects.
 
-Pass `orderAppliers.Reduce` to an executor. A custom `Reducer` can apply a complete replay batch directly when a projection can avoid repeated immutable copies.
+Pass `orderAppliers.Reduce` to an executor, or pass a custom `Reducer` to apply each replay batch in one pass.
 
 ## Post-Commit Actions
 
-Side effects belong after a successful commit. Register defaults when constructing an executor, or register a command-specific action through the aggregator:
+Run side effects after a successful commit. Register default actions when constructing an executor, or register a command-specific action through the aggregator:
 
 ```go
 ag.OnSuccess(func(order Order, events []*timebox.Event) {
@@ -85,4 +83,4 @@ ag.OnSuccess(func(order Order, events []*timebox.Event) {
 })
 ```
 
-Success actions run only after persistence succeeds. Timebox recovers a panic in an action and logs it. The commit is already durable and is not rolled back.
+Success actions run after persistence succeeds. Timebox recovers and logs a panic in an action, and the commit stays durable.

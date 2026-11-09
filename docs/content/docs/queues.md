@@ -40,8 +40,6 @@ err := store.Consume(ctx, "order.placed",
 )
 ```
 
-`Consume` blocks until a message is available or `ctx` ends, then commits the handler's work and the message's removal together. A message is removed only if the handler returns nil. Any other error leaves the message in place for the next `Consume` call, so keep external I/O idempotent. Call `Consume` in a loop to drain a queue continuously.
+`Consume` blocks until a message is available or `ctx` ends, then commits the handler's work and the message's removal together. The message is removed when the handler returns nil. An error leaves the message in place for the next `Consume` call, so make external I/O idempotent. Call `Consume` in a loop to drain a queue continuously.
 
-Across processes sharing a backend, a publish on one process wakes a `Consume` call blocked on another within about a second, bounded by local polling. Within one process, the wake is immediate.
-
-Archiving is built on this mechanism: `Store.Archive` publishes a bundled `ArchiveRecord` to a well-known queue, and `Store.ConsumeArchive` is a thin wrapper over `Consume`.
+Within one process, a publish wakes a blocked `Consume` immediately. Across processes sharing a backend, it wakes within about a second.

@@ -20,20 +20,16 @@ Stores share persistence while keeping their caching, snapshotting, trimming, an
 
 Create separate executors for each state model. Singleton models use `NewAggregateType`. Models with many instances use `NewAggregateID`.
 
-This keeps event dispatch and state reconstruction attached to the domain model that owns them.
-
 ## Transactions as Domain Boundaries
 
-Run domain operations inside `Store.Transact`. A parent aggregate can enlist a child aggregate through the same `Transaction`, so their event batches either both commit or neither does.
+Run domain operations inside `Store.Transact`. A parent aggregate can enlist a child aggregate through the same `Transaction`, so their event batches commit together.
 
 Keep transaction functions deterministic because conflicts can rerun them. Add durable schedules with `Transaction.Schedule` inside the transaction so they commit with the aggregate events. Register external effects with `OnSuccess` so they begin only after persistence succeeds.
 
 ## Committed Event Publication
 
-Configure the Raft backend's `Publisher` before opening it. After a commit is durably applied, the publisher can update live projections or feed an event hub. This separates authoritative persistence from live delivery without putting publication inside command functions.
+Configure the Raft backend's `Publisher` before opening it. After a commit is durably applied, the publisher can update live projections or feed an event hub.
 
 ## Lifecycle
 
 Wait for `Store.WaitReady` with a deadline before serving requests, then close the shared backend during graceful shutdown. Executors manage snapshots automatically as aggregates load.
-
-These are application policies rather than Timebox requirements, but they are a useful starting point for a replicated service.

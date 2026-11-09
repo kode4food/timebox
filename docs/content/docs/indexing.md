@@ -5,7 +5,7 @@ weight: 51
 
 # Indexing
 
-An indexer turns committed events into a current status and a set of tags for each aggregate. Use these to find aggregates without loading and replaying every event stream. For example, you can query for active orders or orders awaiting review.
+An indexer turns committed events into a current status and a set of tags for each aggregate. Use them to find aggregates by status or tag, such as active orders or orders awaiting review.
 
 Supply an `Indexer` when creating the store. It receives each event batch being appended and returns index updates derived from that batch:
 
@@ -47,4 +47,4 @@ active, err := store.ListAggregatesByStatus(timebox.StatusQuery{
 review, err := store.ListAggregatesByTag("awaiting-review")
 ```
 
-`GetAggregateStatus` returns an empty string when no status is set. `ListAggregatesByStatus` takes a `StatusQuery` and returns IDs and the timestamp of the last event in the batch that updated each status. `Type` and `KeyPrefix` narrow by aggregate, and `Through` bounds by status time (zero means all). `ListAggregatesByTag` returns IDs. The indexer should derive its result from the supplied events so retries produce the same updates.
+`GetAggregateStatus` returns an empty string when no status is set. `ListAggregatesByStatus` takes a `StatusQuery` and returns IDs and the timestamp of the last event in the batch that updated each status. `Type` and `KeyPrefix` narrow by aggregate, and `Through` bounds by status time (zero means all). `ListAggregatesByTag` returns IDs. Derive the result from the supplied events alone, so retries produce the same updates.

@@ -29,7 +29,7 @@ err := store.Transact(func(tx *timebox.Transaction) error {
 })
 ```
 
-Every backend appends all enlisted aggregate batches or none of them. Each aggregate has its own optimistic sequence check. On a conflict, Timebox refreshes state and reruns the entire transaction function.
+Every backend appends all enlisted aggregate batches atomically. Each aggregate has its own optimistic sequence check. On a conflict, Timebox refreshes state and reruns the entire transaction function.
 
 ## Rules
 
@@ -37,8 +37,18 @@ Every backend appends all enlisted aggregate batches or none of them. Each aggre
 - Reusing an aggregate in one transaction continues the same in-memory `Aggregator`
 - Joining one aggregate through executors with different state types returns `ErrAggregateTypeConflict`
 - Values returned by `Transaction.Exec` are provisional until `Transact` succeeds
-- Command and transaction functions may run more than once, so external side effects belong in `OnSuccess`
+- Command and transaction functions can run more than once, so put external side effects in `OnSuccess`
 
 ## Nested Domain Operations
 
 An aggregate command can reach its enclosing transaction through `Aggregator.Transaction()` and enlist another aggregate. For example, a parent workflow can start a child workflow in the same commit as its own update.
+
+## Time
+
+`Transaction.Now()` returns the store clock's time for the current attempt. It is read once, so every decision within one attempt sees the same instant. Use it in place of `time.Now()` inside transaction functions and commands. Set `Config.Clock` to supply another time source, such as a fixed or controllable clock in tests:
+
+```go
+store, err := timebox.NewStore(backend, timebox.Config{
+    Clock: func() time.Time { return fixed },
+})
+```

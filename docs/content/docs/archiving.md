@@ -5,9 +5,9 @@ weight: 52
 
 # Archiving
 
-Archiving removes an aggregate from live storage and queues its stored snapshot and events for export. Use it when an aggregate has finished its lifecycle and should no longer appear in live queries, but its stored record still needs to be retained elsewhere.
+Archiving removes an aggregate from live storage and queues its stored snapshot and events for export. Use it for an aggregate that has finished its lifecycle and whose record belongs in long-term storage.
 
-Each backend atomically bundles an aggregate's snapshot and remaining events into the shared archive queue, then removes the live record. `ConsumeArchive` drains that queue on top of `Store.Consume`.
+`Archive` hands an aggregate's snapshot and remaining events to an archive queue and removes the live record in one step. `ConsumeArchive` drains that queue.
 
 ## Archive an aggregate
 
@@ -17,7 +17,7 @@ if err := store.Archive(orderID); err != nil {
 }
 ```
 
-The backend moves the aggregate's stored snapshot and events into its archive queue, then removes the live aggregate and its indexes. This is one-way: Timebox does not restore archived aggregates. If `TrimEvents` was enabled, events already trimmed before archiving are not in the archive record. The snapshot holds the state at its saved sequence.
+The aggregate and its indexes leave live storage once the archive record is queued. Archiving is one-way. With `TrimEvents` enabled, the record holds the events after the last snapshot, and the snapshot holds the state at its saved sequence.
 
 ## Export archive records
 
@@ -36,4 +36,4 @@ for {
 }
 ```
 
-An `ArchiveRecord` contains the aggregate ID, snapshot data and sequence, and remaining events. A handler error leaves the record available for another attempt. A successful handler can also be called again if acknowledgement fails, so make the export idempotent. Use the aggregate ID as the destination key. Do not discard the snapshot when the earlier events have been trimmed.
+An `ArchiveRecord` contains the aggregate ID, snapshot data and sequence, and remaining events. A handler error leaves the record for another attempt. A successful handler can run again if acknowledgement fails, so make the export idempotent, keyed by the aggregate ID. Keep the snapshot whenever earlier events were trimmed.

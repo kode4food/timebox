@@ -5,7 +5,7 @@ weight: 50
 
 # Snapshots
 
-A snapshot stores an aggregate's projected state at a particular event sequence. When an executor loads that aggregate, it starts from the snapshot and applies only later events. This speeds up loading aggregates with long histories, while the event log remains the full source of truth by default.
+A snapshot stores an aggregate's projected state at a particular event sequence. When an executor loads that aggregate, it starts from the snapshot and applies only later events. The event log remains the source of truth.
 
 ## When snapshots are saved
 
@@ -35,4 +35,4 @@ store, err := backend.NewStore(timebox.Config{
 })
 ```
 
-The executor can still load the aggregate from its snapshot and subsequent events, but `GetEvents` can no longer return the trimmed history. Use this only when you do not need the full event log for audit, replay from the beginning, or export. Trimming takes effect when a snapshot is saved, not when the option is set.
+The executor loads the aggregate from its snapshot and later events, and `GetEvents` returns the history after the snapshot. Leave trimming off for aggregates whose full history you audit, replay from the beginning, or export. Trimming happens each time a snapshot is saved.
