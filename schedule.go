@@ -133,9 +133,9 @@ func (s *Store) TakeScheduleChanges() map[ScheduleKey]*Schedule {
 	return res
 }
 
-// ListSchedules lists active schedules through the provided time, or all
-// schedules when through is zero
-func (s *Store) ListSchedules(through time.Time) ([]*Schedule, error) {
+// LoadSchedules reads active schedules due through the provided time, or all
+// when through is zero. The read is non-transactional and non-consuming
+func (s *Store) LoadSchedules(through time.Time) ([]*Schedule, error) {
 	entries, err := s.backend.ListAggregatesByStatus(StatusQuery{
 		Status:  scheduleActiveStatus,
 		Type:    scheduleAggregateType,

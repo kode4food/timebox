@@ -268,7 +268,7 @@ func TestScheduleList(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	schedules, err := store.ListSchedules(time.Time{})
+	schedules, err := store.LoadSchedules(time.Time{})
 	assert.NoError(t, err)
 	keys := make([]timebox.ScheduleKey, len(schedules))
 	for i, schedule := range schedules {
@@ -278,7 +278,7 @@ func TestScheduleList(t *testing.T) {
 		[]timebox.ScheduleKey{"first", "second", "third"}, keys,
 	)
 
-	due, err := store.ListSchedules(base.Add(2 * time.Hour))
+	due, err := store.LoadSchedules(base.Add(2 * time.Hour))
 	assert.NoError(t, err)
 	keys = make([]timebox.ScheduleKey, len(due))
 	for i, schedule := range due {

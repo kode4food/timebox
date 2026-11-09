@@ -165,7 +165,7 @@ func runSchedules(t *testing.T, p Profile) {
 		next := loadSchedule(t, store, "repeat")
 		assert.Equal(t, at, next.At)
 
-		due, err := store.ListSchedules(at)
+		due, err := store.LoadSchedules(at)
 		assert.NoError(t, err)
 		assert.Len(t, due, 1)
 	})
@@ -295,7 +295,7 @@ func runSchedules(t *testing.T, p Profile) {
 			)
 		}
 
-		schedules, err := store.ListSchedules(time.Time{})
+		schedules, err := store.LoadSchedules(time.Time{})
 		assert.NoError(t, err)
 		keys := make([]timebox.ScheduleKey, len(schedules))
 		for i, schedule := range schedules {
@@ -305,7 +305,7 @@ func runSchedules(t *testing.T, p Profile) {
 			[]timebox.ScheduleKey{"first", "second", "later"}, keys,
 		)
 
-		due, err := store.ListSchedules(base.Add(time.Hour))
+		due, err := store.LoadSchedules(base.Add(time.Hour))
 		assert.NoError(t, err)
 		keys = make([]timebox.ScheduleKey, len(due))
 		for i, schedule := range due {
@@ -320,7 +320,7 @@ func runSchedules(t *testing.T, p Profile) {
 				return tx.Schedule("later", base.Add(30*time.Minute), msg)
 			}),
 		)
-		due, err = store.ListSchedules(base.Add(time.Hour))
+		due, err = store.LoadSchedules(base.Add(time.Hour))
 		assert.NoError(t, err)
 		keys = make([]timebox.ScheduleKey, len(due))
 		for i, schedule := range due {

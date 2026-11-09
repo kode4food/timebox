@@ -161,7 +161,7 @@ func (s *Scheduler) applyChanges() {
 }
 
 func (s *Scheduler) reconcileSchedules() error {
-	schedules, err := s.store.ListSchedules(s.clock().Add(s.rescan))
+	schedules, err := s.store.LoadSchedules(s.clock().Add(s.rescan))
 	if err != nil {
 		return err
 	}

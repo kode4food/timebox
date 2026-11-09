@@ -76,7 +76,7 @@ return runner.Run(ctx)
 
 `Run` blocks until its context ends. Schedules persist in the backend, so a scheduler recreated after a restart picks them up. The runner consumes the schedule in the processor's transaction, so the consumption and the processor's state changes commit together when the processor returns nil. A concurrent replacement aborts the commit, and the runner delivers the replacement at its own deadline. An error leaves the schedule active for retry. Return `scheduler.ErrRetry` to retry quietly when a delay is expected. The processor can run more than once after a transaction conflict, so put external I/O in `OnSuccess`.
 
-The runner watches local schedule commits and rescans the backend for changes made by other stores or processes. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `tx.LoadSchedule(key)` to inspect one active schedule and `store.ListSchedules(through)` to list active schedules due by a time. `time.Time{}` lists all. For recurring work, schedule the next occurrence under the same key in the processor's transaction.
+The runner watches local schedule commits and rescans the backend for changes made by other stores or processes. `RescanInterval` and `RetryDelay` both default to one second. Call `runner.Wake()` when an external change needs an immediate rescan. Use `tx.LoadSchedule(key)` to inspect one active schedule and `store.LoadSchedules(through)` to load active schedules due by a time. `time.Time{}` lists all. For recurring work, schedule the next occurrence under the same key in the processor's transaction.
 
 ## Deliver from Your Own Loop
 
@@ -92,4 +92,4 @@ err := store.Transact(func(tx *timebox.Transaction) error {
 })
 ```
 
-Combine it with `store.ListSchedules(through)` to find keys worth trying, and with `store.ScheduleChanges()` to learn when local commits change the set.
+Combine it with `store.LoadSchedules(through)` to find keys worth trying, and with `store.ScheduleChanges()` to learn when local commits change the set.
