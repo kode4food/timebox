@@ -330,7 +330,10 @@ func TestFollowerExec(t *testing.T) {
 					return ag.Raise(incrementedEvent, 1)
 				},
 			)
-			resCh <- result{state: state, err: err}
+			resCh <- result{
+				state: state,
+				err:   err,
+			}
 		}(exec)
 	}
 	close(start)
@@ -650,10 +653,7 @@ func TestRestart(t *testing.T) {
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Equal(t, []timebox.StatusEntry{{
-		ID:        id,
-		Timestamp: secondTS,
-	}}, statuses)
+	assert.Equal(t, []timebox.StatusEntry{{ID: id, Timestamp: secondTS}}, statuses)
 
 	ids, err := n.store.ListAggregatesByTag("stage")
 	if !assert.NoError(t, err) {
@@ -833,16 +833,8 @@ func TestDeadPeerCatchUp(t *testing.T) {
 	}
 
 	cfgs := []nodeConfig{
-		{
-			id:      "node-1",
-			addr:    srvs[0].Address,
-			dataDir: t.TempDir(),
-		},
-		{
-			id:      "node-2",
-			addr:    srvs[1].Address,
-			dataDir: t.TempDir(),
-		},
+		{id: "node-1", addr: srvs[0].Address, dataDir: t.TempDir()},
+		{id: "node-2", addr: srvs[1].Address, dataDir: t.TempDir()},
 	}
 
 	n1 := newClusterNode(t, cfgs[0], srvs)

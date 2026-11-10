@@ -86,21 +86,36 @@ func runSchedules(t *testing.T, p Profile) {
 
 	t.Run("Replace", func(t *testing.T) {
 		for _, tc := range []scheduleChange{
-			{name: "Deadline", change: func(s *timebox.Schedule) {
-				s.At = s.At.Add(time.Hour)
-			}},
-			{name: "Type", change: func(s *timebox.Schedule) {
-				s.Message.Type = "other"
-			}},
-			{name: "TargetType", change: func(s *timebox.Schedule) {
-				s.Message.AggregateID.Type = "other"
-			}},
-			{name: "TargetKey", change: func(s *timebox.Schedule) {
-				s.Message.AggregateID.Key = "other"
-			}},
-			{name: "Data", change: func(s *timebox.Schedule) {
-				s.Message.Data = json.RawMessage(`{"Value":2}`)
-			}},
+			{
+				name: "Deadline",
+				change: func(s *timebox.Schedule) {
+					s.At = s.At.Add(time.Hour)
+				},
+			},
+			{
+				name: "Type",
+				change: func(s *timebox.Schedule) {
+					s.Message.Type = "other"
+				},
+			},
+			{
+				name: "TargetType",
+				change: func(s *timebox.Schedule) {
+					s.Message.AggregateID.Type = "other"
+				},
+			},
+			{
+				name: "TargetKey",
+				change: func(s *timebox.Schedule) {
+					s.Message.AggregateID.Key = "other"
+				},
+			},
+			{
+				name: "Data",
+				change: func(s *timebox.Schedule) {
+					s.Message.Data = json.RawMessage(`{"Value":2}`)
+				},
+			},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				store := openStore(t, p, timebox.Config{})

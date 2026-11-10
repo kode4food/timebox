@@ -18,10 +18,7 @@ func TestConfig(t *testing.T) {
 			LocalID: "node-1",
 			Address: "127.0.0.1:9701",
 			DataDir: filepath.Join(t.TempDir(), "node-1"),
-			Servers: []raft.Server{{
-				ID:      "node-1",
-				Address: "127.0.0.1:9701",
-			}},
+			Servers: []raft.Server{{ID: "node-1", Address: "127.0.0.1:9701"}},
 		})
 
 		assert.NoError(t, cfg.Validate())
@@ -73,10 +70,7 @@ func TestConfig(t *testing.T) {
 					LocalID: "node-1",
 					Address: "127.0.0.1:9701",
 					DataDir: t.TempDir(),
-					Servers: []raft.Server{{
-						ID:      "node-2",
-						Address: "127.0.0.1:9702",
-					}},
+					Servers: []raft.Server{{ID: "node-2", Address: "127.0.0.1:9702"}},
 				}),
 				err: raft.ErrBootstrapMissingLocalServer,
 			},

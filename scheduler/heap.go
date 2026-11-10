@@ -27,7 +27,10 @@ func (h *scheduleHeap) Replace(schedule *timebox.Schedule) {
 		heap.Fix(h, item.index)
 		return
 	}
-	heap.Push(h, &heapItem{schedule: schedule, readyAt: schedule.At})
+	heap.Push(h, &heapItem{
+		schedule: schedule,
+		readyAt:  schedule.At,
+	})
 }
 
 func (h *scheduleHeap) Remove(key timebox.ScheduleKey) {

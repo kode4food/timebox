@@ -404,14 +404,18 @@ func TestConfig(t *testing.T) {
 		{
 			name: "Rescan",
 			cfg: scheduler.Config{
-				Store: store, Processor: process, RescanInterval: -1,
+				Store:          store,
+				Processor:      process,
+				RescanInterval: -1,
 			},
 			err: scheduler.ErrInvalidRescanInterval,
 		},
 		{
 			name: "Retry",
 			cfg: scheduler.Config{
-				Store: store, Processor: process, RetryDelay: -1,
+				Store:      store,
+				Processor:  process,
+				RetryDelay: -1,
 			},
 			err: scheduler.ErrInvalidRetryDelay,
 		},

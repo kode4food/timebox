@@ -42,10 +42,7 @@ func TestAppend(t *testing.T) {
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Equal(t, []timebox.StatusEntry{{
-		ID:        id,
-		Timestamp: secondTS,
-	}}, statuses)
+	assert.Equal(t, []timebox.StatusEntry{{ID: id, Timestamp: secondTS}}, statuses)
 
 	ids, err := n.store.ListAggregatesByTag("prod")
 	if !assert.NoError(t, err) {

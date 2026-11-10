@@ -125,7 +125,10 @@ func runTransactions(t *testing.T, p Profile) {
 					testEvent(t, time.Unix(1_700_000_011, 0).UTC(), "counted", 1, nil, nil),
 				},
 			},
-			timebox.AppendRequest{ID: checked, ExpectedSequence: 1},
+			timebox.AppendRequest{
+				ID:               checked,
+				ExpectedSequence: 1,
+			},
 		)
 
 		var conflict *timebox.VersionConflictError

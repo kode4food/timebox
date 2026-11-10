@@ -388,7 +388,10 @@ func (r *raftLog) append(ents []*raftpb.Entry) (bool, error) {
 		}
 		if len(seg.pts) == 0 ||
 			(idx-seg.first)%logPointSpan == 0 {
-			pt := logPoint{idx: idx, off: off}
+			pt := logPoint{
+				idx: idx,
+				off: off,
+			}
 			idxBuf = appendIdxRecord(idxBuf, pt)
 			seg.pts = append(seg.pts, pt)
 		}

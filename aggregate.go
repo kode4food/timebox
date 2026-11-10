@@ -56,12 +56,18 @@ var (
 
 // NewAggregateID builds an AggregateID from its type and key
 func NewAggregateID(typ, key ID) AggregateID {
-	return AggregateID{Type: typ, Key: key}
+	return AggregateID{
+		Type: typ,
+		Key:  key,
+	}
 }
 
 // NewAggregateType builds the AggregateID of the only aggregate of a type
 func NewAggregateType(typ ID) AggregateID {
-	return AggregateID{Type: typ, Key: SingletonKey}
+	return AggregateID{
+		Type: typ,
+		Key:  SingletonKey,
+	}
 }
 
 // Reduce applies an event batch with the matching appliers

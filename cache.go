@@ -26,7 +26,10 @@ func newCache[T any](maxSize int) *cache[T] {
 
 func (c *cache[T]) Get(key string, cons Constructor[T]) *cacheEntry[T] {
 	entry, _ := c.cache.Get(key, func() (*cacheEntry[T], error) {
-		return &cacheEntry[T]{key: key, value: cons()}, nil
+		return &cacheEntry[T]{
+			key:   key,
+			value: cons(),
+		}, nil
 	})
 	return entry
 }

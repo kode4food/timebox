@@ -319,23 +319,19 @@ func TestScheduleInvalid(t *testing.T) {
 	store, _ := newStore(t)
 	valid := newMessage(t, "valid")
 	cases := []validationCase{
+		{name: "Key", message: valid, err: timebox.ErrScheduleKeyRequired},
+		{name: "Message", key: "invalid", err: timebox.ErrScheduleMessageRequired},
 		{
-			name: "Key", message: valid,
-			err: timebox.ErrScheduleKeyRequired,
-		},
-		{
-			name: "Message", key: "invalid",
-			err: timebox.ErrScheduleMessageRequired,
-		},
-		{
-			name: "Type", key: "invalid",
+			name: "Type",
+			key:  "invalid",
 			message: &timebox.Message{
 				AggregateID: timebox.NewAggregateID("target", "type"),
 			},
 			err: timebox.ErrScheduleMessageTypeRequired,
 		},
 		{
-			name: "ID", key: "invalid",
+			name:    "ID",
+			key:     "invalid",
 			message: &timebox.Message{Type: "schedule.test"},
 			err:     timebox.ErrInvalidAggregateID,
 		},

@@ -74,7 +74,9 @@ func NewArchiveQueueEvent(seq int64, id AggregateID, record *ArchiveRecord) (*Ev
 		return nil, err
 	}
 	msgData, err := json.Marshal(&Message{
-		Type: archiveRecorded, AggregateID: id, Data: data,
+		Type:        archiveRecorded,
+		AggregateID: id,
+		Data:        data,
 	})
 	if err != nil {
 		return nil, err

@@ -92,7 +92,10 @@ func newBackend(cfg Config) (*Backend, error) {
 		return nil, err
 	}
 
-	return &Backend{pool: pool, publisher: cfg.Publisher}, nil
+	return &Backend{
+		pool:      pool,
+		publisher: cfg.Publisher,
+	}, nil
 }
 
 // Close closes the Postgres connection pool

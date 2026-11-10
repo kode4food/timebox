@@ -119,7 +119,10 @@ func (e *Executor[T]) invalidate(id AggregateID) {
 func (e *Executor[T]) loadSnapshot(id AggregateID) (*projection[T], error) {
 	key := cacheKey(id)
 	entry := e.cache.Get(key, func() *projection[T] {
-		return &projection[T]{state: e.construct(), nextSeq: 0}
+		return &projection[T]{
+			state:   e.construct(),
+			nextSeq: 0,
+		}
 	})
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
@@ -165,7 +168,10 @@ func (e *Executor[T]) readProjection(id AggregateID) (*projection[T], bool, erro
 			return nil, false, err
 		}
 	}
-	proj := &projection[T]{state: st, nextSeq: rec.Sequence}
+	proj := &projection[T]{
+		state:   st,
+		nextSeq: rec.Sequence,
+	}
 	if len(rec.Events) > 0 {
 		proj = e.applyEvents(st, rec.Events, rec.Sequence)
 	}

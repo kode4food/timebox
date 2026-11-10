@@ -120,7 +120,8 @@ func runEvents(t *testing.T, p Profile) {
 		got, err := evs[0].GetValue[indexData]()
 		assert.NoError(t, err)
 		assert.Equal(t, indexData{
-			Value: 7, Tags: map[string]bool{"dev": true},
+			Value: 7,
+			Tags:  map[string]bool{"dev": true},
 		}, got)
 	})
 

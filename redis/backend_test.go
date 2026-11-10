@@ -36,10 +36,8 @@ func TestAppendWithoutStore(t *testing.T) {
 		func(_ context.Context, b *tbredis.Backend, _ *redis.Client) {
 			id := timebox.NewAggregateID("order", "standalone")
 			err := b.Append(timebox.AppendRequest{
-				ID: id,
-				Events: []*timebox.Event{{
-					AggregateID: id,
-				}},
+				ID:     id,
+				Events: []*timebox.Event{{AggregateID: id}},
 			})
 			assert.NoError(t, err)
 		},

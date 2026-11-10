@@ -191,7 +191,10 @@ func (b *Backend) newSnapshotRef() (uint64, string, error) {
 func (b *Backend) storeOutgoingSnapshot(ref uint64, path string, applied uint64) {
 	b.snapMu.Lock()
 	defer b.snapMu.Unlock()
-	b.snapOut[ref] = outSnapshot{path: path, applied: applied}
+	b.snapOut[ref] = outSnapshot{
+		path:    path,
+		applied: applied,
+	}
 }
 
 func (b *Backend) outgoingSnapshot(ref uint64) (string, bool) {

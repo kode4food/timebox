@@ -16,10 +16,7 @@ func TestArchiveToStream(t *testing.T) {
 	store, err := memory.Open().NewStore(timebox.Config{
 		TrimEvents: true,
 		Indexer: func([]*timebox.Event) []*timebox.Index {
-			return []*timebox.Index{{
-				Status: new("active"),
-				Tags:   map[string]bool{"prod": true},
-			}}
+			return []*timebox.Index{{Status: new("active"), Tags: map[string]bool{"prod": true}}}
 		},
 	})
 	assert.NoError(t, err)

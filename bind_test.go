@@ -89,7 +89,10 @@ func TestMakeHandler(t *testing.T) {
 			},
 		)
 
-		data := nameValueData{Name: "test", Value: 42}
+		data := nameValueData{
+			Name:  "test",
+			Value: 42,
+		}
 		jsonData, err := json.Marshal(data)
 		assert.NoError(t, err)
 		msg := &timebox.Message{
@@ -103,7 +106,10 @@ func TestMakeHandler(t *testing.T) {
 		}
 
 		assert.True(t, called)
-		assert.Equal(t, nameValueData{Name: "test", Value: 42}, receivedData)
+		assert.Equal(t, nameValueData{
+			Name:  "test",
+			Value: 42,
+		}, receivedData)
 		assert.Same(t, msg, receivedMessage)
 	})
 
@@ -298,10 +304,16 @@ func TestHandlerDispatcher(t *testing.T) {
 		dispatcher := timebox.MakeDispatcher(handlers)
 
 		userData, err := json.Marshal(
-			userCreatedData{UserID: "user123", Email: "test@example.com"},
+			userCreatedData{
+				UserID: "user123",
+				Email:  "test@example.com",
+			},
 		)
 		assert.NoError(t, err)
-		ev := &timebox.Event{Type: "user.created", Data: userData}
+		ev := &timebox.Event{
+			Type: "user.created",
+			Data: userData,
+		}
 		err = dispatcher(&ev.Message)
 		if !assert.NoError(t, err) {
 			return
@@ -311,10 +323,16 @@ func TestHandlerDispatcher(t *testing.T) {
 		assert.Equal(t, "user123", receivedUserID)
 
 		orderData, err := json.Marshal(
-			orderPlacedData{OrderID: "order456", Amount: 100},
+			orderPlacedData{
+				OrderID: "order456",
+				Amount:  100,
+			},
 		)
 		assert.NoError(t, err)
-		msg := &timebox.Message{Type: "order.placed", Data: orderData}
+		msg := &timebox.Message{
+			Type: "order.placed",
+			Data: orderData,
+		}
 		err = dispatcher(msg)
 		if !assert.NoError(t, err) {
 			return
@@ -397,7 +415,10 @@ func TestMakeApplier(t *testing.T) {
 			},
 		)
 
-		data := nameValueData{Name: "test", Value: 42}
+		data := nameValueData{
+			Name:  "test",
+			Value: 42,
+		}
 		jsonData, err := json.Marshal(data)
 		assert.NoError(t, err)
 		ev := &timebox.Event{
@@ -405,13 +426,25 @@ func TestMakeApplier(t *testing.T) {
 			Data: jsonData,
 		}
 
-		st := countState{Count: 10, Last: "initial"}
+		st := countState{
+			Count: 10,
+			Last:  "initial",
+		}
 		res := applier(st, ev)
 
-		assert.Equal(t, countState{Count: 10, Last: "initial"}, receivedState)
-		assert.Equal(t, nameValueData{Name: "test", Value: 42}, receivedData)
+		assert.Equal(t, countState{
+			Count: 10,
+			Last:  "initial",
+		}, receivedState)
+		assert.Equal(t, nameValueData{
+			Name:  "test",
+			Value: 42,
+		}, receivedData)
 		assert.Same(t, ev, receivedEvent)
-		assert.Equal(t, countState{Count: 52, Last: "test"}, res)
+		assert.Equal(t, countState{
+			Count: 52,
+			Last:  "test",
+		}, res)
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
@@ -526,8 +559,14 @@ func TestMakeApplier(t *testing.T) {
 
 		incData, err := json.Marshal(deltaData{Delta: 5})
 		assert.NoError(t, err)
-		event1 := &timebox.Event{Type: "increment", Data: incData}
-		event2 := &timebox.Event{Type: "reset", Data: []byte("{}")}
+		event1 := &timebox.Event{
+			Type: "increment",
+			Data: incData,
+		}
+		event2 := &timebox.Event{
+			Type: "reset",
+			Data: []byte("{}"),
+		}
 		st := appliers.Reduce(valueState{Value: 10}, []*timebox.Event{event1, event2})
 
 		assert.Equal(t, 0, st.Value)

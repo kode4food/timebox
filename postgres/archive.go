@@ -71,7 +71,9 @@ func (b *Backend) bundleArchiveTx(
 	}
 
 	events, err := b.loadEvents(ctx, tx, eventRange{
-		id: id, key: key, fromSeq: state.baseSeq,
+		id:      id,
+		key:     key,
+		fromSeq: state.baseSeq,
 	})
 	if err != nil {
 		return nil, err

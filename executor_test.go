@@ -462,7 +462,10 @@ func TestNoOpCommandRetriesOnConflict(t *testing.T) {
 func TestRaiseError(t *testing.T) {
 	_, executor := setupTestExecutor(t)
 
-	id := timebox.AggregateID{Type: "raise", Key: "error"}
+	id := timebox.AggregateID{
+		Type: "raise",
+		Key:  "error",
+	}
 	_, err := executor.Exec(id,
 		func(_ CounterState, ag *timebox.Aggregator[CounterState]) error {
 			ch := make(chan int)

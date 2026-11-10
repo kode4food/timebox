@@ -124,14 +124,8 @@ func runIndexing(t *testing.T, p Profile) {
 				)
 				assert.NoError(t, err)
 				assert.Equal(t, []timebox.StatusEntry{
-					{
-						ID:        first,
-						Timestamp: time.Unix(1_700_000_000, 0).UTC(),
-					},
-					{
-						ID:        second,
-						Timestamp: time.Unix(1_700_000_300, 0).UTC(),
-					},
+					{ID: first, Timestamp: time.Unix(1_700_000_000, 0).UTC()},
+					{ID: second, Timestamp: time.Unix(1_700_000_300, 0).UTC()},
 				}, statuses)
 
 				statuses, err = store.ListAggregatesByStatus(
@@ -203,7 +197,10 @@ func runIndexing(t *testing.T, p Profile) {
 					{ID: ids[1], Timestamp: at(1)},
 					{ID: ids[3], Timestamp: at(3)},
 					{ID: ids[0], Timestamp: at(9)},
-				}, list(timebox.StatusQuery{Status: active, Type: "order"}))
+				}, list(timebox.StatusQuery{
+					Status: active,
+					Type:   "order",
+				}))
 			})
 
 			t.Run("StatusKeyPrefix", func(t *testing.T) {
