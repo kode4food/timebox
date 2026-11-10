@@ -68,7 +68,7 @@ Rules:
 - Order top-level declarations as types, constants, variables, exported constructors, exported methods, exported functions, unexported methods, then unexported functions.
 - Keep related methods together in call-chain order.
 - Run `goimports` on Go files.
-- Keep Go code and comments within 80 columns.
+- Keep Go code and comments within 100 columns.
 - Do not hard-wrap Markdown prose.
 
 ### Structs and Control Flow

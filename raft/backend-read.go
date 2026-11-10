@@ -8,9 +8,7 @@ import (
 )
 
 // LoadEvents loads events for one aggregate starting at the requested sequence
-func (b *Backend) LoadEvents(
-	req timebox.LoadEventsRequest,
-) (*timebox.EventsResult, error) {
+func (b *Backend) LoadEvents(req timebox.LoadEventsRequest) (*timebox.EventsResult, error) {
 	var res *timebox.EventsResult
 
 	encodedID := encodeAggregateID(req.ID)
@@ -46,9 +44,7 @@ func (b *Backend) LoadEvents(
 }
 
 // LoadSnapshot returns the latest snapshot and tail events for one aggregate
-func (b *Backend) LoadSnapshot(
-	req timebox.LoadSnapshotRequest,
-) (*timebox.SnapshotRecord, error) {
+func (b *Backend) LoadSnapshot(req timebox.LoadSnapshotRequest) (*timebox.SnapshotRecord, error) {
 	var rec *timebox.SnapshotRecord
 
 	encodedID := encodeAggregateID(req.ID)
@@ -83,11 +79,8 @@ func (b *Backend) LoadSnapshot(
 	return rec, nil
 }
 
-// ListAggregates lists known aggregate IDs of the given type, or of every type
-// when it is empty
-func (b *Backend) ListAggregates(
-	typ timebox.ID,
-) ([]timebox.AggregateID, error) {
+// ListAggregates lists known aggregate IDs of the given type, or of every type when it is empty
+func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
 	var ids []timebox.AggregateID
 
 	err := b.db.View(func(tx *kvTx) error {
@@ -129,9 +122,7 @@ func (b *Backend) ListAggregates(
 	return ids, nil
 }
 
-func (b *Backend) checkConflict(
-	id timebox.AggregateID, expected int64,
-) error {
+func (b *Backend) checkConflict(id timebox.AggregateID, expected int64) error {
 	encodedID := encodeAggregateID(id)
 	return b.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)

@@ -41,8 +41,8 @@ func appendEscaped(b *strings.Builder, value string) {
 	b.WriteString(value[start:])
 }
 
-// cutEscaped takes everything past the first unescaped separator as the key,
-// however many separators it contains
+// cutEscaped takes everything past the first unescaped separator as the key, however many
+// separators it contains
 func cutEscaped(value string) (string, string) {
 	for i := 0; i < len(value); i++ {
 		switch value[i] {

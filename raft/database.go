@@ -46,9 +46,7 @@ func openKVDB(path string) (*kvDB, error) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return nil, err
 	}
-	opts := badger.DefaultOptions(path).
-		WithValueDir(path).
-		WithLogger(nil).
+	opts := badger.DefaultOptions(path).WithValueDir(path).WithLogger(nil).
 		WithMetricsEnabled(false).
 		WithCompression(options.None).
 		WithDetectConflicts(false).

@@ -86,9 +86,7 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 }
 
 // LoadEvents loads events starting at fromSeq
-func (b *Backend) LoadEvents(
-	req timebox.LoadEventsRequest,
-) (*timebox.EventsResult, error) {
+func (b *Backend) LoadEvents(req timebox.LoadEventsRequest) (*timebox.EventsResult, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -113,9 +111,7 @@ func (b *Backend) LoadEvents(
 }
 
 // LoadSnapshot loads the snapshot and trailing events for an aggregate
-func (b *Backend) LoadSnapshot(
-	req timebox.LoadSnapshotRequest,
-) (*timebox.SnapshotRecord, error) {
+func (b *Backend) LoadSnapshot(req timebox.LoadSnapshotRequest) (*timebox.SnapshotRecord, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -161,11 +157,8 @@ func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
 	return nil
 }
 
-// ListAggregates lists aggregate IDs of the given type, or of every type when
-// it is empty
-func (b *Backend) ListAggregates(
-	typ timebox.ID,
-) ([]timebox.AggregateID, error) {
+// ListAggregates lists aggregate IDs of the given type, or of every type when it is empty
+func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -183,9 +176,7 @@ func (b *Backend) ListAggregates(
 }
 
 // GetAggregateStatus gets the current status for an aggregate
-func (b *Backend) GetAggregateStatus(
-	id timebox.AggregateID,
-) (string, error) {
+func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -200,11 +191,8 @@ func (b *Backend) GetAggregateStatus(
 	return a.status, nil
 }
 
-// ListAggregatesByStatus lists aggregates matching the query, ordered by status
-// time
-func (b *Backend) ListAggregatesByStatus(
-	q timebox.StatusQuery,
-) ([]timebox.StatusEntry, error) {
+// ListAggregatesByStatus lists aggregates matching the query, ordered by status time
+func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.StatusEntry, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -238,9 +226,7 @@ func (b *Backend) ListAggregatesByStatus(
 }
 
 // ListAggregatesByTag lists aggregates for a tag
-func (b *Backend) ListAggregatesByTag(
-	tag string,
-) ([]timebox.AggregateID, error) {
+func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -257,8 +243,8 @@ func (b *Backend) ListAggregatesByTag(
 	return res, nil
 }
 
-// Archive atomically bundles id's snapshot and remaining events into the
-// shared archive queue, then removes id's live records
+// Archive atomically bundles id's snapshot and remaining events into the shared archive queue, then
+// removes id's live records
 func (b *Backend) Archive(id timebox.AggregateID) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -278,9 +264,7 @@ func (b *Backend) Archive(id timebox.AggregateID) error {
 		Events:           a.events,
 	}
 	q := b.aggregate(timebox.ArchiveQueueID)
-	ev, err := timebox.NewArchiveQueueEvent(
-		q.baseSeq+int64(len(q.events)), id, record,
-	)
+	ev, err := timebox.NewArchiveQueueEvent(q.baseSeq+int64(len(q.events)), id, record)
 	if err != nil {
 		return err
 	}

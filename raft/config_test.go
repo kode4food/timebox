@@ -135,15 +135,9 @@ func TestNewStore(t *testing.T) {
 	second := timebox.NewAggregateID("order", "2")
 	third := timebox.NewAggregateID("invoice", "1")
 
-	assert.NoError(t, store.AppendEvents(first, 0, []*timebox.Event{
-		numberEvent(first, 1),
-	}))
-	assert.NoError(t, store.AppendEvents(second, 0, []*timebox.Event{
-		numberEvent(second, 1),
-	}))
-	assert.NoError(t, store.AppendEvents(third, 0, []*timebox.Event{
-		numberEvent(third, 1),
-	}))
+	assert.NoError(t, store.AppendEvents(first, 0, []*timebox.Event{numberEvent(first, 1)}))
+	assert.NoError(t, store.AppendEvents(second, 0, []*timebox.Event{numberEvent(second, 1)}))
+	assert.NoError(t, store.AppendEvents(third, 0, []*timebox.Event{numberEvent(third, 1)}))
 
 	ids, err := store.ListAggregates("order")
 	if !assert.NoError(t, err) {

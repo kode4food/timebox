@@ -547,12 +547,7 @@ func TestOnSuccessCallbacks(t *testing.T) {
 	assert.Equal(t, []int{1, 1, 1, 1}, values)
 	assert.Equal(t, []int{1, 1, 1, 1}, eventCounts)
 	assert.Equal(t,
-		[]timebox.EventType{
-			EventIncremented,
-			EventIncremented,
-			EventIncremented,
-			EventIncremented,
-		},
+		[]timebox.EventType{EventIncremented, EventIncremented, EventIncremented, EventIncremented},
 		eventTypes,
 	)
 	assert.Contains(t, buf.String(), "OnSuccess action panicked")
@@ -627,9 +622,7 @@ func TestOnSuccessError(t *testing.T) {
 	assert.False(t, called)
 }
 
-func assertCacheEviction(
-	t *testing.T, executor *timebox.Executor[CounterState], count *int,
-) {
+func assertCacheEviction(t *testing.T, executor *timebox.Executor[CounterState], count *int) {
 	t.Helper()
 
 	id1 := timebox.NewAggregateID("counter", "1")
@@ -686,9 +679,7 @@ func setupExecutorWithConfigs(
 	return store, executor
 }
 
-func setupExecutorStore(
-	t *testing.T, base, override timebox.Config,
-) *timebox.Store {
+func setupExecutorStore(t *testing.T, base, override timebox.Config) *timebox.Store {
 	t.Helper()
 
 	cfg := timebox.Configure(base, override)

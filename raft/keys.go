@@ -32,8 +32,8 @@ var bucketName = []byte("timebox")
 //     timestamps, ordered by type and then status time
 //   - state/idx/tag/<tag>/<aggregate> stores tag membership
 //
-// Variable key parts are base64url encoded so iteration remains
-// lexicographically well-structured without introducing ambiguous separators
+// Variable key parts are base64url encoded so iteration remains lexicographically well-structured
+// without introducing ambiguous separators
 
 // AggregateMetaPrefix returns the key prefix for aggregate metadata
 func AggregateMetaPrefix() []byte {
@@ -64,18 +64,15 @@ func statusIndexPrefix(status string) []byte {
 	return []byte(statusRootPrefix + encodeKeyPart(status) + "/")
 }
 
-// statusIndexKey orders entries by type, then status time, so a query bounded
-// by both stops at the bound
+// statusIndexKey orders entries by type, then status time, so a query bounded by both stops at the
+// bound
 func statusIndexKey(status, encodedID string, at int64) []byte {
 	typ, key, _ := strings.Cut(encodedID, ".")
-	return []byte(
-		string(statusIndexPrefix(status)) + typ + "." + statusTime(at) +
-			"/" + key,
-	)
+	return []byte(string(statusIndexPrefix(status)) + typ + "." + statusTime(at) + "/" + key)
 }
 
-// decodeStatusIndexID reads the aggregate from the part of a status key that
-// follows its status prefix
+// decodeStatusIndexID reads the aggregate from the part of a status key that follows its status
+// prefix
 func decodeStatusIndexID(rest string) (timebox.AggregateID, error) {
 	typ, rest, _ := strings.Cut(rest, ".")
 	_, key, _ := strings.Cut(rest, "/")
@@ -103,8 +100,8 @@ func encodeAggregateID(id timebox.AggregateID) string {
 	return encodeAggregateType(id.Type) + encodeKeyPart(string(id.Key))
 }
 
-// encodeAggregateType encodes the type half of a key, including its trailing
-// separator, so it also serves as the scan prefix for a whole type
+// encodeAggregateType encodes the type half of a key, including its trailing separator, so it also
+// serves as the scan prefix for a whole type
 func encodeAggregateType(typ timebox.ID) string {
 	return encodeKeyPart(string(typ)) + "."
 }

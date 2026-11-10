@@ -23,10 +23,7 @@ func runAggregates(t *testing.T, p Profile) {
 		first := timebox.NewAggregateID("order", "1")
 		second := timebox.NewAggregateID("order", "2")
 		third := timebox.NewAggregateID("user", "1")
-		ev := testEvent(t,
-			time.Unix(1_700_000_007, 0).UTC(),
-			"event.test", 1, nil, nil,
-		)
+		ev := testEvent(t, time.Unix(1_700_000_007, 0).UTC(), "event.test", 1, nil, nil)
 
 		assert.NoError(t, store.AppendEvents(first, 0, []*timebox.Event{ev}))
 		assert.NoError(t, store.AppendEvents(second, 0, []*timebox.Event{ev}))
@@ -34,10 +31,7 @@ func runAggregates(t *testing.T, p Profile) {
 
 		all, err := store.ListAggregates("")
 		assert.NoError(t, err)
-		assert.ElementsMatch(t,
-			[]timebox.AggregateID{first, second, third},
-			all,
-		)
+		assert.ElementsMatch(t, []timebox.AggregateID{first, second, third}, all)
 
 		orders, err := store.ListAggregates("order")
 		assert.NoError(t, err)

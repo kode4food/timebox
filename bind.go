@@ -14,8 +14,8 @@ func MakeHandler[T any](fn func(msg *Message, data T) error) Handler {
 	}
 }
 
-// MakeApplier wraps a strongly typed applier that receives the event payload
-// value and returns an Applier that works with Event
+// MakeApplier wraps a strongly typed applier that receives the event payload value and returns an
+// Applier that works with Event
 func MakeApplier[T, Data any](fn func(T, *Event, Data) T) Applier[T] {
 	return func(val T, ev *Event) T {
 		data, err := ev.GetValue[Data]()

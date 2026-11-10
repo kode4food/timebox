@@ -16,9 +16,7 @@ import (
 const snapshotRefSize = 8
 
 func openProjectionDB(dataDir string) (*kvDB, error) {
-	return openKVDB(
-		filepath.Join(dataDir, projectionDirName, projectionDBName),
-	)
+	return openKVDB(filepath.Join(dataDir, projectionDirName, projectionDBName))
 }
 
 // State returns the current local Raft role
@@ -66,8 +64,8 @@ func (b *Backend) compactBound() uint64 {
 	return bound
 }
 
-// pendingSnapFloor returns the lowest applied index of any outgoing snapshot
-// not yet confirmed sent, so compaction can't race ahead of it
+// pendingSnapFloor returns the lowest applied index of any outgoing snapshot not yet confirmed
+// sent, so compaction can't race ahead of it
 func (b *Backend) pendingSnapFloor() uint64 {
 	b.snapMu.Lock()
 	defer b.snapMu.Unlock()
@@ -161,9 +159,7 @@ func (b *Backend) applySnapshot(snap *raftpb.Snapshot) error {
 	return b.raftLog.ApplySnapshot(meta)
 }
 
-func (b *Backend) restoreMaterializedState(
-	log *raftLog, fastForward bool,
-) error {
+func (b *Backend) restoreMaterializedState(log *raftLog, fastForward bool) error {
 	applied, err := loadLastApplied(b.db)
 	if err != nil {
 		return err
@@ -192,9 +188,7 @@ func (b *Backend) newSnapshotRef() (uint64, string, error) {
 	return ref, filepath.Join(dir, snapshotFileName(ref)), nil
 }
 
-func (b *Backend) storeOutgoingSnapshot(
-	ref uint64, path string, applied uint64,
-) {
+func (b *Backend) storeOutgoingSnapshot(ref uint64, path string, applied uint64) {
 	b.snapMu.Lock()
 	defer b.snapMu.Unlock()
 	b.snapOut[ref] = outSnapshot{path: path, applied: applied}
@@ -219,8 +213,8 @@ func (b *Backend) releaseOutgoingSnapshot(ref uint64) {
 	}
 }
 
-// clearSnapFloor stops a failed-delivery snapshot from holding back compaction,
-// keeping its file around in case the send is retried
+// clearSnapFloor stops a failed-delivery snapshot from holding back compaction, keeping its file
+// around in case the send is retried
 func (b *Backend) clearSnapFloor(ref uint64) {
 	b.snapMu.Lock()
 	if out, ok := b.snapOut[ref]; ok {
@@ -257,9 +251,7 @@ func (b *Backend) writeSnapshotStream(w io.Writer, ref uint64) error {
 	return writeSnapshotFile(w, path)
 }
 
-func (b *Backend) readSnapshotStream(
-	r io.Reader, ref uint64, size uint64,
-) error {
+func (b *Backend) readSnapshotStream(r io.Reader, ref uint64, size uint64) error {
 	_, path, err := b.newSnapshotRef()
 	if err != nil {
 		return err

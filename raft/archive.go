@@ -10,17 +10,12 @@ import (
 func (b *Backend) Archive(id timebox.AggregateID) error {
 	propID := b.newProposalID()
 	_, err := b.applyWithTimeout(
-		context.Background(),
-		MakeArchiveCommand(propID, &ArchiveCommand{ID: id}),
-		propID,
-		nil,
+		context.Background(), MakeArchiveCommand(propID, &ArchiveCommand{ID: id}), propID, nil,
 	)
 	return err
 }
 
-func deleteAggregateTx(
-	b *kvBucket, encodedID string, meta *AggregateMeta,
-) error {
+func deleteAggregateTx(b *kvBucket, encodedID string, meta *AggregateMeta) error {
 	if meta.Status != "" {
 		key := statusIndexKey(meta.Status, encodedID, meta.StatusAt)
 		if err := b.Delete(key); err != nil {
@@ -33,8 +28,8 @@ func deleteAggregateTx(
 		}
 	}
 
-	// A cursor in the batched apply transaction re-sorts its pending writes,
-	// so delete the event keys the meta already bounds
+	// A cursor in the batched apply transaction re-sorts its pending writes, so delete the event
+	// keys the meta already bounds
 	pfx := aggregateEventPrefix(encodedID)
 	for seq := meta.BaseSequence; seq < meta.CurrentSequence; seq++ {
 		key := aggregateEventKeyFromPrefix(pfx, seq)

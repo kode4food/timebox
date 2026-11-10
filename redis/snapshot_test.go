@@ -30,10 +30,7 @@ func TestSnapshotCorrupt(t *testing.T) {
 	defer func() { _ = client.Close() }()
 
 	err = client.Set(
-		context.Background(),
-		cfg.Prefix+":"+joinAggregateID(id)+":snapshot:val",
-		"not-json",
-		0,
+		context.Background(), cfg.Prefix+":"+joinAggregateID(id)+":snapshot:val", "not-json", 0,
 	).Err()
 	assert.NoError(t, err)
 

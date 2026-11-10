@@ -24,8 +24,8 @@ const archiveQueue ID = "_tb.archive_"
 
 const archiveRecorded EventType = "_tb.archive.recorded"
 
-// ArchiveQueueID identifies the aggregate a Backend's native Archive
-// implementation appends records to, and Store.ConsumeArchive drains
+// ArchiveQueueID identifies the aggregate a Backend's native Archive implementation appends records
+// to, and Store.ConsumeArchive drains
 var ArchiveQueueID = NewAggregateID(queueAggregateType, archiveQueue)
 
 var (
@@ -36,8 +36,8 @@ var (
 	ErrArchiveHandlerMissing = errors.New("archive handler is required")
 )
 
-// Archive bundles an aggregate's snapshot and remaining events into the archive
-// queue and removes its live records. A missing aggregate is a no-op
+// Archive bundles an aggregate's snapshot and remaining events into the archive queue and removes
+// its live records. A missing aggregate is a no-op
 func (s *Store) Archive(id AggregateID) error {
 	if err := s.backend.Archive(id); err != nil {
 		return err
@@ -49,11 +49,9 @@ func (s *Store) Archive(id AggregateID) error {
 	return nil
 }
 
-// ConsumeArchive hands the oldest archived record to handler. The record is
-// removed only if handler returns nil
-func (s *Store) ConsumeArchive(
-	ctx context.Context, handler ArchiveHandler,
-) error {
+// ConsumeArchive hands the oldest archived record to handler. The record is removed only if handler
+// returns nil
+func (s *Store) ConsumeArchive(ctx context.Context, handler ArchiveHandler) error {
 	if handler == nil {
 		return ErrArchiveHandlerMissing
 	}
@@ -68,12 +66,9 @@ func (s *Store) ConsumeArchive(
 	)
 }
 
-// NewArchiveQueueEvent builds the raw event a Backend's native Archive
-// implementation must atomically append to ArchiveQueueID at seq, alongside
-// removing id's own live records
-func NewArchiveQueueEvent(
-	seq int64, id AggregateID, record *ArchiveRecord,
-) (*Event, error) {
+// NewArchiveQueueEvent builds the raw event a Backend's native Archive implementation must
+// atomically append to ArchiveQueueID at seq, alongside removing id's own live records
+func NewArchiveQueueEvent(seq int64, id AggregateID, record *ArchiveRecord) (*Event, error) {
 	data, err := json.Marshal(record)
 	if err != nil {
 		return nil, err

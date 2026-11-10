@@ -23,12 +23,8 @@ var schemaStatements = []string{
 	sqlCheckFunction,
 }
 
-func initSchema(
-	ctx context.Context, pool *pgxpool.Pool, schema string,
-) error {
-	_, err := pool.Exec(ctx,
-		"CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{schema}.Sanitize(),
-	)
+func initSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{schema}.Sanitize())
 	if err != nil {
 		return err
 	}

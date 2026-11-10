@@ -11,9 +11,7 @@ import (
 )
 
 // GetAggregateStatus returns the current derived status for one aggregate
-func (b *Backend) GetAggregateStatus(
-	id timebox.AggregateID,
-) (string, error) {
+func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	var status string
 	err := b.db.View(func(tx *kvTx) error {
 		b := tx.Bucket(bucketName)
@@ -29,12 +27,9 @@ func (b *Backend) GetAggregateStatus(
 	return status, err
 }
 
-// ListAggregatesByStatus lists aggregates matching the query, ordered by status
-// time. Type narrows the status-index scan, and with Type set the scan stops
-// at Through. KeyPrefix filters each entry
-func (b *Backend) ListAggregatesByStatus(
-	q timebox.StatusQuery,
-) ([]timebox.StatusEntry, error) {
+// ListAggregatesByStatus lists aggregates matching the query, ordered by status time. Type narrows
+// the status-index scan, and with Type set the scan stops at Through. KeyPrefix filters each entry
+func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.StatusEntry, error) {
 	bound := int64(math.MaxInt64)
 	if !q.Through.IsZero() {
 		bound = q.Through.UnixMilli()
@@ -84,9 +79,7 @@ func (b *Backend) ListAggregatesByStatus(
 }
 
 // ListAggregatesByTag lists aggregates currently indexed by tag
-func (b *Backend) ListAggregatesByTag(
-	tag string,
-) ([]timebox.AggregateID, error) {
+func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error) {
 	var ids []timebox.AggregateID
 
 	err := b.db.View(func(tx *kvTx) error {

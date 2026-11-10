@@ -21,9 +21,9 @@ type counterState struct {
 
 const incrementedEvent timebox.EventType = "incremented"
 
-// TestSnapshotTransfer verifies that when a late-joining node needs entries
-// that have been compacted away, the leader sends a full DB snapshot and the
-// follower applies it and catches up correctly
+// TestSnapshotTransfer verifies that when a late-joining node needs entries that have been
+// compacted away, the leader sends a full DB snapshot and the follower applies it and catches up
+// correctly
 func TestSnapshotTransfer(t *testing.T) {
 	const count = 16
 
@@ -83,9 +83,7 @@ func TestFollower(t *testing.T) {
 	assert.Equal(t, follower.backend.State(), raft.StateFollower)
 
 	id := timebox.NewAggregateID("order", "replicated")
-	err := follower.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	})
+	err := follower.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -95,9 +93,7 @@ func TestFollower(t *testing.T) {
 		return
 	}
 
-	err = follower.store.AppendEvents(id, 1, []*timebox.Event{
-		numberEvent(id, 2),
-	})
+	err = follower.store.AppendEvents(id, 1, []*timebox.Event{numberEvent(id, 2)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -177,9 +173,7 @@ func TestArchiveReplicates(t *testing.T) {
 	}
 
 	id := timebox.NewAggregateID("order", "archive-replicates")
-	err := follower.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	})
+	err := follower.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -247,9 +241,7 @@ func TestArchiveRestart(t *testing.T) {
 	n := newNode(t, cfg)
 	waitForWrite(t, n.store)
 	id := timebox.NewAggregateID("order", "archive-restart")
-	assert.NoError(t, n.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	}))
+	assert.NoError(t, n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)}))
 	assert.NoError(t, n.store.Archive(id))
 
 	closeNode(t, n)
@@ -544,9 +536,7 @@ func TestLogJoinPublish(t *testing.T) {
 	assert.Empty(t, got["node-1"])
 	mu.Unlock()
 
-	err := late.store.AppendEvents(id, int64(count), []*timebox.Event{
-		numberEvent(id, count+1),
-	})
+	err := late.store.AppendEvents(id, int64(count), []*timebox.Event{numberEvent(id, count+1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -591,9 +581,7 @@ func TestLogJoinRestart(t *testing.T) {
 	late = newClusterNode(t, cfgs[0], srvs)
 	waitEvents(t, late.store, id, count)
 
-	err := leader.store.AppendEvents(id, int64(count), []*timebox.Event{
-		numberEvent(id, count+1),
-	})
+	err := leader.store.AppendEvents(id, int64(count), []*timebox.Event{numberEvent(id, count+1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -689,9 +677,7 @@ func TestRestartRetainedLog(t *testing.T) {
 
 	id := timebox.NewAggregateID("order", "compacted-restart")
 	for i := range count {
-		err := node.store.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
+		err := node.store.AppendEvents(id, int64(i), []*timebox.Event{numberEvent(id, i+1)})
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -731,17 +717,13 @@ func TestLeaderRestart(t *testing.T) {
 	}
 
 	firstID := timebox.NewAggregateID("order", "restart-1")
-	err := followers[0].store.AppendEvents(firstID, 0, []*timebox.Event{
-		numberEvent(firstID, 1),
-	})
+	err := followers[0].store.AppendEvents(firstID, 0, []*timebox.Event{numberEvent(firstID, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
 
 	secondID := timebox.NewAggregateID("order", "restart-2")
-	err = followers[1].store.AppendEvents(secondID, 0, []*timebox.Event{
-		numberEvent(secondID, 1),
-	})
+	err = followers[1].store.AppendEvents(secondID, 0, []*timebox.Event{numberEvent(secondID, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -763,9 +745,7 @@ func TestLeaderRestart(t *testing.T) {
 	}
 
 	thirdID := timebox.NewAggregateID("order", "restart-3")
-	err = follower.store.AppendEvents(thirdID, 0, []*timebox.Event{
-		numberEvent(thirdID, 1),
-	})
+	err = follower.store.AppendEvents(thirdID, 0, []*timebox.Event{numberEvent(thirdID, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -815,9 +795,7 @@ func TestFollowerRestartCatchUp(t *testing.T) {
 	nodes = append(alive, down)
 	waitAllEvents(t, nodes, id, count)
 
-	err := down.store.AppendEvents(id, int64(count), []*timebox.Event{
-		numberEvent(id, count+1),
-	})
+	err := down.store.AppendEvents(id, int64(count), []*timebox.Event{numberEvent(id, count+1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -912,9 +890,7 @@ func TestRestartRepairsTailGarbage(t *testing.T) {
 	assert.Equal(t, int64(0), evs[0].Sequence)
 	assert.Equal(t, int64(7), evs[7].Sequence)
 
-	err = n.store.AppendEvents(id, 8, []*timebox.Event{
-		numberEvent(id, 9),
-	})
+	err = n.store.AppendEvents(id, 8, []*timebox.Event{numberEvent(id, 9)})
 	if !assert.NoError(t, err) {
 		return
 	}

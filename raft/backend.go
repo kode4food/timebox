@@ -14,8 +14,7 @@ import (
 )
 
 type (
-	// Backend applies Timebox writes through Raft and serves reads from
-	// local materialized state
+	// Backend applies Timebox writes through Raft and serves reads from local materialized state
 	Backend struct {
 		cfg Config
 
@@ -66,8 +65,8 @@ type (
 		RaftAddr ServerAddress
 	}
 
-	// outSnapshot is a captured snapshot file awaiting peer delivery. applied
-	// is 0 once sent or failed, so it stops holding back compaction
+	// outSnapshot is a captured snapshot file awaiting peer delivery. applied is 0 once sent or
+	// failed, so it stops holding back compaction
 	outSnapshot struct {
 		path    string
 		applied uint64
@@ -121,9 +120,7 @@ func (b *Backend) Close() error {
 }
 
 func openBackend(cfg Config) (*Backend, error) {
-	projectionExists := pathExists(
-		filepath.Join(cfg.DataDir, projectionDirName, projectionDBName),
-	)
+	projectionExists := pathExists(filepath.Join(cfg.DataDir, projectionDirName, projectionDBName))
 	db, err := openProjectionDB(cfg.DataDir)
 	if err != nil {
 		return nil, err
@@ -184,9 +181,7 @@ func openBackend(cfg Config) (*Backend, error) {
 	}
 	b.appliedIndex.Store(applied)
 
-	nodeCfg := newRaftNodeConfig(
-		nodeID(cfg.LocalID), log, applied,
-	)
+	nodeCfg := newRaftNodeConfig(nodeID(cfg.LocalID), log, applied)
 	switch {
 	case stateExists:
 		b.node = raft.RestartNode(nodeCfg)

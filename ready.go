@@ -1,7 +1,7 @@
 package timebox
 
-// AlwaysReady can be embedded in a Backend to provide a Ready()
-// implementation for backends that are immediately available
+// AlwaysReady can be embedded in a Backend to provide a Ready() implementation for backends that
+// are immediately available
 type AlwaysReady struct{}
 
 var readyNowCh = func() <-chan struct{} {

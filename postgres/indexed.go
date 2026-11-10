@@ -12,9 +12,7 @@ import (
 )
 
 // GetAggregateStatus gets the current status for an aggregate
-func (b *Backend) GetAggregateStatus(
-	id timebox.AggregateID,
-) (string, error) {
+func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	ctx := context.Background()
 	key, _ := aggregateKey(id)
 
@@ -27,16 +25,13 @@ func (b *Backend) GetAggregateStatus(
 }
 
 // ListAggregatesByStatus lists aggregates matching the query
-func (b *Backend) ListAggregatesByStatus(
-	q timebox.StatusQuery,
-) ([]timebox.StatusEntry, error) {
+func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.StatusEntry, error) {
 	var through int64 = math.MaxInt64
 	if !q.Through.IsZero() {
 		through = q.Through.UnixMilli()
 	}
 	rows, err := b.pool.Query(
-		context.Background(), sqlListByStatus,
-		q.Status, q.Type, q.KeyPrefix, through,
+		context.Background(), sqlListByStatus, q.Status, q.Type, q.KeyPrefix, through,
 	)
 	if err != nil {
 		return nil, err
@@ -63,9 +58,7 @@ func (b *Backend) ListAggregatesByStatus(
 }
 
 // ListAggregatesByTag lists aggregates for a tag
-func (b *Backend) ListAggregatesByTag(
-	tag string,
-) ([]timebox.AggregateID, error) {
+func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error) {
 	rows, err := b.pool.Query(context.Background(), sqlListByTag, tag)
 	if err != nil {
 		return nil, err

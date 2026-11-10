@@ -11,8 +11,8 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-// counter accumulates the payload testEvent already encodes, so a
-// transaction's and a competing writer's events share one shape
+// counter accumulates the payload testEvent already encodes, so a transaction's and a competing
+// writer's events share one shape
 type counter struct {
 	Value int `json:"value"`
 }
@@ -85,10 +85,7 @@ func runTransactions(t *testing.T, p Profile) {
 		req := timebox.AppendRequest{
 			ID: id,
 			Events: []*timebox.Event{
-				testEvent(t,
-					time.Unix(1_700_000_010, 0).UTC(),
-					"counted", 1, nil, nil,
-				),
+				testEvent(t, time.Unix(1_700_000_010, 0).UTC(), "counted", 1, nil, nil),
 			},
 		}
 
@@ -125,10 +122,7 @@ func runTransactions(t *testing.T, p Profile) {
 			timebox.AppendRequest{
 				ID: written,
 				Events: []*timebox.Event{
-					testEvent(t,
-						time.Unix(1_700_000_011, 0).UTC(),
-						"counted", 1, nil, nil,
-					),
+					testEvent(t, time.Unix(1_700_000_011, 0).UTC(), "counted", 1, nil, nil),
 				},
 			},
 			timebox.AppendRequest{ID: checked, ExpectedSequence: 1},
@@ -191,10 +185,7 @@ func runTransactions(t *testing.T, p Profile) {
 			if attempts == 1 {
 				// a competing writer lands between the load and the commit
 				err := store.AppendEvents(contended, 0, []*timebox.Event{
-					testEvent(t,
-						time.Unix(1_700_000_009, 0).UTC(),
-						"counted", 9, nil, nil,
-					),
+					testEvent(t, time.Unix(1_700_000_009, 0).UTC(), "counted", 9, nil, nil),
 				})
 				if err != nil {
 					return err
@@ -206,8 +197,8 @@ func runTransactions(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Equal(t, 2, attempts)
 
-		// the conflicting attempt staged an append for partner too. Had the
-		// commit not rolled back, partner would hold two events
+		// the conflicting attempt staged an append for partner too. Had the commit not rolled back,
+		// partner would hold two events
 		assertEvents(t, store, partner, 1)
 		assertEvents(t, store, contended, 2)
 	})

@@ -9,9 +9,8 @@ import (
 )
 
 type (
-	// QueueHandler processes one dequeued message. The message is only consumed
-	// if the handler returns nil. Any error leaves it in place for a later
-	// Consume
+	// QueueHandler processes one dequeued message. The message is only consumed if the handler
+	// returns nil. Any error leaves it in place for a later Consume
 	QueueHandler func(*Transaction, *Message) error
 
 	queueState struct {
@@ -24,8 +23,8 @@ const (
 	queueItemAdded     EventType = "_tb.queue.added"
 	queueItemConsumed  EventType = "_tb.queue.consumed"
 
-	// consumePoll bounds how long Consume waits between wake notifications
-	// before rechecking a queue for messages from other processes
+	// consumePoll bounds how long Consume waits between wake notifications before rechecking a
+	// queue for messages from other processes
 	consumePoll = time.Second
 )
 
@@ -37,12 +36,10 @@ var (
 	ErrQueueMessageRequired = errors.New("queue message is required")
 
 	// ErrQueueMessageTypeRequired indicates an empty published message type
-	ErrQueueMessageTypeRequired = errors.New(
-		"queue message type is required",
-	)
+	ErrQueueMessageTypeRequired = errors.New("queue message type is required")
 
-	// errQueueEmpty signals consumeOnce found nothing to consume. Consume
-	// retries on it instead of returning it, so it never reaches a caller
+	// errQueueEmpty signals consumeOnce found nothing to consume. Consume retries on it instead of
+	// returning it, so it never reaches a caller
 	errQueueEmpty = errors.New("queue is empty")
 )
 
@@ -60,12 +57,10 @@ func (t *Transaction) Publish(queue ID, message *Message) error {
 	return err
 }
 
-// Consume blocks until the oldest unconsumed message of a queue is handled or
-// ctx is done. A message is removed only if handler returns nil. Any other
-// error stops Consume and leaves the message in place
-func (s *Store) Consume(
-	ctx context.Context, queue ID, handler QueueHandler,
-) error {
+// Consume blocks until the oldest unconsumed message of a queue is handled or ctx is done. A
+// message is removed only if handler returns nil. Any other error stops Consume and leaves the
+// message in place
+func (s *Store) Consume(ctx context.Context, queue ID, handler QueueHandler) error {
 	if handler == nil {
 		return ErrQueueHandlerRequired
 	}

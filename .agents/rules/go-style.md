@@ -126,7 +126,7 @@ type FlowState struct {
 
 ### Function Signature Wrapping
 
-When a function signature exceeds 80 columns on one line, break after the opening paren and pack as many parameters on each subsequent line as will fit within 80 columns (tabs count as 4). Continue wrapping to additional lines as needed. Place the closing paren and return type on their own line. Never put one parameter per line unless a single parameter already exceeds the limit.
+When a function signature exceeds 100 columns on one line, break after the opening paren and pack as many parameters on each subsequent line as will fit within 100 columns (tabs count as 4). Continue wrapping to additional lines as needed. Place the closing paren and return type on their own line. Never put one parameter per line unless a single parameter already exceeds the limit.
 
 Example with more parameters:
 
@@ -258,7 +258,7 @@ type FlowId string
 
 ### Line Width
 
-Maximum 80 characters per line (tabs count as 4 spaces). This applies to code _and_ comments. Keep short argument lists on a single line when they fit. Only break lines when the 80-character limit would be exceeded. When wrapping function signatures or call arguments, pack as many arguments per line as will fit under the limit before wrapping again. When you must wrap, break after the opening paren:
+Maximum 100 characters per line (tabs count as 4 spaces). This applies to code _and_ comments. Keep short argument lists on a single line when they fit. Only break lines when the 100-character limit would be exceeded. When wrapping function signatures or call arguments, pack as many arguments per line as will fit under the limit before wrapping again. When you must wrap, break after the opening paren:
 
 ```go
 func NewArchiveWorker(

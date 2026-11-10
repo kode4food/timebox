@@ -17,8 +17,8 @@ type (
 		delete   bool
 	}
 
-	// luaAppendSpec records which projections a request needs, and so which
-	// of its keys and args the script should expect
+	// luaAppendSpec records which projections a request needs, and so which of its keys and args
+	// the script should expect
 	luaAppendSpec struct {
 		status bool
 		tags   bool
@@ -32,18 +32,15 @@ type (
 )
 
 const (
-	// flag bits telling the script which optional keys and args a request
-	// carries. Lua 5.1 has no bitwise operators, so the script divides
+	// flag bits telling the script which optional keys and args a request carries. Lua 5.1 has no
+	// bitwise operators, so the script divides
 	luaAppendStatus = 1
 	luaAppendTags   = 2
 	luaAppendDelete = 4
 )
 
-// appendLuaCall adds one request's keys and args in the order the script's
-// cursors claim them
-func (b *Backend) appendLuaCall(
-	keys []string, args []any, in luaAppendInput,
-) ([]string, []any) {
+// appendLuaCall adds one request's keys and args in the order the script's cursors claim them
+func (b *Backend) appendLuaCall(keys []string, args []any, in luaAppendInput) ([]string, []any) {
 	ops := newLuaAppendOps(in.tags)
 	spec := luaAppendSpec{
 		status: in.status != nil,
@@ -51,17 +48,12 @@ func (b *Backend) appendLuaCall(
 		delete: in.delete,
 	}
 	keys = append(keys, b.buildLuaAppendKeys(in.id, spec)...)
-	args = append(args, buildLuaAppendArgs(
-		joinAggregateID(in.id), in, ops, spec,
-	)...)
+	args = append(args, buildLuaAppendArgs(joinAggregateID(in.id), in, ops, spec)...)
 	return keys, args
 }
 
-// buildLuaAppendKeys lists a request's keys in the order the script's key
-// cursor claims them
-func (b *Backend) buildLuaAppendKeys(
-	id timebox.AggregateID, spec luaAppendSpec,
-) []string {
+// buildLuaAppendKeys lists a request's keys in the order the script's key cursor claims them
+func (b *Backend) buildLuaAppendKeys(id timebox.AggregateID, spec luaAppendSpec) []string {
 	keys := []string{b.buildKey(id, eventsSuffix), b.buildKey(id, baseSuffix)}
 	if spec.status {
 		keys = append(keys, b.buildStatusHashKey())
@@ -82,8 +74,8 @@ func (b *Backend) buildLuaAppendKeys(
 	return keys
 }
 
-// buildLuaAppendArgs lists a request's args in the order the script's arg
-// cursor reads them, led by the flags naming its optional parts
+// buildLuaAppendArgs lists a request's args in the order the script's arg cursor reads them, led by
+// the flags naming its optional parts
 func buildLuaAppendArgs(
 	joinedID string, in luaAppendInput, ops []luaAppendOp, spec luaAppendSpec,
 ) []any {

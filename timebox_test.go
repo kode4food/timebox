@@ -141,9 +141,7 @@ func newCounterState() CounterState {
 	return CounterState{Value: 0}
 }
 
-func setupTestExecutor(t *testing.T) (
-	*timebox.Store, *timebox.Executor[CounterState],
-) {
+func setupTestExecutor(t *testing.T) (*timebox.Store, *timebox.Executor[CounterState]) {
 	return setupTestExecutorWithConfig(t, nil)
 }
 

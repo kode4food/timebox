@@ -57,8 +57,8 @@ func openBackend(
 }
 
 func testEvent(
-	t *testing.T, at time.Time, typ timebox.EventType, value int,
-	status *string, tags map[string]bool,
+	t *testing.T, at time.Time, typ timebox.EventType, value int, status *string,
+	tags map[string]bool,
 ) *timebox.Event {
 	t.Helper()
 

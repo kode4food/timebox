@@ -47,10 +47,7 @@ func runSnapshots(t *testing.T, p Profile) {
 	t.Run("RoundTrip", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "snapshot")
-		ev := testEvent(t,
-			time.Unix(1_700_000_012, 0).UTC(),
-			"event.first", 1, nil, nil,
-		)
+		ev := testEvent(t, time.Unix(1_700_000_012, 0).UTC(), "event.first", 1, nil, nil)
 
 		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 
@@ -69,10 +66,7 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.NoError(t, store.PutSnapshot(id, map[string]int{"value": 0}, 0))
 		assert.NoError(t,
 			store.AppendEvents(id, 1, []*timebox.Event{
-				testEvent(t,
-					time.Unix(1_700_000_013, 0).UTC(),
-					"event.second", 2, nil, nil,
-				),
+				testEvent(t, time.Unix(1_700_000_013, 0).UTC(), "event.second", 2, nil, nil),
 			}),
 		)
 
@@ -89,10 +83,7 @@ func runSnapshots(t *testing.T, p Profile) {
 			t.FailNow()
 		}
 		assert.Equal(t, int64(1), snap.AdditionalEvents[0].Sequence)
-		assert.Equal(t,
-			timebox.EventType("event.second"),
-			snap.AdditionalEvents[0].Type,
-		)
+		assert.Equal(t, timebox.EventType("event.second"), snap.AdditionalEvents[0].Type)
 	})
 
 	t.Run("Trim", func(t *testing.T) {
@@ -101,18 +92,9 @@ func runSnapshots(t *testing.T, p Profile) {
 
 		assert.NoError(t,
 			store.AppendEvents(id, 0, []*timebox.Event{
-				testEvent(t,
-					time.Unix(1_700_000_014, 0).UTC(),
-					"event.one", 1, nil, nil,
-				),
-				testEvent(t,
-					time.Unix(1_700_000_015, 0).UTC(),
-					"event.two", 2, nil, nil,
-				),
-				testEvent(t,
-					time.Unix(1_700_000_016, 0).UTC(),
-					"event.three", 3, nil, nil,
-				),
+				testEvent(t, time.Unix(1_700_000_014, 0).UTC(), "event.one", 1, nil, nil),
+				testEvent(t, time.Unix(1_700_000_015, 0).UTC(), "event.two", 2, nil, nil),
+				testEvent(t, time.Unix(1_700_000_016, 0).UTC(), "event.three", 3, nil, nil),
 			}),
 		)
 		assert.NoError(t, store.PutSnapshot(id, map[string]int{"value": 3}, 3))
@@ -123,14 +105,8 @@ func runSnapshots(t *testing.T, p Profile) {
 
 		assert.NoError(t,
 			store.AppendEvents(id, 3, []*timebox.Event{
-				testEvent(t,
-					time.Unix(1_700_000_017, 0).UTC(),
-					"event.four", 4, nil, nil,
-				),
-				testEvent(t,
-					time.Unix(1_700_000_018, 0).UTC(),
-					"event.five", 5, nil, nil,
-				),
+				testEvent(t, time.Unix(1_700_000_017, 0).UTC(), "event.four", 4, nil, nil),
+				testEvent(t, time.Unix(1_700_000_018, 0).UTC(), "event.five", 5, nil, nil),
 			}),
 		)
 
@@ -164,14 +140,8 @@ func runSnapshots(t *testing.T, p Profile) {
 
 		assert.NoError(t,
 			store.AppendEvents(id, 0, []*timebox.Event{
-				testEvent(t,
-					time.Unix(1_700_000_019, 0).UTC(),
-					"event.one", 1, nil, nil,
-				),
-				testEvent(t,
-					time.Unix(1_700_000_020, 0).UTC(),
-					"event.two", 2, nil, nil,
-				),
+				testEvent(t, time.Unix(1_700_000_019, 0).UTC(), "event.one", 1, nil, nil),
+				testEvent(t, time.Unix(1_700_000_020, 0).UTC(), "event.two", 2, nil, nil),
 			}),
 		)
 		assert.NoError(t, store.PutSnapshot(id, map[string]int{"value": 1}, 1))
@@ -184,8 +154,7 @@ func runSnapshots(t *testing.T, p Profile) {
 	t.Run("MarshalError", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		err := store.PutSnapshot(
-			timebox.NewAggregateID("order", "bad-snapshot"),
-			func() {}, 1,
+			timebox.NewAggregateID("order", "bad-snapshot"), func() {}, 1,
 		)
 		assert.Error(t, err)
 	})

@@ -361,9 +361,7 @@ func withIndexedMemoryStore(
 	fn(context.Background(), store)
 }
 
-func combinedEvent(
-	id timebox.AggregateID, status string, env string,
-) *timebox.Event {
+func combinedEvent(id timebox.AggregateID, status string, env string) *timebox.Event {
 	data, err := json.Marshal(map[string]string{
 		"status": status,
 		"env":    env,
@@ -409,15 +407,11 @@ func (f *fakeBackend) Append(...timebox.AppendRequest) error {
 	return nil
 }
 
-func (f *fakeBackend) LoadEvents(
-	timebox.LoadEventsRequest,
-) (*timebox.EventsResult, error) {
+func (f *fakeBackend) LoadEvents(timebox.LoadEventsRequest) (*timebox.EventsResult, error) {
 	return &timebox.EventsResult{}, nil
 }
 
-func (f *fakeBackend) LoadSnapshot(
-	timebox.LoadSnapshotRequest,
-) (*timebox.SnapshotRecord, error) {
+func (f *fakeBackend) LoadSnapshot(timebox.LoadSnapshotRequest) (*timebox.SnapshotRecord, error) {
 	return &timebox.SnapshotRecord{}, nil
 }
 
@@ -425,27 +419,19 @@ func (f *fakeBackend) SaveSnapshot(timebox.SnapshotRequest) error {
 	return nil
 }
 
-func (f *fakeBackend) ListAggregates(
-	timebox.ID,
-) ([]timebox.AggregateID, error) {
+func (f *fakeBackend) ListAggregates(timebox.ID) ([]timebox.AggregateID, error) {
 	return nil, nil
 }
 
-func (f *fakeBackend) GetAggregateStatus(
-	timebox.AggregateID,
-) (string, error) {
+func (f *fakeBackend) GetAggregateStatus(timebox.AggregateID) (string, error) {
 	return "", nil
 }
 
-func (f *fakeBackend) ListAggregatesByStatus(
-	timebox.StatusQuery,
-) ([]timebox.StatusEntry, error) {
+func (f *fakeBackend) ListAggregatesByStatus(timebox.StatusQuery) ([]timebox.StatusEntry, error) {
 	return nil, nil
 }
 
-func (f *fakeBackend) ListAggregatesByTag(
-	string,
-) ([]timebox.AggregateID, error) {
+func (f *fakeBackend) ListAggregatesByTag(string) ([]timebox.AggregateID, error) {
 	return nil, nil
 }
 

@@ -19,9 +19,7 @@ func runArchive(t *testing.T, p Profile) {
 		second := timebox.NewAggregateID("order", "trim-second")
 		for _, id := range []timebox.AggregateID{first, second} {
 			ev := testEvent(t, time.Now().UTC(), "event.test", 1, nil, nil)
-			assert.NoError(t,
-				store.AppendEvents(id, 0, []*timebox.Event{ev}),
-			)
+			assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 			assert.NoError(t, store.Archive(id))
 		}
 
@@ -38,9 +36,7 @@ func runArchive(t *testing.T, p Profile) {
 
 		third := timebox.NewAggregateID("order", "trim-third")
 		ev := testEvent(t, time.Now().UTC(), "event.test", 1, nil, nil)
-		assert.NoError(t,
-			store.AppendEvents(third, 0, []*timebox.Event{ev}),
-		)
+		assert.NoError(t, store.AppendEvents(third, 0, []*timebox.Event{ev}))
 		assert.NoError(t, store.Archive(third))
 
 		reloaded, err := timebox.NewStore(backend)
@@ -113,10 +109,7 @@ func runArchive(t *testing.T, p Profile) {
 	t.Run("NoSnapshot", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "archive-no-snapshot")
-		ev := testEvent(t,
-			time.Unix(1_700_000_021, 0).UTC(),
-			"event.test", 1, nil, nil,
-		)
+		ev := testEvent(t, time.Unix(1_700_000_021, 0).UTC(), "event.test", 1, nil, nil)
 
 		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 		assert.NoError(t, store.Archive(id))
@@ -166,10 +159,7 @@ func runArchive(t *testing.T, p Profile) {
 	t.Run("HandlerErrorKeepsRecord", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "handler")
-		ev := testEvent(t,
-			time.Unix(1_700_000_020, 0).UTC(),
-			"event.test", 1, nil, nil,
-		)
+		ev := testEvent(t, time.Unix(1_700_000_020, 0).UTC(), "event.test", 1, nil, nil)
 
 		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 		assert.NoError(t, store.Archive(id))
@@ -198,9 +188,7 @@ func runArchive(t *testing.T, p Profile) {
 	})
 }
 
-func consumeArchiveID(
-	t *testing.T, store *timebox.Store,
-) timebox.AggregateID {
+func consumeArchiveID(t *testing.T, store *timebox.Store) timebox.AggregateID {
 	t.Helper()
 	var res timebox.AggregateID
 	err := store.ConsumeArchive(t.Context(),

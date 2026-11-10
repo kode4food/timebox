@@ -19,10 +19,7 @@ func runLifecycle(t *testing.T, p Profile) {
 			Indexer: newIndexer(t),
 		}, nil)
 		id := timebox.NewAggregateID("order", "closed")
-		ev := testEvent(t,
-			time.Unix(1_700_000_021, 0).UTC(),
-			"event.test", 1, nil, nil,
-		)
+		ev := testEvent(t, time.Unix(1_700_000_021, 0).UTC(), "event.test", 1, nil, nil)
 
 		assert.NoError(t, backend.Close())
 

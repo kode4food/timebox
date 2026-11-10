@@ -165,9 +165,7 @@ func (ex *orderExample) createOrder() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Order created for %s (%s)\n",
-		state.CustomerName,
-		state.CustomerEmail)
+	fmt.Printf("Order created for %s (%s)\n", state.CustomerName, state.CustomerEmail)
 
 	fmt.Printf("Items: %d, Total: $%.2f\n", len(state.Items), state.Total)
 }
@@ -263,18 +261,14 @@ func createExecutor(store *timebox.Store) *OrderExecutor {
 	}).Reduce)
 }
 
-func orderCreated(
-	st OrderState, _ *timebox.Event, data OrderCreatedData,
-) OrderState {
+func orderCreated(st OrderState, _ *timebox.Event, data OrderCreatedData) OrderState {
 	st.CustomerName = data.CustomerName
 	st.CustomerEmail = data.CustomerEmail
 	st.Status = StatusCreated
 	return st
 }
 
-func orderItemAdded(
-	st OrderState, _ *timebox.Event, data ItemAddedData,
-) OrderState {
+func orderItemAdded(st OrderState, _ *timebox.Event, data ItemAddedData) OrderState {
 	st.Items = maps.Clone(st.Items)
 	st.Items[data.ProductID] = OrderItem{
 		ProductID: data.ProductID,
@@ -286,25 +280,19 @@ func orderItemAdded(
 	return st
 }
 
-func orderItemRemoved(
-	st OrderState, _ *timebox.Event, data ItemRemovedData,
-) OrderState {
+func orderItemRemoved(st OrderState, _ *timebox.Event, data ItemRemovedData) OrderState {
 	st.Items = maps.Clone(st.Items)
 	delete(st.Items, data.ProductID)
 	st.Total = calculateTotal(st.Items)
 	return st
 }
 
-func orderShippingChanged(
-	st OrderState, _ *timebox.Event, data AddressChangedData,
-) OrderState {
+func orderShippingChanged(st OrderState, _ *timebox.Event, data AddressChangedData) OrderState {
 	st.ShippingAddress = new(data.Address)
 	return st
 }
 
-func orderBillingChanged(
-	st OrderState, _ *timebox.Event, data AddressChangedData,
-) OrderState {
+func orderBillingChanged(st OrderState, _ *timebox.Event, data AddressChangedData) OrderState {
 	st.BillingAddress = new(data.Address)
 	return st
 }

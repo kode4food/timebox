@@ -229,9 +229,7 @@ func runSchedules(t *testing.T, p Profile) {
 			}
 			// a competing writer lands between the load and the commit
 			if err := second.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule(
-					"checked", at, newScheduleMessage(t, "second"),
-				)
+				return tx.Schedule("checked", at, newScheduleMessage(t, "second"))
 			}); err != nil {
 				return err
 			}
@@ -247,8 +245,7 @@ func runSchedules(t *testing.T, p Profile) {
 	t.Run("Atomic", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		exec := store.Executor(
-			func() scheduleState { return scheduleState{} },
-			scheduleAppliers.Reduce,
+			func() scheduleState { return scheduleState{} }, scheduleAppliers.Reduce,
 		)
 		id := timebox.NewAggregateID("schedule-state", "atomic")
 		msg := newScheduleMessage(t, "atomic")
@@ -301,9 +298,7 @@ func runSchedules(t *testing.T, p Profile) {
 		for i, schedule := range schedules {
 			keys[i] = schedule.Key
 		}
-		assert.ElementsMatch(t,
-			[]timebox.ScheduleKey{"first", "second", "later"}, keys,
-		)
+		assert.ElementsMatch(t, []timebox.ScheduleKey{"first", "second", "later"}, keys)
 
 		due, err := store.LoadSchedules(base.Add(time.Hour))
 		assert.NoError(t, err)
@@ -311,9 +306,7 @@ func runSchedules(t *testing.T, p Profile) {
 		for i, schedule := range due {
 			keys[i] = schedule.Key
 		}
-		assert.ElementsMatch(t,
-			[]timebox.ScheduleKey{"first", "second"}, keys,
-		)
+		assert.ElementsMatch(t, []timebox.ScheduleKey{"first", "second"}, keys)
 
 		assert.NoError(t,
 			store.Transact(func(tx *timebox.Transaction) error {
@@ -326,9 +319,7 @@ func runSchedules(t *testing.T, p Profile) {
 		for i, schedule := range due {
 			keys[i] = schedule.Key
 		}
-		assert.ElementsMatch(t,
-			[]timebox.ScheduleKey{"first", "second", "later"}, keys,
-		)
+		assert.ElementsMatch(t, []timebox.ScheduleKey{"first", "second", "later"}, keys)
 	})
 }
 
@@ -345,9 +336,7 @@ func newScheduleMessage(t *testing.T, key string) *timebox.Message {
 	}
 }
 
-func loadSchedule(
-	t *testing.T, store *timebox.Store, key timebox.ScheduleKey,
-) *timebox.Schedule {
+func loadSchedule(t *testing.T, store *timebox.Store, key timebox.ScheduleKey) *timebox.Schedule {
 	t.Helper()
 	schedule, err := readSchedule(store, key)
 	if !assert.NoError(t, err) || !assert.NotNil(t, schedule) {
@@ -356,9 +345,7 @@ func loadSchedule(
 	return schedule
 }
 
-func readSchedule(
-	store *timebox.Store, key timebox.ScheduleKey,
-) (*timebox.Schedule, error) {
+func readSchedule(store *timebox.Store, key timebox.ScheduleKey) (*timebox.Schedule, error) {
 	var res *timebox.Schedule
 	err := store.Transact(func(tx *timebox.Transaction) error {
 		var err error

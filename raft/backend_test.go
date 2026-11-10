@@ -23,9 +23,7 @@ func TestCorruptMeta(t *testing.T) {
 	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "corrupt-meta")
-	err := n.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	})
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -113,9 +111,7 @@ func TestCorruptRaftLog(t *testing.T) {
 	waitForWrite(t, n.store)
 
 	id := timebox.NewAggregateID("order", "corrupt-wal")
-	err := n.store.AppendEvents(id, 0, []*timebox.Event{
-		numberEvent(id, 1),
-	})
+	err := n.store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -141,9 +137,7 @@ func TestBrokenRaftLog(t *testing.T) {
 
 	id := timebox.NewAggregateID("order", "corrupt-raft-log")
 	for i := range count {
-		err := n.store.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
+		err := n.store.AppendEvents(id, int64(i), []*timebox.Event{numberEvent(id, i+1)})
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -156,8 +150,8 @@ func TestBrokenRaftLog(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestRebuildProjection verifies that when the projection DB is corrupt
-// (loadLastApplied fails), the node deletes and rebuilds it from the raft log
+// TestRebuildProjection verifies that when the projection DB is corrupt (loadLastApplied fails),
+// the node deletes and rebuilds it from the raft log
 func TestRebuildProjection(t *testing.T) {
 	cfg := nodeConfig{
 		id:      "node-1",
@@ -187,9 +181,9 @@ func TestRebuildProjection(t *testing.T) {
 	assert.Len(t, evs, 1)
 }
 
-// TestRestartReplays verifies that when the projection's lastApplied cursor
-// falls behind the raft commit index (e.g. after a crash), the missing entries
-// are replayed from the raft log on the next startup
+// TestRestartReplays verifies that when the projection's lastApplied cursor falls behind the raft
+// commit index (e.g. after a crash), the missing entries are replayed from the raft log on the next
+// startup
 func TestRestartReplays(t *testing.T) {
 	cfg := nodeConfig{
 		id:      "node-1",
@@ -246,9 +240,7 @@ func TestRestartRepairsTruncatedTail(t *testing.T) {
 	}
 
 	next := len(evs)
-	err = n.store.AppendEvents(id, int64(next), []*timebox.Event{
-		numberEvent(id, next+1),
-	})
+	err = n.store.AppendEvents(id, int64(next), []*timebox.Event{numberEvent(id, next+1)})
 	if !assert.NoError(t, err) {
 		return
 	}

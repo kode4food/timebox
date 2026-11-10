@@ -22,8 +22,8 @@ type (
 		publisher timebox.Publisher
 	}
 
-	// querier is the query surface shared by pgxpool.Pool and pgx.Tx, so one
-	// append path serves a pooled call and a transaction alike
+	// querier is the query surface shared by pgxpool.Pool and pgx.Tx, so one append path serves a
+	// pooled call and a transaction alike
 	querier interface {
 		Query(context.Context, string, ...any) (pgx.Rows, error)
 		QueryRow(context.Context, string, ...any) pgx.Row
@@ -61,9 +61,7 @@ func (b *Backend) NewStore(cfgs ...timebox.Config) (*timebox.Store, error) {
 }
 
 func newBackend(cfg Config) (*Backend, error) {
-	ctx, cancel := context.WithTimeout(
-		context.Background(), defaultConnectTimeout,
-	)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultConnectTimeout)
 	defer cancel()
 
 	poolCfg, err := pgxpool.ParseConfig(cfg.URL)
@@ -86,9 +84,7 @@ func newBackend(cfg Config) (*Backend, error) {
 		return nil, err
 	}
 
-	schemaCtx, cancel := context.WithTimeout(
-		context.Background(), defaultSchemaTimeout,
-	)
+	schemaCtx, cancel := context.WithTimeout(context.Background(), defaultSchemaTimeout)
 	defer cancel()
 
 	if err := initSchema(schemaCtx, pool, cfg.Prefix); err != nil {
@@ -106,9 +102,7 @@ func (b *Backend) Close() error {
 }
 
 // LoadEvents loads events starting at fromSeq
-func (b *Backend) LoadEvents(
-	req timebox.LoadEventsRequest,
-) (*timebox.EventsResult, error) {
+func (b *Backend) LoadEvents(req timebox.LoadEventsRequest) (*timebox.EventsResult, error) {
 	ctx := context.Background()
 	key, _ := aggregateKey(req.ID)
 
@@ -133,11 +127,8 @@ func (b *Backend) LoadEvents(
 	}, nil
 }
 
-// LoadSnapshot loads the snapshot and trailing events for an
-// aggregate
-func (b *Backend) LoadSnapshot(
-	req timebox.LoadSnapshotRequest,
-) (*timebox.SnapshotRecord, error) {
+// LoadSnapshot loads the snapshot and trailing events for an aggregate
+func (b *Backend) LoadSnapshot(req timebox.LoadSnapshotRequest) (*timebox.SnapshotRecord, error) {
 	ctx := context.Background()
 	key, _ := aggregateKey(req.ID)
 
@@ -174,11 +165,8 @@ func (b *Backend) LoadSnapshot(
 	return res, rows.Err()
 }
 
-// SaveSnapshot saves a snapshot if the provided sequence is not
-// older
-func (b *Backend) SaveSnapshot(
-	req timebox.SnapshotRequest,
-) error {
+// SaveSnapshot saves a snapshot if the provided sequence is not older
+func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
 	ctx := context.Background()
 	key, parts := aggregateKey(req.ID)
 	var err error
@@ -201,9 +189,7 @@ func (b *Backend) SaveSnapshot(
 			return err
 		}
 		if !found {
-			return fmt.Errorf("%w: missing aggregate after insert",
-				timebox.ErrUnexpectedResult,
-			)
+			return fmt.Errorf("%w: missing aggregate after insert", timebox.ErrUnexpectedResult)
 		}
 	}
 	if req.Sequence < state.snapSeq {
@@ -221,19 +207,14 @@ func (b *Backend) SaveSnapshot(
 		}
 	}
 
-	if _, err = tx.Exec(ctx, sqlPutSnapshot,
-		key, newBase, req.Sequence, req.Data,
-	); err != nil {
+	if _, err = tx.Exec(ctx, sqlPutSnapshot, key, newBase, req.Sequence, req.Data); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-// ListAggregates lists aggregate IDs of the given type, or of every type when
-// it is empty
-func (b *Backend) ListAggregates(
-	typ timebox.ID,
-) ([]timebox.AggregateID, error) {
+// ListAggregates lists aggregate IDs of the given type, or of every type when it is empty
+func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
 	ctx := context.Background()
 
 	var rows pgx.Rows
@@ -267,8 +248,7 @@ func (b *Backend) loadSnapshotState(
 	ctx context.Context, tx pgx.Tx, key string,
 ) (snapshotState, bool, error) {
 	var res snapshotState
-	err := tx.QueryRow(ctx, sqlSnapshotState, key).
-		Scan(&res.baseSeq, &res.snapSeq, &res.nextSeq)
+	err := tx.QueryRow(ctx, sqlSnapshotState, key).Scan(&res.baseSeq, &res.snapSeq, &res.nextSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return snapshotState{}, false, nil
 	}
@@ -318,9 +298,7 @@ func aggregateID(parts []string) (timebox.AggregateID, error) {
 	if len(parts) != 2 {
 		return timebox.AggregateID{}, timebox.ErrInvalidAggregateID
 	}
-	return timebox.NewAggregateID(
-		timebox.ID(parts[0]), timebox.ID(parts[1]),
-	), nil
+	return timebox.NewAggregateID(timebox.ID(parts[0]), timebox.ID(parts[1])), nil
 }
 
 func aggregateKey(id timebox.AggregateID) (string, []string) {

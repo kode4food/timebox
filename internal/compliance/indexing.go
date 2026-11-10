@@ -23,9 +23,7 @@ func runIndexing(t *testing.T, p Profile) {
 					TrimEvents: trimEvents,
 				})
 
-				status, err := store.GetAggregateStatus(
-					timebox.NewAggregateID("order", "missing"),
-				)
+				status, err := store.GetAggregateStatus(timebox.NewAggregateID("order", "missing"))
 				assert.NoError(t, err)
 				assert.Equal(t, "", status)
 			})
@@ -33,14 +31,9 @@ func runIndexing(t *testing.T, p Profile) {
 			t.Run("NoIndexer", func(t *testing.T) {
 				store := openStore(t, p, timebox.Config{TrimEvents: trimEvents})
 				id := timebox.NewAggregateID("order", "no-indexer")
-				ev := testEvent(t,
-					time.Unix(1_700_000_000, 0).UTC(),
-					"event.test", 1, nil, nil,
-				)
+				ev := testEvent(t, time.Unix(1_700_000_000, 0).UTC(), "event.test", 1, nil, nil)
 
-				assert.NoError(t,
-					store.AppendEvents(id, 0, []*timebox.Event{ev}),
-				)
+				assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 
 				status, err := store.GetAggregateStatus(id)
 				assert.NoError(t, err)
@@ -73,10 +66,7 @@ func runIndexing(t *testing.T, p Profile) {
 
 				assert.NoError(t,
 					store.AppendEvents(id, 0, []*timebox.Event{
-						testEvent(t,
-							time.Unix(1_700_000_008, 0).UTC(),
-							"event.test", 1, nil, nil,
-						),
+						testEvent(t, time.Unix(1_700_000_008, 0).UTC(), "event.test", 1, nil, nil),
 					}),
 				)
 				assert.Equal(t, 1, calls)
@@ -178,9 +168,7 @@ func runIndexing(t *testing.T, p Profile) {
 				for i, id := range ids {
 					assert.NoError(t,
 						store.AppendEvents(id, 0, []*timebox.Event{
-							testEvent(t, at(int64(i)), "event.test", i,
-								&active, nil,
-							),
+							testEvent(t, at(int64(i)), "event.test", i, &active, nil),
 						}),
 					)
 				}
@@ -402,9 +390,7 @@ func runIndexing(t *testing.T, p Profile) {
 
 				ids, err = store.ListAggregatesByTag("shared")
 				assert.NoError(t, err)
-				assert.ElementsMatch(t,
-					[]timebox.AggregateID{first, second}, ids,
-				)
+				assert.ElementsMatch(t, []timebox.AggregateID{first, second}, ids)
 
 				assert.NoError(t,
 					store.AppendEvents(first, 1, []*timebox.Event{
@@ -437,9 +423,7 @@ func runIndexing(t *testing.T, p Profile) {
 					map[string]bool{"prod": true},
 				)
 
-				assert.NoError(t,
-					store.AppendEvents(id, 0, []*timebox.Event{ev}),
-				)
+				assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 
 				status, err := store.GetAggregateStatus(id)
 				assert.NoError(t, err)

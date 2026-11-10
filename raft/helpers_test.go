@@ -89,9 +89,7 @@ func newNode(t *testing.T, cfg nodeConfig) *node {
 }
 
 func openTestBadger(path string) (*badger.DB, error) {
-	opts := badger.DefaultOptions(path).
-		WithValueDir(path).
-		WithLogger(nil)
+	opts := badger.DefaultOptions(path).WithValueDir(path).WithLogger(nil)
 	return badger.Open(opts)
 }
 
@@ -179,10 +177,9 @@ func corruptMetaFile(t *testing.T, dataDir string) {
 	assert.NoError(t, err)
 }
 
-// decrementLastApplied rolls the projection's lastApplied cursor back by
-// `by` raft log entries. A guard prevents going below index 3 so that
-// conf-change entries (always at the very start of the log) are never
-// included in the replay window
+// decrementLastApplied rolls the projection's lastApplied cursor back by `by` raft log entries. A
+// guard prevents going below index 3 so that conf-change entries (always at the very start of the
+// log) are never included in the replay window
 func decrementLastApplied(t *testing.T, dataDir string, by int64) {
 	t.Helper()
 
@@ -235,10 +232,7 @@ func corruptLastApplied(t *testing.T, dataDir string) {
 	}()
 
 	err = db.Update(func(tx *badger.Txn) error {
-		return tx.Set(
-			[]byte(testBucketPrefix+"state/meta/last-applied-log"),
-			[]byte{0xff},
-		)
+		return tx.Set([]byte(testBucketPrefix+"state/meta/last-applied-log"), []byte{0xff})
 	})
 	assert.NoError(t, err)
 }
@@ -246,9 +240,7 @@ func corruptLastApplied(t *testing.T, dataDir string) {
 func corruptRaftLogFile(t *testing.T, dataDir string) {
 	t.Helper()
 
-	files, err := filepath.Glob(
-		filepath.Join(dataDir, "log", "*.log"),
-	)
+	files, err := filepath.Glob(filepath.Join(dataDir, "log", "*.log"))
 	if !assert.NoError(t, err) || !assert.NotEmpty(t, files) {
 		t.FailNow()
 	}
@@ -258,9 +250,7 @@ func corruptRaftLogFile(t *testing.T, dataDir string) {
 func appendRaftTailGarbage(t *testing.T, dataDir string, data []byte) {
 	t.Helper()
 
-	files, err := filepath.Glob(
-		filepath.Join(dataDir, "log", "*.log"),
-	)
+	files, err := filepath.Glob(filepath.Join(dataDir, "log", "*.log"))
 	if !assert.NoError(t, err) || !assert.NotEmpty(t, files) {
 		t.FailNow()
 	}
@@ -281,9 +271,7 @@ func appendRaftTailGarbage(t *testing.T, dataDir string, data []byte) {
 func truncateRaftTail(t *testing.T, dataDir string) {
 	t.Helper()
 
-	files, err := filepath.Glob(
-		filepath.Join(dataDir, "log", "*.log"),
-	)
+	files, err := filepath.Glob(filepath.Join(dataDir, "log", "*.log"))
 	if !assert.NoError(t, err) || !assert.NotEmpty(t, files) {
 		t.FailNow()
 	}
@@ -320,10 +308,7 @@ func serverCfgs(t *testing.T, n int) ([]raft.Server, []nodeConfig) {
 	return srvs, cfgs
 }
 
-func startNodes(
-	t *testing.T, cfgs []nodeConfig, srvs []raft.Server,
-	idxs ...int,
-) []*node {
+func startNodes(t *testing.T, cfgs []nodeConfig, srvs []raft.Server, idxs ...int) []*node {
 	t.Helper()
 
 	if len(idxs) == 0 {
@@ -344,20 +329,14 @@ func startNodes(
 func waitReady(t *testing.T, n *node) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 15*time.Second,
-	)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	err := n.store.WaitReady(ctx)
 	if err != nil {
 		addr, leaderID := n.backend.LeaderWithID()
 		t.Logf(
-			"node %s state=%s leader=%s/%s readyErr=%v",
-			n.id,
-			n.backend.State(),
-			leaderID,
-			addr,
+			"node %s state=%s leader=%s/%s readyErr=%v", n.id, n.backend.State(), leaderID, addr,
 			err,
 		)
 	}
@@ -378,9 +357,7 @@ func appendN(t *testing.T, s *timebox.Store, id timebox.AggregateID, n int) {
 	t.Helper()
 
 	for i := range n {
-		err := s.AppendEvents(id, int64(i), []*timebox.Event{
-			numberEvent(id, i+1),
-		})
+		err := s.AppendEvents(id, int64(i), []*timebox.Event{numberEvent(id, i+1)})
 		if !assert.NoError(t, err) {
 			t.FailNow()
 		}
@@ -401,9 +378,7 @@ func waitEvents(t *testing.T, s *timebox.Store, id timebox.AggregateID, n int) {
 	}
 }
 
-func waitAllEvents(
-	t *testing.T, nodes []*node, id timebox.AggregateID, count int,
-) {
+func waitAllEvents(t *testing.T, nodes []*node, id timebox.AggregateID, count int) {
 	t.Helper()
 
 	for _, n := range nodes {
@@ -415,15 +390,8 @@ func waitForWrite(t *testing.T, store *timebox.Store) {
 	t.Helper()
 
 	if !assert.Eventually(t, func() bool {
-		id := timebox.NewAggregateID(
-			"probe",
-			timebox.ID(fmt.Sprintf(
-				"%d", time.Now().UnixNano(),
-			)),
-		)
-		err := store.AppendEvents(
-			id, 0, []*timebox.Event{numberEvent(id, 1)},
-		)
+		id := timebox.NewAggregateID("probe", timebox.ID(fmt.Sprintf("%d", time.Now().UnixNano())))
+		err := store.AppendEvents(id, 0, []*timebox.Event{numberEvent(id, 1)})
 		return err == nil
 	}, 15*time.Second, 100*time.Millisecond) {
 		t.FailNow()
@@ -512,9 +480,7 @@ func largeEvent(id timebox.AggregateID, value, size int) *timebox.Event {
 	}
 }
 
-func indexedEvent(
-	id timebox.AggregateID, status, env string, ts time.Time,
-) *timebox.Event {
+func indexedEvent(id timebox.AggregateID, status, env string, ts time.Time) *timebox.Event {
 	data := fmt.Sprintf(`{"status":%q,"env":%q}`, status, env)
 	return &timebox.Event{
 		AggregateID: id,

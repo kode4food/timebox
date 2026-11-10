@@ -160,20 +160,14 @@ func TestScheduleRefresh(t *testing.T) {
 
 	assert.NoError(t,
 		first.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule(
-				"remote", time.Now().Add(time.Hour),
-				newMessage(t, "first"),
-			)
+			return tx.Schedule("remote", time.Now().Add(time.Hour), newMessage(t, "first"))
 		}),
 	)
 	original := loadSchedule(t, second, "remote")
 
 	assert.NoError(t,
 		first.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule(
-				"remote", time.Now().Add(2*time.Hour),
-				newMessage(t, "second"),
-			)
+			return tx.Schedule("remote", time.Now().Add(2*time.Hour), newMessage(t, "second"))
 		}),
 	)
 	updated := loadSchedule(t, second, "remote")
@@ -227,9 +221,7 @@ func TestScheduleConsumeNoSnapshot(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, errAbort)
 
-	snap, err := store.GetSnapshot[json.RawMessage](
-		timebox.NewAggregateID("_tb.sched_", "fresh"),
-	)
+	snap, err := store.GetSnapshot[json.RawMessage](timebox.NewAggregateID("_tb.sched_", "fresh"))
 	assert.NoError(t, err)
 	assert.Zero(t, snap.SnapshotSize)
 }
@@ -260,10 +252,7 @@ func TestScheduleList(t *testing.T) {
 		{key: "first", at: base.Add(time.Hour)},
 	} {
 		err := store.Transact(func(tx *timebox.Transaction) error {
-			return tx.Schedule(
-				timebox.ScheduleKey(item.key), item.at,
-				newMessage(t, item.key),
-			)
+			return tx.Schedule(timebox.ScheduleKey(item.key), item.at, newMessage(t, item.key))
 		})
 		assert.NoError(t, err)
 	}
@@ -274,9 +263,7 @@ func TestScheduleList(t *testing.T) {
 	for i, schedule := range schedules {
 		keys[i] = schedule.Key
 	}
-	assert.ElementsMatch(t,
-		[]timebox.ScheduleKey{"first", "second", "third"}, keys,
-	)
+	assert.ElementsMatch(t, []timebox.ScheduleKey{"first", "second", "third"}, keys)
 
 	due, err := store.LoadSchedules(base.Add(2 * time.Hour))
 	assert.NoError(t, err)
@@ -284,9 +271,7 @@ func TestScheduleList(t *testing.T) {
 	for i, schedule := range due {
 		keys[i] = schedule.Key
 	}
-	assert.Equal(t,
-		[]timebox.ScheduleKey{"first", "second"}, keys,
-	)
+	assert.Equal(t, []timebox.ScheduleKey{"first", "second"}, keys)
 }
 
 func TestScheduleRecovery(t *testing.T) {
@@ -320,8 +305,7 @@ func TestScheduleJSON(t *testing.T) {
 	var schedule timebox.Schedule
 	assert.NoError(t, json.Unmarshal(data, &schedule))
 	assert.Equal(t, timebox.ScheduleKey("one"), schedule.Key)
-	assert.Equal(t, timebox.EventType("schedule.test"),
-		schedule.Message.Type)
+	assert.Equal(t, timebox.EventType("schedule.test"), schedule.Message.Type)
 
 	encoded, err := json.Marshal(schedule)
 	assert.NoError(t, err)
@@ -359,9 +343,7 @@ func TestScheduleInvalid(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := store.Transact(func(tx *timebox.Transaction) error {
-				return tx.Schedule(
-					tc.key, time.Now(), tc.message,
-				)
+				return tx.Schedule(tc.key, time.Now(), tc.message)
 			})
 			assert.ErrorIs(t, err, tc.err)
 		})
@@ -461,9 +443,7 @@ func newStore(t *testing.T) (*timebox.Store, *timebox.Executor[counter]) {
 	return store, exec
 }
 
-func loadSchedule(
-	t *testing.T, store *timebox.Store, key timebox.ScheduleKey,
-) *timebox.Schedule {
+func loadSchedule(t *testing.T, store *timebox.Store, key timebox.ScheduleKey) *timebox.Schedule {
 	t.Helper()
 	schedule, err := readSchedule(store, key)
 	if !assert.NoError(t, err) || !assert.NotNil(t, schedule) {
@@ -472,9 +452,7 @@ func loadSchedule(
 	return schedule
 }
 
-func readSchedule(
-	store *timebox.Store, key timebox.ScheduleKey,
-) (*timebox.Schedule, error) {
+func readSchedule(store *timebox.Store, key timebox.ScheduleKey) (*timebox.Schedule, error) {
 	var res *timebox.Schedule
 	err := store.Transact(func(tx *timebox.Transaction) error {
 		var err error
@@ -490,9 +468,7 @@ func newMessage(t *testing.T, name string) *timebox.Message {
 	return newTargetMessage(t, id, name)
 }
 
-func newTargetMessage(
-	t *testing.T, id timebox.AggregateID, name string,
-) *timebox.Message {
+func newTargetMessage(t *testing.T, id timebox.AggregateID, name string) *timebox.Message {
 	t.Helper()
 	data, err := json.Marshal(payload{Name: name})
 	if !assert.NoError(t, err) {

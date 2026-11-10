@@ -65,9 +65,7 @@ var (
 )
 
 // MakeAppendCommand encodes a set of append mutations into a Raft command
-func MakeAppendCommand(
-	proposalID uint64, reqs []timebox.AppendRequest,
-) (Command, error) {
+func MakeAppendCommand(proposalID uint64, reqs []timebox.AppendRequest) (Command, error) {
 	c := make(Command, 0, cmdHeaderSize+128*len(reqs))
 	c = bin.AppendByte(c, CmdTypeAppend)
 	c = bin.AppendUint64(c, proposalID)
@@ -149,9 +147,7 @@ func (c Command) ArchiveRequest() (*ArchiveCommand, error) {
 	return decodeArchiveCommand(c[cmdHeaderSize:])
 }
 
-func appendRequestTo(
-	c Command, req *timebox.AppendRequest,
-) (Command, error) {
+func appendRequestTo(c Command, req *timebox.AppendRequest) (Command, error) {
 	c = appendAggregateID(c, req.ID)
 	c = bin.AppendInt64(c, req.ExpectedSequence)
 	c = bin.AppendOptString(c, req.Status)

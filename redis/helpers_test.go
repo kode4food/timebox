@@ -25,9 +25,7 @@ func testConfig(addr string, mutate func(*tbredis.Config)) tbredis.Config {
 	return cfg
 }
 
-func newStore(
-	t *testing.T, cfg tbredis.Config, tbCfgs ...timebox.Config,
-) (*timebox.Store, error) {
+func newStore(t *testing.T, cfg tbredis.Config, tbCfgs ...timebox.Config) (*timebox.Store, error) {
 	t.Helper()
 
 	b, err := tbredis.Open(cfg)

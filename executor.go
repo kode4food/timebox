@@ -8,8 +8,8 @@ import (
 )
 
 type (
-	// Executor orchestrates loading aggregate state, executing commands, and
-	// persisting resulting events with optimistic retries
+	// Executor orchestrates loading aggregate state, executing commands, and persisting resulting
+	// events with optimistic retries
 	Executor[T any] struct {
 		store      *Store
 		reducer    Reducer[T]
@@ -19,8 +19,8 @@ type (
 		trimEvents bool
 	}
 
-	// Command is user code that inspects state and raises events on an
-	// Aggregator. Returning an error aborts the operation
+	// Command is user code that inspects state and raises events on an Aggregator. Returning an
+	// error aborts the operation
 	Command[T any] func(T, *Aggregator[T]) error
 
 	// Constructor instantiates initial aggregate state
@@ -33,13 +33,12 @@ type (
 )
 
 var (
-	// ErrMaxRetriesExceeded indicates optimistic concurrency retries were
-	// exhausted while attempting to persist events
+	// ErrMaxRetriesExceeded indicates optimistic concurrency retries were exhausted while
+	// attempting to persist events
 	ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 )
 
-// Executor constructs an Executor bound to a Store with the given reducer and
-// state constructor
+// Executor constructs an Executor bound to a Store with the given reducer and state constructor
 func (s *Store) Executor[T any](
 	cons Constructor[T], reducer Reducer[T], onSuccess ...SuccessAction[T],
 ) *Executor[T] {
@@ -53,8 +52,8 @@ func (s *Store) Executor[T any](
 	}
 }
 
-// Exec loads the aggregate state, executes the command, and persists raised
-// events. It retries on version conflicts up to MaxRetries
+// Exec loads the aggregate state, executes the command, and persists raised events. It retries on
+// version conflicts up to MaxRetries
 func (e *Executor[T]) Exec(id AggregateID, cmd Command[T]) (T, error) {
 	var res T
 	if err := e.store.Transact(func(t *Transaction) error {
@@ -96,8 +95,8 @@ func (s *Store) newInternalExecutor[T any](
 	return res
 }
 
-// complete refreshes the cached projection and runs success actions once the
-// Transaction holding this aggregate has committed
+// complete refreshes the cached projection and runs success actions once the Transaction holding
+// this aggregate has committed
 func (e *Executor[T]) complete(id AggregateID, ag *Aggregator[T]) {
 	if len(ag.flushed) > 0 {
 		e.updateCache(id, &projection[T]{
@@ -151,11 +150,9 @@ func (e *Executor[T]) loadFromStore(
 	return proj, nil
 }
 
-// readProjection replays an aggregate's snapshot and remaining events into its
-// current projection, with no cache or snapshot side effects
-func (e *Executor[T]) readProjection(
-	id AggregateID,
-) (*projection[T], bool, error) {
+// readProjection replays an aggregate's snapshot and remaining events into its current projection,
+// with no cache or snapshot side effects
+func (e *Executor[T]) readProjection(id AggregateID) (*projection[T], bool, error) {
 	rec, err := e.store.backend.LoadSnapshot(LoadSnapshotRequest{ID: id})
 	if err != nil {
 		return nil, false, err
@@ -175,9 +172,7 @@ func (e *Executor[T]) readProjection(
 	return proj, e.shouldSnapshot(rec), nil
 }
 
-func (e *Executor[T]) applyEvents(
-	st T, evs []*Event, startSeq int64,
-) *projection[T] {
+func (e *Executor[T]) applyEvents(st T, evs []*Event, startSeq int64) *projection[T] {
 	return &projection[T]{
 		state:   e.reducer(st, evs),
 		nextSeq: startSeq + int64(len(evs)),
@@ -211,9 +206,7 @@ func (e *Executor[T]) updateCache(id AggregateID, proj *projection[T]) {
 	}
 }
 
-func (e *Executor[T]) putSnapshot(
-	id AggregateID, value T, sequence int64,
-) error {
+func (e *Executor[T]) putSnapshot(id AggregateID, value T, sequence int64) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err

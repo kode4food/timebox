@@ -109,9 +109,7 @@ func (b *Backend) applyEntries(
 	return b.flushBatch(batch, propIDs)
 }
 
-func (b *Backend) flushBatchNoPublish(
-	batch []decodedEntry, propIDs []uint64,
-) error {
+func (b *Backend) flushBatchNoPublish(batch []decodedEntry, propIDs []uint64) error {
 	if len(batch) == 0 {
 		return nil
 	}
@@ -126,9 +124,7 @@ func (b *Backend) flushBatchNoPublish(
 	return nil
 }
 
-func (b *Backend) flushBatchPublish(
-	batch []decodedEntry, propIDs []uint64,
-) error {
+func (b *Backend) flushBatchPublish(batch []decodedEntry, propIDs []uint64) error {
 	if len(batch) == 0 {
 		return nil
 	}

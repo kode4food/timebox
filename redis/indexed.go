@@ -13,13 +13,9 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-func (b *Backend) GetAggregateStatus(
-	id timebox.AggregateID,
-) (string, error) {
+func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	aggID := joinAggregateID(id)
-	status, err := b.client.HGet(
-		context.Background(), b.buildStatusHashKey(), aggID,
-	).Result()
+	status, err := b.client.HGet(context.Background(), b.buildStatusHashKey(), aggID).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", nil
@@ -29,12 +25,9 @@ func (b *Backend) GetAggregateStatus(
 	return status, nil
 }
 
-// ListAggregatesByStatus lists aggregates matching the query. Type and
-// KeyPrefix narrow by aggregate-id prefix. Through bounds by status time.
-// Each narrowing uses its own native redis op
-func (b *Backend) ListAggregatesByStatus(
-	q timebox.StatusQuery,
-) ([]timebox.StatusEntry, error) {
+// ListAggregatesByStatus lists aggregates matching the query. Type and KeyPrefix narrow by
+// aggregate-id prefix. Through bounds by status time. Each narrowing uses its own native redis op
+func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.StatusEntry, error) {
 	key := b.buildStatusIndexKey(q.Status)
 
 	var prefix string
@@ -52,8 +45,8 @@ func (b *Backend) ListAggregatesByStatus(
 		if err != nil {
 			return nil, err
 		}
-		// no native op scores and pattern-matches in one call, so a
-		// concurrent prefix filters the score-bounded result in-process
+		// no native op scores and pattern-matches in one call, so a concurrent prefix filters the
+		// score-bounded result in-process
 		return statusEntriesFromZ(members, prefix), nil
 	}
 
@@ -61,21 +54,15 @@ func (b *Backend) ListAggregatesByStatus(
 		return b.scanStatusPrefix(key, prefix)
 	}
 
-	members, err := b.client.ZRangeWithScores(
-		context.Background(), key, 0, -1,
-	).Result()
+	members, err := b.client.ZRangeWithScores(context.Background(), key, 0, -1).Result()
 	if err != nil {
 		return nil, err
 	}
 	return statusEntriesFromZ(members, ""), nil
 }
 
-func (b *Backend) ListAggregatesByTag(
-	tag string,
-) ([]timebox.AggregateID, error) {
-	members, err := b.client.SMembers(
-		context.Background(), b.buildTagIndexKey(tag),
-	).Result()
+func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error) {
+	members, err := b.client.SMembers(context.Background(), b.buildTagIndexKey(tag)).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -99,9 +86,7 @@ func (b *Backend) buildTagIndexKey(tag string) string {
 	return fmt.Sprintf("%s:%s:%s", b.prefix, tagSuffix, escapeKeyPart(tag))
 }
 
-func (b *Backend) scanStatusPrefix(
-	key, prefix string,
-) ([]timebox.StatusEntry, error) {
+func (b *Backend) scanStatusPrefix(key, prefix string) ([]timebox.StatusEntry, error) {
 	pattern := escapeScanPattern(prefix) + "*"
 	var cursor uint64
 	var res []timebox.StatusEntry
@@ -129,9 +114,7 @@ func (b *Backend) scanStatusPrefix(
 	}
 }
 
-func statusEntriesFromZ(
-	members []redis.Z, prefix string,
-) []timebox.StatusEntry {
+func statusEntriesFromZ(members []redis.Z, prefix string) []timebox.StatusEntry {
 	res := make([]timebox.StatusEntry, 0, len(members))
 	for _, member := range members {
 		m := fmt.Sprint(member.Member)

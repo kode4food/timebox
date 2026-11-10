@@ -89,11 +89,9 @@ func (f *fsm) applyEntries(ents []decodedEntry) ([]*ApplyResult, error) {
 	return results, nil
 }
 
-// applyAppendsTx verifies every request's expected sequence before writing any
-// of them, so a conflict on one aggregate leaves the whole set unwritten
-func (f *fsm) applyAppendsTx(
-	b *kvBucket, reqs []*timebox.AppendRequest,
-) (*ApplyResult, error) {
+// applyAppendsTx verifies every request's expected sequence before writing any of them, so a
+// conflict on one aggregate leaves the whole set unwritten
+func (f *fsm) applyAppendsTx(b *kvBucket, reqs []*timebox.AppendRequest) (*ApplyResult, error) {
 	metas := make([]*AggregateMeta, len(reqs))
 	for i, req := range reqs {
 		encodedID := encodeAggregateID(req.ID)
@@ -115,9 +113,7 @@ func (f *fsm) applyAppendsTx(
 	return &ApplyResult{Appends: reqs}, nil
 }
 
-func (f *fsm) writeAppendTx(
-	b *kvBucket, meta *AggregateMeta, req *timebox.AppendRequest,
-) error {
+func (f *fsm) writeAppendTx(b *kvBucket, meta *AggregateMeta, req *timebox.AppendRequest) error {
 	encodedID := encodeAggregateID(req.ID)
 	if req.Delete {
 		if err := deleteAggregateTx(b, encodedID, meta); err != nil {
@@ -133,9 +129,7 @@ func (f *fsm) writeAppendTx(
 		}))
 	}
 	meta.Deleted = meta.Deleted && !check.Mutates(*req)
-	if err := writeEventsTx(
-		b, aggregateEventPrefix(encodedID), req.Events,
-	); err != nil {
+	if err := writeEventsTx(b, aggregateEventPrefix(encodedID), req.Events); err != nil {
 		return err
 	}
 	if err := applyMutationsTx(b, meta, encodedID, req); err != nil {
@@ -146,9 +140,7 @@ func (f *fsm) writeAppendTx(
 	return b.Put(AggregateMetaKey(encodedID), marshalMeta(meta))
 }
 
-func (f *fsm) applySnapshotTx(
-	b *kvBucket, cmd *SnapshotCommand,
-) (*ApplyResult, error) {
+func (f *fsm) applySnapshotTx(b *kvBucket, cmd *SnapshotCommand) (*ApplyResult, error) {
 	encodedID := encodeAggregateID(cmd.ID)
 	metaKey := AggregateMetaKey(encodedID)
 	snapshotKey := aggregateSnapshotKey(encodedID)
@@ -175,9 +167,7 @@ func (f *fsm) applySnapshotTx(
 		trimTo := min(cmd.Sequence, currentSeq)
 		if trimTo > meta.BaseSequence {
 			for seq := meta.BaseSequence; seq < trimTo; seq++ {
-				if err := b.Delete(
-					aggregateEventKeyFromPrefix(evtPrefix, seq),
-				); err != nil {
+				if err := b.Delete(aggregateEventKeyFromPrefix(evtPrefix, seq)); err != nil {
 					return nil, err
 				}
 			}
@@ -193,9 +183,7 @@ func (f *fsm) applySnapshotTx(
 }
 
 // applyArchiveTx atomically moves cmd.ID into the archive queue
-func (f *fsm) applyArchiveTx(
-	b *kvBucket, cmd *ArchiveCommand,
-) (*ApplyResult, error) {
+func (f *fsm) applyArchiveTx(b *kvBucket, cmd *ArchiveCommand) (*ApplyResult, error) {
 	encodedID := encodeAggregateID(cmd.ID)
 	meta, ok, err := loadMetaTx(b, encodedID)
 	if err != nil || !ok {
@@ -208,11 +196,8 @@ func (f *fsm) applyArchiveTx(
 	}
 
 	rec := &timebox.ArchiveRecord{
-		AggregateID: cmd.ID,
-		SnapshotData: append(
-			[]byte(nil),
-			b.Get(aggregateSnapshotKey(encodedID))...,
-		),
+		AggregateID:      cmd.ID,
+		SnapshotData:     append([]byte(nil), b.Get(aggregateSnapshotKey(encodedID))...),
 		SnapshotSequence: meta.SnapshotSequence,
 		Events:           events,
 	}
@@ -222,9 +207,7 @@ func (f *fsm) applyArchiveTx(
 	if err != nil {
 		return nil, err
 	}
-	ev, err := timebox.NewArchiveQueueEvent(
-		queueMeta.CurrentSequence, cmd.ID, rec,
-	)
+	ev, err := timebox.NewArchiveQueueEvent(queueMeta.CurrentSequence, cmd.ID, rec)
 	if err != nil {
 		return nil, err
 	}
@@ -242,9 +225,7 @@ func (f *fsm) applyArchiveTx(
 	return &ApplyResult{Appends: []*timebox.AppendRequest{req}}, nil
 }
 
-func writeEventsTx(
-	b *kvBucket, evtPrefix []byte, events []*timebox.Event,
-) error {
+func writeEventsTx(b *kvBucket, evtPrefix []byte, events []*timebox.Event) error {
 	for _, ev := range events {
 		event, err := timebox.BinEvent.Encode(ev)
 		if err != nil {
@@ -259,16 +240,13 @@ func writeEventsTx(
 }
 
 func applyMutationsTx(
-	b *kvBucket, meta *AggregateMeta, encodedID string,
-	req *timebox.AppendRequest,
+	b *kvBucket, meta *AggregateMeta, encodedID string, req *timebox.AppendRequest,
 ) error {
 	if req.Status != nil {
 		status := *req.Status
 		statusAt := req.StatusAt.UnixMilli()
 		if meta.Status != "" {
-			if err := b.Delete(
-				statusIndexKey(meta.Status, encodedID, meta.StatusAt),
-			); err != nil {
+			if err := b.Delete(statusIndexKey(meta.Status, encodedID, meta.StatusAt)); err != nil {
 				return err
 			}
 		}
@@ -279,8 +257,7 @@ func applyMutationsTx(
 			meta.Status = status
 			meta.StatusAt = statusAt
 			if err := b.Put(
-				statusIndexKey(status, encodedID, statusAt),
-				bin.AppendInt64(nil, statusAt),
+				statusIndexKey(status, encodedID, statusAt), bin.AppendInt64(nil, statusAt),
 			); err != nil {
 				return err
 			}
@@ -358,8 +335,7 @@ func markApplied(b *kvBucket, logIndex uint64) error {
 }
 
 func conflictResultTx(
-	b *kvBucket, encodedID string, meta *AggregateMeta,
-	req *timebox.AppendRequest,
+	b *kvBucket, encodedID string, meta *AggregateMeta, req *timebox.AppendRequest,
 ) (*ApplyResult, error) {
 	expectedSeq := req.ExpectedSequence
 	conflict := &timebox.VersionConflictError{
@@ -378,9 +354,7 @@ func conflictResultTx(
 	return &ApplyResult{Error: conflict}, nil
 }
 
-func loadEventsTx(
-	b *kvBucket, encodedID string, fromSeq int64,
-) ([]*timebox.Event, error) {
+func loadEventsTx(b *kvBucket, encodedID string, fromSeq int64) ([]*timebox.Event, error) {
 	if fromSeq < 0 {
 		fromSeq = 0
 	}

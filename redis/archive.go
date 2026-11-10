@@ -8,8 +8,8 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-// Archive atomically bundles id's snapshot and remaining events into the shared
-// archive queue, then removes id's live records
+// Archive atomically bundles id's snapshot and remaining events into the shared archive queue, then
+// removes id's live records
 func (b *Backend) Archive(id timebox.AggregateID) error {
 	snapKey := b.buildKey(id, snapshotValSuffix)
 	snapSeqKey := b.buildKey(id, snapshotSeqSuffix)
@@ -34,18 +34,14 @@ func (b *Backend) Archive(id timebox.AggregateID) error {
 		string(timebox.ArchiveQueueID.Key),
 	}
 
-	result, err := b.archive.Run(
-		context.Background(), b.client, keys, args...,
-	).Result()
+	result, err := b.archive.Run(context.Background(), b.client, keys, args...).Result()
 	if err != nil {
 		return err
 	}
 
 	res, ok := result.([]any)
 	if !ok || len(res) == 0 {
-		return errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 	return nil
 }

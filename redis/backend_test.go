@@ -78,9 +78,7 @@ func TestBackendCorruptEvents(t *testing.T) {
 		ctx context.Context, b *tbredis.Backend, client *redis.Client,
 	) {
 		id := timebox.NewAggregateID("order", "1")
-		err := client.RPush(ctx,
-			"corrupt:"+joinAggregateID(id)+":events", "not-json",
-		).Err()
+		err := client.RPush(ctx, "corrupt:"+joinAggregateID(id)+":events", "not-json").Err()
 		assert.NoError(t, err)
 
 		_, err = b.LoadEvents(timebox.LoadEventsRequest{

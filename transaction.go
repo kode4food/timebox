@@ -7,8 +7,8 @@ import (
 )
 
 type (
-	// Transaction collects the append intent of several Aggregators and
-	// commits it as a single atomic append. It is not safe for concurrent use
+	// Transaction collects the append intent of several Aggregators and commits
+	// it as a single atomic append. It is not safe for concurrent use
 	Transaction struct {
 		now   time.Time
 		store *Store
@@ -31,8 +31,8 @@ type (
 )
 
 var (
-	// ErrStoreMismatch indicates a Transaction was given an Executor bound to
-	// a different Store
+	// ErrStoreMismatch indicates a Transaction was given an Executor bound to a
+	// different Store
 	ErrStoreMismatch = errors.New("executor belongs to a different store")
 
 	// ErrAggregateTypeConflict indicates one aggregate was joined twice under
@@ -42,9 +42,9 @@ var (
 	)
 )
 
-// Transact runs fn and commits every aggregate joined through
-// Transaction.Exec as one atomic append. It retries fn on version conflict up
-// to MaxRetries. An error returned from fn discards the transaction
+// Transact runs fn and commits every aggregate joined through Transaction.Exec
+// as one atomic append. It retries fn on version conflict up to MaxRetries. An
+// error returned from fn discards the transaction
 func (s *Store) Transact(fn func(*Transaction) error) error {
 	for range s.config.MaxRetries {
 		t := &Transaction{
@@ -71,8 +71,8 @@ func (s *Store) Transact(fn func(*Transaction) error) error {
 	return ErrMaxRetriesExceeded
 }
 
-// Now returns the Store clock's time for this attempt, read once so every
-// event raised and every decision made within it share one instant
+// Now returns the Store clock's time for this attempt, read once so every event
+// raised and every decision made within it share one instant
 func (t *Transaction) Now() time.Time {
 	return t.now
 }

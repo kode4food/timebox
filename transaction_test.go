@@ -66,8 +66,8 @@ func TestTransactionRollsBackOnConflict(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 2, attempts)
 
-	// the first attempt staged an append for partner and conflicted on
-	// contended. Had it not rolled back, partner would hold two events
+	// the first attempt staged an append for partner and conflicted on contended. Had it not rolled
+	// back, partner would hold two events
 	assertEventCount(t, store, partner, 1)
 	assertEventCount(t, store, contended, 2)
 }
@@ -107,9 +107,7 @@ func TestTransactionClock(t *testing.T) {
 		return err
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, []time.Time{
-		base.Add(time.Second), base.Add(2 * time.Second),
-	}, nows)
+	assert.Equal(t, []time.Time{base.Add(time.Second), base.Add(2 * time.Second)}, nows)
 
 	// each retry reads the clock once, and every event it raises shares that
 	for _, ev := range assertEventCount(t, store, partner, 2) {
@@ -188,9 +186,7 @@ func TestTransactionRejectsForeignExecutor(t *testing.T) {
 	_, otherExec := setupTestExecutor(t)
 
 	err := store.Transact(func(tx *timebox.Transaction) error {
-		_, err := tx.Exec(otherExec,
-			timebox.NewAggregateID("counter", "foreign"), raiseCount(1),
-		)
+		_, err := tx.Exec(otherExec, timebox.NewAggregateID("counter", "foreign"), raiseCount(1))
 		return err
 	})
 	assert.ErrorIs(t, err, timebox.ErrStoreMismatch)
@@ -218,8 +214,7 @@ func TestTransactionRejectsConflictingStateTypes(t *testing.T) {
 
 	// a second executor over the same Store with a different state type
 	other := store.Executor(
-		func() otherState { return otherState{} },
-		(timebox.Appliers[otherState]{}).Reduce,
+		func() otherState { return otherState{} }, (timebox.Appliers[otherState]{}).Reduce,
 	)
 	id := timebox.NewAggregateID("counter", "conflicting")
 
@@ -253,8 +248,8 @@ func TestAggregatorTransaction(t *testing.T) {
 				if err := ag.Raise(EventIncremented, 1); err != nil {
 					return err
 				}
-				// only the Aggregator is in scope, yet a second aggregate
-				// still joins this same commit
+				// only the Aggregator is in scope, yet a second aggregate still joins this same
+				// commit
 				_, err := seen.Exec(executor, second, raiseCount(2))
 				return err
 			},
@@ -271,8 +266,8 @@ func TestAggregatorTransaction(t *testing.T) {
 	assert.Equal(t, 2, st.Value)
 }
 
-// TestAggregatorTransactionRollsBack proves an aggregate enlisted through the
-// Aggregator is a real participant, not a separate commit
+// TestAggregatorTransactionRollsBack proves an aggregate enlisted through the Aggregator is a real
+// participant, not a separate commit
 func TestAggregatorTransactionRollsBack(t *testing.T) {
 	store, executor := setupTestExecutor(t)
 
@@ -286,9 +281,7 @@ func TestAggregatorTransactionRollsBack(t *testing.T) {
 				if err := ag.Raise(EventIncremented, 1); err != nil {
 					return err
 				}
-				_, err := ag.Transaction().Exec(
-					executor, enlisted, raiseCount(2),
-				)
+				_, err := ag.Transaction().Exec(executor, enlisted, raiseCount(2))
 				return err
 			},
 		); err != nil {

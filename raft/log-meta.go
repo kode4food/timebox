@@ -60,9 +60,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 		return nil, false, err
 	}
 
-	opened, last, tailID, walHS, err := openLogSegs(
-		logDir, m.segs, m.tailID, m.compacted,
-	)
+	opened, last, tailID, walHS, err := openLogSegs(logDir, m.segs, m.tailID, m.compacted)
 	if err != nil {
 		_ = db.Close()
 		return nil, false, err
@@ -134,9 +132,7 @@ func openRaftLog(cfg Config) (*raftLog, bool, error) {
 	return lg, stateExists, nil
 }
 
-func (r *raftLog) storeMeta(
-	hs *raftpb.HardState, cs *raftpb.ConfState, manifest bool,
-) error {
+func (r *raftLog) storeMeta(hs *raftpb.HardState, cs *raftpb.ConfState, manifest bool) error {
 	if !manifest && termVoteEqual(r.hs, hs) && confStateEqual(r.cs, cs) {
 		return nil
 	}
@@ -144,14 +140,10 @@ func (r *raftLog) storeMeta(
 	return r.db.Update(func(tx *kvTx) error {
 		mb := tx.Bucket(logMetaBucket)
 		if !termVoteEqual(r.hs, hs) {
-			if err := mb.Put(
-				currentTermKey, bin.AppendUint64(nil, hs.GetTerm()),
-			); err != nil {
+			if err := mb.Put(currentTermKey, bin.AppendUint64(nil, hs.GetTerm())); err != nil {
 				return err
 			}
-			if err := mb.Put(
-				votedForKey, bin.AppendUint64(nil, hs.GetVote()),
-			); err != nil {
+			if err := mb.Put(votedForKey, bin.AppendUint64(nil, hs.GetVote())); err != nil {
 				return err
 			}
 		}
@@ -164,9 +156,7 @@ func (r *raftLog) storeMeta(
 			return nil
 		}
 
-		if err := mb.Put(
-			commitKey, bin.AppendUint64(nil, hs.GetCommit()),
-		); err != nil {
+		if err := mb.Put(commitKey, bin.AppendUint64(nil, hs.GetCommit())); err != nil {
 			return err
 		}
 
@@ -184,10 +174,7 @@ func (r *raftLog) storeMeta(
 			if !slices.Contains(r.prevSegs, seg.first) {
 				key := bin.AppendUint64(nil, seg.first)
 				value := bin.AppendUint64(nil, seg.id)
-				if err := sb.Put(
-					key,
-					value,
-				); err != nil {
+				if err := sb.Put(key, value); err != nil {
 					return err
 				}
 			}

@@ -92,9 +92,7 @@ func TestReconcileRetry(t *testing.T) {
 	backend := &failOnceBackend{Backend: base}
 	store, err := timebox.NewStore(backend)
 	assert.NoError(t, err)
-	scheduleEvent(
-		t, store, "retry-reconcile", time.Now().Add(-time.Second),
-	)
+	scheduleEvent(t, store, "retry-reconcile", time.Now().Add(-time.Second))
 	<-store.ScheduleChanges()
 	emitted := make(chan struct{}, 1)
 	runner, err := scheduler.New(scheduler.Config{
@@ -224,9 +222,7 @@ func TestRetry(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newStore(t)
-			scheduleEvent(
-				t, store, "retry", time.Now().Add(-time.Second),
-			)
+			scheduleEvent(t, store, "retry", time.Now().Add(-time.Second))
 			var attempts atomic.Int32
 			emitted := make(chan struct{}, 1)
 			runner, err := scheduler.New(scheduler.Config{
@@ -365,8 +361,7 @@ func TestReplace(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	assert.NoError(t, peer.Transact(func(tx *timebox.Transaction) error {
 		return tx.Schedule(
-			"replace", time.Now().Add(20*time.Millisecond),
-			newMessage(t, "replacement"),
+			"replace", time.Now().Add(20*time.Millisecond), newMessage(t, "replacement"),
 		)
 	}))
 	runner.Wake()
@@ -498,9 +493,7 @@ func newStore(t *testing.T) *timebox.Store {
 	return store
 }
 
-func readSchedule(
-	store *timebox.Store, key timebox.ScheduleKey,
-) (*timebox.Schedule, error) {
+func readSchedule(store *timebox.Store, key timebox.ScheduleKey) (*timebox.Schedule, error) {
 	var res *timebox.Schedule
 	err := store.Transact(func(tx *timebox.Transaction) error {
 		var err error
@@ -521,9 +514,7 @@ func newStores(t *testing.T) (*timebox.Store, *timebox.Store) {
 	return first, second
 }
 
-func scheduleEvent(
-	t *testing.T, store *timebox.Store, key timebox.ScheduleKey, at time.Time,
-) {
+func scheduleEvent(t *testing.T, store *timebox.Store, key timebox.ScheduleKey, at time.Time) {
 	t.Helper()
 	assert.NoError(t,
 		store.Transact(func(tx *timebox.Transaction) error {
@@ -539,10 +530,8 @@ func newMessage(t *testing.T, value string) *timebox.Message {
 		return nil
 	}
 	return &timebox.Message{
-		AggregateID: timebox.NewAggregateID(
-			"schedule-target", timebox.ID(value),
-		),
-		Type: "scheduler.test",
-		Data: data,
+		AggregateID: timebox.NewAggregateID("schedule-target", timebox.ID(value)),
+		Type:        "scheduler.test",
+		Data:        data,
 	}
 }

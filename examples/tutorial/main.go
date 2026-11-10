@@ -178,33 +178,25 @@ func createOrderExecutor(store *timebox.Store) *OrderExecutor {
 	}).Reduce)
 }
 
-func applyStockReceived(
-	state ProductState, _ *timebox.Event, data StockChangedData,
-) ProductState {
+func applyStockReceived(state ProductState, _ *timebox.Event, data StockChangedData) ProductState {
 	state.SKU = data.SKU
 	state.Available += data.Quantity
 	return state
 }
 
-func applyStockReserved(
-	state ProductState, _ *timebox.Event, data StockChangedData,
-) ProductState {
+func applyStockReserved(state ProductState, _ *timebox.Event, data StockChangedData) ProductState {
 	state.Available -= data.Quantity
 	state.Reserved += data.Quantity
 	return state
 }
 
-func applyStockShipped(
-	state ProductState, _ *timebox.Event, data StockChangedData,
-) ProductState {
+func applyStockShipped(state ProductState, _ *timebox.Event, data StockChangedData) ProductState {
 	state.Reserved -= data.Quantity
 	state.Shipped += data.Quantity
 	return state
 }
 
-func applyOrderPlaced(
-	state OrderState, _ *timebox.Event, data OrderPlacedData,
-) OrderState {
+func applyOrderPlaced(state OrderState, _ *timebox.Event, data OrderPlacedData) OrderState {
 	state.CustomerID = data.CustomerID
 	state.SKU = data.SKU
 	state.Quantity = data.Quantity
@@ -219,9 +211,7 @@ func applyOrderConfirmed(
 	return state
 }
 
-func applyOrderShipped(
-	state OrderState, _ *timebox.Event, data OrderShippedData,
-) OrderState {
+func applyOrderShipped(state OrderState, _ *timebox.Event, data OrderShippedData) OrderState {
 	state.Status = StatusShipped
 	state.TrackingNumber = data.TrackingNumber
 	return state
@@ -255,9 +245,7 @@ func orderIndexer(events []*timebox.Event) []*timebox.Index {
 	return indexes
 }
 
-func receiveStock(
-	products *ProductExecutor, id timebox.AggregateID, quantity int,
-) error {
+func receiveStock(products *ProductExecutor, id timebox.AggregateID, quantity int) error {
 	_, err := products.Exec(id,
 		func(_ ProductState, ag *ProductAggregator) error {
 			return ag.Raise(StockReceived, StockChangedData{
@@ -317,15 +305,11 @@ func placeOrder(args placeOrderArgs) error {
 	})
 }
 
-func confirmOrder(
-	orders *OrderExecutor, id timebox.AggregateID,
-) error {
+func confirmOrder(orders *OrderExecutor, id timebox.AggregateID) error {
 	_, err := orders.Exec(id,
 		func(order OrderState, ag *OrderAggregator) error {
 			if order.Status != StatusPlaced {
-				return fmt.Errorf(
-					"cannot confirm order in %q state", order.Status,
-				)
+				return fmt.Errorf("cannot confirm order in %q state", order.Status)
 			}
 			return ag.Raise(OrderConfirmed, timebox.Empty{})
 		},
@@ -349,9 +333,7 @@ func shipOrder(args shipOrderArgs) error {
 				ag *OrderAggregator,
 			) error {
 				if order.Status != StatusConfirmed {
-					return fmt.Errorf(
-						"cannot ship order in %q state", order.Status,
-					)
+					return fmt.Errorf("cannot ship order in %q state", order.Status)
 				}
 				return ag.Raise(OrderShipped, OrderShippedData{
 					TrackingNumber: args.trackingNumber,

@@ -57,18 +57,14 @@ func (r *raftLog) Close() error {
 	return errors.Join(errs...)
 }
 
-func (r *raftLog) InitialState() (
-	*raftpb.HardState, *raftpb.ConfState, error,
-) {
+func (r *raftLog) InitialState() (*raftpb.HardState, *raftpb.ConfState, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return proto.Clone(r.hs).(*raftpb.HardState),
 		proto.Clone(r.cs).(*raftpb.ConfState), nil
 }
 
-func (r *raftLog) Entries(
-	lo, hi, maxSize uint64,
-) ([]*raftpb.Entry, error) {
+func (r *raftLog) Entries(lo, hi, maxSize uint64) ([]*raftpb.Entry, error) {
 	r.mu.RLock()
 	last := r.last
 	compacted := r.compacted
@@ -237,9 +233,7 @@ func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
 	removed := r.compact(compactBound)
 
 	manifestDirty = manifestDirty || rotated || len(removed) > 0
-	if err := r.storeMeta(
-		hs, r.cs, manifestDirty,
-	); err != nil {
+	if err := r.storeMeta(hs, r.cs, manifestDirty); err != nil {
 		return err
 	}
 	r.hs = hs
@@ -331,9 +325,7 @@ func (r *raftLog) ReplayCommitted(
 	return nil
 }
 
-func (r *raftLog) buildSnapshot(
-	data []byte, applied uint64,
-) *raftpb.Snapshot {
+func (r *raftLog) buildSnapshot(data []byte, applied uint64) *raftpb.Snapshot {
 	term, _ := r.Term(applied)
 	r.mu.RLock()
 	cs := proto.Clone(r.cs).(*raftpb.ConfState)
@@ -455,10 +447,7 @@ func (r *raftLog) warmHotTail() error {
 	if last > uint64(len(r.hot.buf)) {
 		lo = max(lo, last-uint64(len(r.hot.buf))+1)
 	}
-	ents, err := loadEntries(
-		r.logDir, segs, lo, last+1,
-		^uint64(0),
-	)
+	ents, err := loadEntries(r.logDir, segs, lo, last+1, ^uint64(0))
 	if err != nil {
 		return err
 	}

@@ -57,9 +57,7 @@ var (
 	ErrRetry = errors.New("retry scheduled message")
 
 	// ErrInvalidRescanInterval indicates a non-positive rescan interval
-	ErrInvalidRescanInterval = errors.New(
-		"scheduler rescan interval must be positive",
-	)
+	ErrInvalidRescanInterval = errors.New("scheduler rescan interval must be positive")
 
 	// ErrInvalidRetryDelay indicates a non-positive retry delay
 	ErrInvalidRetryDelay = errors.New("scheduler retry delay must be positive")
@@ -118,8 +116,8 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 	timer := s.newTimer(0)
 	defer timer.Stop()
-	// Start collecting local changes before the first full scan, so none
-	// committed in between is missed
+	// Start collecting local changes before the first full scan, so none committed in between is
+	// missed
 	s.store.TakeScheduleChanges()
 	var nextScan time.Time
 
@@ -147,8 +145,8 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 }
 
-// applyChanges folds this Store's own commits into the heap, leaving tasks
-// beyond the rescan window to the next full scan
+// applyChanges folds this Store's own commits into the heap, leaving tasks beyond the rescan window
+// to the next full scan
 func (s *Scheduler) applyChanges() {
 	through := s.clock().Add(s.rescan)
 	for key, schedule := range s.store.TakeScheduleChanges() {
@@ -196,9 +194,7 @@ func (s *Scheduler) processDue(ctx context.Context) {
 			item = heap.Pop(s.heap).(*heapItem)
 
 			err := s.store.Transact(func(tx *timebox.Transaction) error {
-				schedule, err := tx.ConsumeSchedule(
-					item.schedule.Key, s.clock(),
-				)
+				schedule, err := tx.ConsumeSchedule(item.schedule.Key, s.clock())
 				if err != nil || schedule == nil {
 					return err
 				}
@@ -239,9 +235,7 @@ func (s *Scheduler) retryItem(item *heapItem) {
 	heap.Push(s.heap, item)
 }
 
-func (s *Scheduler) logError(
-	ctx context.Context, key timebox.ScheduleKey, err error,
-) {
+func (s *Scheduler) logError(ctx context.Context, key timebox.ScheduleKey, err error) {
 	if errors.Is(err, ErrRetry) {
 		return
 	}
@@ -258,9 +252,7 @@ func (*Scheduler) logReconcileError(ctx context.Context, err error) {
 	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 		return
 	}
-	slog.ErrorContext(ctx, "Schedule reconciliation failed",
-		slog.Any("error", err),
-	)
+	slog.ErrorContext(ctx, "Schedule reconciliation failed", slog.Any("error", err))
 }
 
 func (s *Scheduler) calculateDelay() time.Duration {

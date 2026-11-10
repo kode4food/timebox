@@ -37,9 +37,7 @@ var (
 	ErrScheduleMessageRequired = errors.New("schedule message is required")
 
 	// ErrScheduleMessageTypeRequired indicates an empty deferred message type
-	ErrScheduleMessageTypeRequired = errors.New(
-		"schedule message type is required",
-	)
+	ErrScheduleMessageTypeRequired = errors.New("schedule message type is required")
 )
 
 var scheduleAppliers = Appliers[scheduleState]{
@@ -47,11 +45,9 @@ var scheduleAppliers = Appliers[scheduleState]{
 	scheduleConsumed: clearSchedule,
 }
 
-// Schedule creates or replaces a durable deferred message. Scheduling the same
-// deadline and message again is a no-op
-func (t *Transaction) Schedule(
-	key ScheduleKey, at time.Time, message *Message,
-) error {
+// Schedule creates or replaces a durable deferred message. Scheduling the same deadline and message
+// again is a no-op
+func (t *Transaction) Schedule(key ScheduleKey, at time.Time, message *Message) error {
 	if err := validateSchedule(key, message); err != nil {
 		return err
 	}
@@ -77,8 +73,8 @@ func (t *Transaction) Schedule(
 	return nil
 }
 
-// LoadSchedule returns the active schedule for key as the Transaction sees it.
-// The commit is checked against the schedule it read
+// LoadSchedule returns the active schedule for key as the Transaction sees it. The commit is
+// checked against the schedule it read
 func (t *Transaction) LoadSchedule(key ScheduleKey) (*Schedule, error) {
 	if key == "" {
 		return nil, ErrScheduleKeyRequired
@@ -91,11 +87,9 @@ func (t *Transaction) LoadSchedule(key ScheduleKey) (*Schedule, error) {
 	return st.Active, err
 }
 
-// ConsumeSchedule removes and returns the schedule for key if it is due by
-// through. It returns nil when nothing is due
-func (t *Transaction) ConsumeSchedule(
-	key ScheduleKey, through time.Time,
-) (*Schedule, error) {
+// ConsumeSchedule removes and returns the schedule for key if it is due by through. It returns nil
+// when nothing is due
+func (t *Transaction) ConsumeSchedule(key ScheduleKey, through time.Time) (*Schedule, error) {
 	if key == "" {
 		return nil, ErrScheduleKeyRequired
 	}
@@ -122,9 +116,8 @@ func (s *Store) ScheduleChanges() <-chan struct{} {
 	return s.changes
 }
 
-// TakeScheduleChanges returns and clears the schedules this Store committed
-// since the previous call, with nil marking a consumed key. Changes are only
-// collected after the first call
+// TakeScheduleChanges returns and clears the schedules this Store committed since the previous
+// call, with nil marking a consumed key. Changes are only collected after the first call
 func (s *Store) TakeScheduleChanges() map[ScheduleKey]*Schedule {
 	s.changedMu.Lock()
 	defer s.changedMu.Unlock()
@@ -133,8 +126,8 @@ func (s *Store) TakeScheduleChanges() map[ScheduleKey]*Schedule {
 	return res
 }
 
-// LoadSchedules reads active schedules due through the provided time, or all
-// when through is zero. The read is non-transactional and non-consuming
+// LoadSchedules reads active schedules due through the provided time, or all when through is zero.
+// The read is non-transactional and non-consuming
 func (s *Store) LoadSchedules(through time.Time) ([]*Schedule, error) {
 	entries, err := s.backend.ListAggregatesByStatus(StatusQuery{
 		Status:  scheduleActiveStatus,
@@ -158,9 +151,7 @@ func (s *Store) LoadSchedules(through time.Time) ([]*Schedule, error) {
 	return res, nil
 }
 
-func (t *Transaction) setScheduleStatus(
-	id AggregateID, status string, at time.Time,
-) {
+func (t *Transaction) setScheduleStatus(id AggregateID, status string, at time.Time) {
 	p := t.parts[id]
 	p.request.Status = &status
 	p.request.StatusAt = at.UTC()

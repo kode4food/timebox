@@ -54,16 +54,11 @@ const (
 	readySettle    = 250 * time.Millisecond
 )
 
-func newRaftNodeConfig(
-	id uint64, storage raft.Storage, applied uint64,
-) *raft.Config {
+func newRaftNodeConfig(id uint64, storage raft.Storage, applied uint64) *raft.Config {
 	lg := slog.Default()
 	raftLogger := &raft.DefaultLogger{
 		Logger: slog.NewLogLogger(
-			lg.With(
-				slog.String("component", "timebox-raft"),
-			).Handler(),
-			slog.LevelInfo,
+			lg.With(slog.String("component", "timebox-raft")).Handler(), slog.LevelInfo,
 		),
 	}
 	return &raft.Config{
@@ -195,9 +190,7 @@ func (b *Backend) servePeerSend(id uint64, peer peerInfo, q *peerQueue) {
 	}
 }
 
-func (b *Backend) sendPeerQueue(
-	id uint64, peer peerInfo, q *peerQueue,
-) error {
+func (b *Backend) sendPeerQueue(id uint64, peer peerInfo, q *peerQueue) error {
 	var (
 		hadSnap   bool
 		attempted []uint64
@@ -302,9 +295,7 @@ func (b *Backend) handleTransportConn(conn net.Conn) {
 	}
 }
 
-func (b *Backend) readTransportMessage(
-	r *bufio.Reader,
-) (*raftpb.Message, error) {
+func (b *Backend) readTransportMessage(r *bufio.Reader) (*raftpb.Message, error) {
 	data, err := readFrame(r)
 	if err != nil {
 		return nil, err
@@ -342,8 +333,7 @@ func (b *Backend) serveReady() {
 				}
 				if err := b.handleReady(rd); err != nil {
 					slog.Error(
-						"Raft ready loop stopped",
-						slog.String("local_id", b.cfg.LocalID),
+						"Raft ready loop stopped", slog.String("local_id", b.cfg.LocalID),
 						slog.Any("error", err),
 					)
 					b.stop(internalError(err))

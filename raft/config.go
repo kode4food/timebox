@@ -57,11 +57,8 @@ var (
 	// ErrInvalidAddress indicates a raft address must be a valid host:port
 	ErrInvalidAddress = errors.New("raft address must be a valid host:port")
 
-	// ErrBootstrapMissingLocalServer indicates the bootstrap voter set must
-	// include the local node
-	ErrBootstrapMissingLocalServer = errors.New(
-		"bootstrap servers must include the local raft ID",
-	)
+	// ErrBootstrapMissingLocalServer indicates the bootstrap voter set must include the local node
+	ErrBootstrapMissingLocalServer = errors.New("bootstrap servers must include the local raft ID")
 )
 
 // DefaultConfig returns the opinionated defaults for one Raft node
@@ -104,10 +101,7 @@ func (c Config) Validate() error {
 	case c.Address == "":
 		return ErrAddressRequired
 	case c.LogTailSize < MinLogTailSize:
-		return fmt.Errorf(
-			"raft log tail size must be at least %d entries",
-			MinLogTailSize,
-		)
+		return fmt.Errorf("raft log tail size must be at least %d entries", MinLogTailSize)
 	}
 	if _, _, err := parseAddress(c.Address); err != nil {
 		return err

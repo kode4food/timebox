@@ -10,8 +10,8 @@ import (
 )
 
 type (
-	// Aggregator maintains aggregate state for a command and tracks events
-	// raised through Raise. It is not safe for concurrent use
+	// Aggregator maintains aggregate state for a command and tracks events raised through Raise. It
+	// is not safe for concurrent use
 	Aggregator[T any] struct {
 		value    T
 		reducer  Reducer[T]
@@ -32,8 +32,8 @@ type (
 	// Reducer applies an event batch to an aggregate state
 	Reducer[T any] func(T, []*Event) T
 
-	// SuccessAction receives the Aggregator's final value after Executor.Exec
-	// succeeds, as well as the Events persisted by that execution
+	// SuccessAction receives the Aggregator's final value after Executor.Exec succeeds, as well as
+	// the Events persisted by that execution
 	SuccessAction[T any] func(T, []*Event)
 
 	// AggregateID identifies an aggregate by type and key ("order", "123")
@@ -50,11 +50,8 @@ type (
 const SingletonKey ID = "_"
 
 var (
-	// ErrInvalidAggregateID indicates an encoded AggregateID did not decode to
-	// a type and a key
-	ErrInvalidAggregateID = errors.New(
-		"aggregate id must have a type and a key",
-	)
+	// ErrInvalidAggregateID indicates an encoded AggregateID did not decode to a type and a key
+	ErrInvalidAggregateID = errors.New("aggregate id must have a type and a key")
 )
 
 // NewAggregateID builds an AggregateID from its type and key
@@ -87,14 +84,12 @@ func (a *Aggregator[T]) Value() T {
 	return a.value
 }
 
-// NextSequence returns the next sequence number that will be assigned to a new
-// event
+// NextSequence returns the next sequence number that will be assigned to a new event
 func (a *Aggregator[_]) NextSequence() int64 {
 	return a.nextSeq
 }
 
-// OnSuccess registers an action to run after Executor.Exec persists the raised
-// events successfully
+// OnSuccess registers an action to run after Executor.Exec persists the raised events successfully
 func (a *Aggregator[T]) OnSuccess(fn SuccessAction[T]) {
 	a.success = append(a.success, fn)
 }
@@ -121,8 +116,8 @@ func (a *Aggregator[T]) Raise[V any](typ EventType, value V) error {
 	return nil
 }
 
-// Transaction returns the Transaction this Aggregator's events commit in, so
-// code holding only an Aggregator can enlist further aggregates
+// Transaction returns the Transaction this Aggregator's events commit in, so code holding only an
+// Aggregator can enlist further aggregates
 func (a *Aggregator[_]) Transaction() *Transaction {
 	return a.tx
 }

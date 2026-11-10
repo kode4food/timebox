@@ -34,9 +34,9 @@ type (
 	Empty struct{}
 )
 
-// GetValue unmarshals the message data into the requested type. It reuses a
-// cached value when the requested type matches, and otherwise unmarshals
-// without replacing the cached type. This is safe for concurrent access
+// GetValue unmarshals the message data into the requested type. It reuses a cached value when the
+// requested type matches, and otherwise unmarshals without replacing the cached type. This is safe
+// for concurrent access
 func (m *Message) GetValue[T any]() (T, error) {
 	m.mu.RLock()
 	if val, ok := m.value.(T); ok {

@@ -33,9 +33,7 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	if err != nil {
 		return err
 	}
-	res, err := b.applyWithTimeout(
-		context.Background(), cmd, propID, events,
-	)
+	res, err := b.applyWithTimeout(context.Background(), cmd, propID, events)
 	if err != nil {
 		return err
 	}

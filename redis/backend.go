@@ -45,8 +45,7 @@ const (
 )
 
 var (
-	// ErrUnexpectedLuaResult indicates a Redis Lua script returned data in an
-	// unexpected shape
+	// ErrUnexpectedLuaResult indicates a Redis Lua script returned data in an unexpected shape
 	ErrUnexpectedLuaResult = errors.New("unexpected result from Lua script")
 )
 
@@ -73,9 +72,7 @@ func newBackend(cfg Config) (*Backend, error) {
 		DB:       cfg.DB,
 	})
 
-	pingCtx, cancel := context.WithTimeout(
-		context.Background(), connectTimeout,
-	)
+	pingCtx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancel()
 
 	if err := client.Ping(pingCtx).Err(); err != nil {
@@ -126,9 +123,7 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 		})
 	}
 
-	result, err := b.appendScript.Run(
-		context.Background(), b.client, keys, args...,
-	).Result()
+	result, err := b.appendScript.Run(context.Background(), b.client, keys, args...).Result()
 	if err != nil {
 		return err
 	}
@@ -140,32 +135,22 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 }
 
 // LoadEvents loads events starting at fromSeq
-func (b *Backend) LoadEvents(
-	req timebox.LoadEventsRequest,
-) (*timebox.EventsResult, error) {
-	keys := []string{
-		b.buildKey(req.ID, eventsSuffix), b.buildKey(req.ID, baseSuffix),
-	}
+func (b *Backend) LoadEvents(req timebox.LoadEventsRequest) (*timebox.EventsResult, error) {
+	keys := []string{b.buildKey(req.ID, eventsSuffix), b.buildKey(req.ID, baseSuffix)}
 
-	result, err := b.getEvents.Run(
-		context.Background(), b.client, keys, req.FromSeq,
-	).Result()
+	result, err := b.getEvents.Run(context.Background(), b.client, keys, req.FromSeq).Result()
 	if err != nil {
 		return nil, err
 	}
 
 	res, ok := result.([]any)
 	if !ok || len(res) < 2 {
-		return nil, errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return nil, errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 
 	base, ok := res[0].(int64)
 	if !ok {
-		return nil, errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return nil, errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 
 	evs, err := decodeEvents(res[1].([]any))
@@ -179,41 +164,31 @@ func (b *Backend) LoadEvents(
 }
 
 // LoadSnapshot loads the snapshot and trailing events for an aggregate
-func (b *Backend) LoadSnapshot(
-	req timebox.LoadSnapshotRequest,
-) (*timebox.SnapshotRecord, error) {
+func (b *Backend) LoadSnapshot(req timebox.LoadSnapshotRequest) (*timebox.SnapshotRecord, error) {
 	snapKey := b.buildKey(req.ID, snapshotValSuffix)
 	snapSeqKey := b.buildKey(req.ID, snapshotSeqSuffix)
 	eventsKey := b.buildKey(req.ID, eventsSuffix)
 	baseKey := b.buildKey(req.ID, baseSuffix)
 	keys := []string{snapKey, snapSeqKey, eventsKey, baseKey}
 
-	result, err := b.getSnapshot.Run(
-		context.Background(), b.client, keys,
-	).Result()
+	result, err := b.getSnapshot.Run(context.Background(), b.client, keys).Result()
 	if err != nil {
 		return nil, err
 	}
 
 	resultSlice := result.([]any)
 	if len(resultSlice) < 3 {
-		return nil, errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return nil, errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 
 	snapData, ok := resultSlice[0].(string)
 	if !ok {
-		return nil, errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return nil, errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 
 	snapSeq, ok := resultSlice[1].(int64)
 	if !ok {
-		return nil, errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return nil, errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 
 	newEvents, err := decodeEvents(resultSlice[2].([]any))
@@ -242,21 +217,14 @@ func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
 	}
 
 	_, err := b.putSnapshot.Run(
-		context.Background(), b.client, keys,
-		string(req.Data), req.Sequence, trim,
+		context.Background(), b.client, keys, string(req.Data), req.Sequence, trim,
 	).Result()
 	return err
 }
 
-// ListAggregates lists aggregate IDs of the given type, or of every type when
-// it is empty
-func (b *Backend) ListAggregates(
-	typ timebox.ID,
-) ([]timebox.AggregateID, error) {
-	searchKeys := []string{
-		b.listAggregateKey(eventsSuffix),
-		b.listAggregateKey(snapshotValSuffix),
-	}
+// ListAggregates lists aggregate IDs of the given type, or of every type when it is empty
+func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
+	searchKeys := []string{b.listAggregateKey(eventsSuffix), b.listAggregateKey(snapshotValSuffix)}
 
 	seen := map[timebox.AggregateID]struct{}{}
 	for _, searchKey := range searchKeys {
@@ -313,20 +281,16 @@ func (b *Backend) parseAggregateIDFromKey(key string) timebox.AggregateID {
 	return parseAggregateID(str)
 }
 
-// appendConflict turns the script result into a VersionConflictError naming the
-// request that failed, or nil when every append landed
+// appendConflict turns the script result into a VersionConflictError naming the request that
+// failed, or nil when every append landed
 func appendConflict(reqs []timebox.AppendRequest, result any) error {
 	res, ok := result.([]any)
 	if !ok || len(res) < 4 {
-		return errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 	success, ok := res[0].(int64)
 	if !ok {
-		return errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 	if success != 0 {
 		return nil
@@ -335,15 +299,11 @@ func appendConflict(reqs []timebox.AppendRequest, result any) error {
 	seq, seqOK := res[1].(int64)
 	at, atOK := res[3].(int64)
 	if !seqOK || !atOK || at < 1 || at > int64(len(reqs)) {
-		return errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 	raw, ok := res[2].([]any)
 	if !ok {
-		return errors.Join(
-			timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult,
-		)
+		return errors.Join(timebox.ErrUnexpectedResult, ErrUnexpectedLuaResult)
 	}
 	newEvents, err := decodeEvents(raw)
 	if err != nil {

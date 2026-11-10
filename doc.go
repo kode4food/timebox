@@ -1,7 +1,7 @@
-// Package timebox implements an event sourcing toolkit with pluggable
-// persistence backends such as memory, Redis/Valkey, PostgreSQL, and Raft. It
-// couples an append-only event log, snapshots, optimistic concurrency, and
-// append-time indexing into a library that can be embedded into services
+// Package timebox implements an event sourcing toolkit with pluggable persistence backends such as
+// memory, Redis/Valkey, PostgreSQL, and Raft. It couples an append-only event log, snapshots,
+// optimistic concurrency, and append-time indexing into a library that can be embedded into
+// services
 //
 // Typical usage looks like:
 //   - Open a Backend and create a Store from it
@@ -11,6 +11,6 @@
 //   - Save snapshots explicitly or let the Executor refresh them while loading
 //   - Query the Store directly for events and aggregate state
 //
-// The examples/ directory contains a runnable order workflow that exercises
-// the API in a small domain
+// The examples/ directory contains a runnable order workflow that exercises the API in a small
+// domain
 package timebox

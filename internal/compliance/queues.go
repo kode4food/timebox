@@ -205,10 +205,7 @@ func runQueues(t *testing.T, p Profile) {
 				assert.ErrorIs(t, err, tc.err)
 			})
 		}
-		assert.ErrorIs(t,
-			store.Consume(t.Context(), "jobs", nil),
-			timebox.ErrQueueHandlerRequired,
-		)
+		assert.ErrorIs(t, store.Consume(t.Context(), "jobs", nil), timebox.ErrQueueHandlerRequired)
 	})
 }
 

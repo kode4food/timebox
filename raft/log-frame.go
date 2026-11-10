@@ -83,11 +83,9 @@ func readLogFrame(r *bufio.Reader) (*raftpb.Entry, int64, error) {
 	}
 }
 
-// readWALFrame returns either an entry or a HardState, plus the frame size
-// Exactly one of the two pointers is non-nil on success
-func readWALFrame(r *bufio.Reader) (
-	*raftpb.Entry, *raftpb.HardState, int64, error,
-) {
+// readWALFrame returns either an entry or a HardState, plus the frame size Exactly one of the two
+// pointers is non-nil on success
+func readWALFrame(r *bufio.Reader) (*raftpb.Entry, *raftpb.HardState, int64, error) {
 	var hdr [4]byte
 	n, err := io.ReadFull(r, hdr[:])
 	switch {
@@ -183,9 +181,7 @@ func writeIdxPoint(f *os.File, pt logPoint) error {
 }
 
 func rewriteIdx(path string, pts []logPoint) error {
-	f, err := os.OpenFile(path,
-		os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600,
-	)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}

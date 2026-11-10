@@ -83,13 +83,8 @@ func runDelete(t *testing.T, p Profile) {
 					TrimEvents: trim,
 				}, nil)
 				id := timebox.NewAggregateID("order", "delete-fence")
-				ev := testEvent(t,
-					time.Unix(1_700_000_034, 0).UTC(),
-					"event.test", 1, nil, nil,
-				)
-				assert.NoError(t,
-					store.AppendEvents(id, 0, []*timebox.Event{ev, ev}),
-				)
+				ev := testEvent(t, time.Unix(1_700_000_034, 0).UTC(), "event.test", 1, nil, nil)
+				assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev, ev}))
 				assert.NoError(t,
 					store.PutSnapshot(id, map[string]int{"value": 1}, 1),
 				)
@@ -115,9 +110,7 @@ func runDelete(t *testing.T, p Profile) {
 				assert.Equal(t, int64(3), snap.NextSequence)
 				assert.Empty(t, snap.State)
 
-				assert.NoError(t,
-					store.AppendEvents(id, 3, []*timebox.Event{ev}),
-				)
+				assert.NoError(t, store.AppendEvents(id, 3, []*timebox.Event{ev}))
 				evs, err := store.GetEvents(id, 0)
 				assert.NoError(t, err)
 				if assert.Len(t, evs, 1) {
@@ -130,12 +123,8 @@ func runDelete(t *testing.T, p Profile) {
 	t.Run("Conflict", func(t *testing.T) {
 		backend, store := openBackend(t, p, timebox.Config{}, nil)
 		id := timebox.NewAggregateID("order", "delete-conflict")
-		ev := testEvent(t,
-			time.Unix(1_700_000_031, 0).UTC(), "event.test", 1, nil, nil,
-		)
-		assert.NoError(t,
-			store.AppendEvents(id, 0, []*timebox.Event{ev, ev}),
-		)
+		ev := testEvent(t, time.Unix(1_700_000_031, 0).UTC(), "event.test", 1, nil, nil)
+		assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev, ev}))
 
 		err := backend.Append(timebox.AppendRequest{
 			ID:               id,
@@ -189,9 +178,7 @@ func runDelete(t *testing.T, p Profile) {
 		backend, store := openBackend(t, p, timebox.Config{}, nil)
 		deleted := timebox.NewAggregateID("order", "delete-atomic")
 		stale := timebox.NewAggregateID("order", "delete-stale")
-		ev := testEvent(t,
-			time.Unix(1_700_000_032, 0).UTC(), "event.test", 1, nil, nil,
-		)
+		ev := testEvent(t, time.Unix(1_700_000_032, 0).UTC(), "event.test", 1, nil, nil)
 		assert.NoError(t, store.AppendEvents(deleted, 0, []*timebox.Event{ev}))
 		assert.NoError(t, store.AppendEvents(stale, 0, []*timebox.Event{ev}))
 

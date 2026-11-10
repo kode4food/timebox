@@ -23,8 +23,8 @@ type (
 		changed   map[ScheduleKey]*Schedule
 	}
 
-	// VersionConflictError is returned when AppendEvents encounters a sequence
-	// mismatch. NewEvents contains the conflicting events
+	// VersionConflictError is returned when AppendEvents encounters a sequence mismatch. NewEvents
+	// contains the conflicting events
 	VersionConflictError struct {
 		NewEvents        []*Event
 		ID               AggregateID
@@ -61,16 +61,14 @@ func NewStore(b Backend, cfgs ...Config) (*Store, error) {
 	s.schedule = s.newInternalExecutor(
 		newScheduleState, scheduleAppliers.Reduce, s.notifyScheduleChange,
 	)
-	s.queue = s.newInternalExecutor(
-		newQueueState, reduceQueue, s.notifyQueueChange,
-	)
+	s.queue = s.newInternalExecutor(newQueueState, reduceQueue, s.notifyQueueChange)
 	return s, nil
 }
 
 func (e *VersionConflictError) Error() string {
 	return fmt.Sprintf(
-		"version conflict: expected sequence %d, but at %d (%d new events)",
-		e.ExpectedSequence, e.ActualSequence, len(e.NewEvents),
+		"version conflict: expected sequence %d, but at %d (%d new events)", e.ExpectedSequence,
+		e.ActualSequence, len(e.NewEvents),
 	)
 }
 
@@ -94,8 +92,8 @@ func (s *Store) WaitReady(ctx context.Context) error {
 	}
 }
 
-// AppendEvents atomically appends events for an aggregate if the expected
-// sequence matches the current log sequence
+// AppendEvents atomically appends events for an aggregate if the expected sequence matches the
+// current log sequence
 func (s *Store) AppendEvents(id AggregateID, atSeq int64, evs []*Event) error {
 	return s.backend.Append(s.appendRequest(id, atSeq, evs))
 }
@@ -116,9 +114,7 @@ func (s *Store) GetEvents(id AggregateID, fromSeq int64) ([]*Event, error) {
 }
 
 // GetSnapshot loads the latest snapshot and any events stored after it
-func (s *Store) GetSnapshot[T any](
-	id AggregateID,
-) (*SnapshotResult[T], error) {
+func (s *Store) GetSnapshot[T any](id AggregateID) (*SnapshotResult[T], error) {
 	rec, err := s.backend.LoadSnapshot(LoadSnapshotRequest{ID: id})
 	if err != nil {
 		return nil, err
@@ -141,11 +137,9 @@ func (s *Store) GetSnapshot[T any](
 	}, nil
 }
 
-// PutSnapshot saves a snapshot value and sequence if the provided sequence is
-// newer than any stored snapshot
-func (s *Store) PutSnapshot[T any](
-	id AggregateID, value T, sequence int64,
-) error {
+// PutSnapshot saves a snapshot value and sequence if the provided sequence is newer than any stored
+// snapshot
+func (s *Store) PutSnapshot[T any](id AggregateID, value T, sequence int64) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -158,11 +152,9 @@ func (s *Store) PutSnapshot[T any](
 	})
 }
 
-// appendRequest sequences the events and derives the index metadata an append
-// carries, without performing the append
-func (s *Store) appendRequest(
-	id AggregateID, atSeq int64, evs []*Event,
-) AppendRequest {
+// appendRequest sequences the events and derives the index metadata an append carries, without
+// performing the append
+func (s *Store) appendRequest(id AggregateID, atSeq int64, evs []*Event) AppendRequest {
 	evs = sequenceEvents(id, atSeq, evs)
 
 	var status *string
@@ -196,8 +188,8 @@ func (s *Store) appendRequest(
 	}
 }
 
-// rawAppendRequest sequences a bookkeeping append without the configured
-// Indexer, which is never meant to see Timebox's own aggregates
+// rawAppendRequest sequences a bookkeeping append without the configured Indexer, which is never
+// meant to see Timebox's own aggregates
 func rawAppendRequest(id AggregateID, atSeq int64, evs []*Event) AppendRequest {
 	return AppendRequest{
 		ID:               id,

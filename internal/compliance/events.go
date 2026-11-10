@@ -34,14 +34,8 @@ func runEvents(t *testing.T, p Profile) {
 	t.Run("AppendLoad", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "append")
-		first := testEvent(t,
-			time.Unix(1_700_000_000, 123).UTC(),
-			"event.first", 1, nil, nil,
-		)
-		second := testEvent(t,
-			time.Unix(1_700_000_001, 456).UTC(),
-			"event.second", 2, nil, nil,
-		)
+		first := testEvent(t, time.Unix(1_700_000_000, 123).UTC(), "event.first", 1, nil, nil)
+		second := testEvent(t, time.Unix(1_700_000_001, 456).UTC(), "event.second", 2, nil, nil)
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{first, second})
 		assert.NoError(t, err)
@@ -81,14 +75,8 @@ func runEvents(t *testing.T, p Profile) {
 		store := openStore(t, p, timebox.Config{})
 		id := timebox.NewAggregateID("order", "copy")
 		other := timebox.NewAggregateID("other", "copy")
-		first := testEvent(t,
-			time.Unix(1_700_000_002, 0).UTC(),
-			"event.first", 1, nil, nil,
-		)
-		second := testEvent(t,
-			time.Unix(1_700_000_003, 0).UTC(),
-			"event.second", 2, nil, nil,
-		)
+		first := testEvent(t, time.Unix(1_700_000_002, 0).UTC(), "event.first", 1, nil, nil)
+		second := testEvent(t, time.Unix(1_700_000_003, 0).UTC(), "event.second", 2, nil, nil)
 		first.Sequence = 41
 		first.AggregateID = other
 		second.Sequence = 42
@@ -141,22 +129,13 @@ func runEvents(t *testing.T, p Profile) {
 		id := timebox.NewAggregateID("order", "conflict")
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{
-			testEvent(t,
-				time.Unix(1_700_000_004, 0).UTC(),
-				"event.first", 1, nil, nil,
-			),
-			testEvent(t,
-				time.Unix(1_700_000_005, 0).UTC(),
-				"event.second", 2, nil, nil,
-			),
+			testEvent(t, time.Unix(1_700_000_004, 0).UTC(), "event.first", 1, nil, nil),
+			testEvent(t, time.Unix(1_700_000_005, 0).UTC(), "event.second", 2, nil, nil),
 		})
 		assert.NoError(t, err)
 
 		err = store.AppendEvents(id, 1, []*timebox.Event{
-			testEvent(t,
-				time.Unix(1_700_000_006, 0).UTC(),
-				"event.stale", 3, nil, nil,
-			),
+			testEvent(t, time.Unix(1_700_000_006, 0).UTC(), "event.stale", 3, nil, nil),
 		})
 		assert.Error(t, err)
 
@@ -171,10 +150,7 @@ func runEvents(t *testing.T, p Profile) {
 			t.FailNow()
 		}
 		assert.Equal(t, int64(1), conflict.NewEvents[0].Sequence)
-		assert.Equal(t,
-			timebox.EventType("event.second"),
-			conflict.NewEvents[0].Type,
-		)
+		assert.Equal(t, timebox.EventType("event.second"), conflict.NewEvents[0].Type)
 	})
 
 	t.Run("EmptyAppendConflict", func(t *testing.T) {
@@ -182,10 +158,7 @@ func runEvents(t *testing.T, p Profile) {
 		id := timebox.NewAggregateID("order", "empty-conflict")
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{
-			testEvent(t,
-				time.Unix(1_700_000_007, 0).UTC(),
-				"event.first", 1, nil, nil,
-			),
+			testEvent(t, time.Unix(1_700_000_007, 0).UTC(), "event.first", 1, nil, nil),
 		})
 		assert.NoError(t, err)
 
@@ -202,10 +175,7 @@ func runEvents(t *testing.T, p Profile) {
 			t.FailNow()
 		}
 		assert.Equal(t, int64(0), conflict.NewEvents[0].Sequence)
-		assert.Equal(t,
-			timebox.EventType("event.first"),
-			conflict.NewEvents[0].Type,
-		)
+		assert.Equal(t, timebox.EventType("event.first"), conflict.NewEvents[0].Type)
 	})
 
 	t.Run("ConflictAheadOfCurrent", func(t *testing.T) {
@@ -213,18 +183,12 @@ func runEvents(t *testing.T, p Profile) {
 		id := timebox.NewAggregateID("order", "ahead-conflict")
 
 		err := store.AppendEvents(id, 0, []*timebox.Event{
-			testEvent(t,
-				time.Unix(1_700_000_008, 0).UTC(),
-				"event.first", 1, nil, nil,
-			),
+			testEvent(t, time.Unix(1_700_000_008, 0).UTC(), "event.first", 1, nil, nil),
 		})
 		assert.NoError(t, err)
 
 		err = store.AppendEvents(id, 2, []*timebox.Event{
-			testEvent(t,
-				time.Unix(1_700_000_009, 0).UTC(),
-				"event.second", 2, nil, nil,
-			),
+			testEvent(t, time.Unix(1_700_000_009, 0).UTC(), "event.second", 2, nil, nil),
 		})
 		assert.Error(t, err)
 

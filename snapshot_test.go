@@ -347,9 +347,7 @@ func TestGetSnapshotEmpty(t *testing.T) {
 	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
 
-	snap, err := store.GetSnapshot[CounterState](
-		timebox.NewAggregateID("counter", "1"),
-	)
+	snap, err := store.GetSnapshot[CounterState](timebox.NewAggregateID("counter", "1"))
 	assert.NoError(t, err)
 	assert.NotNil(t, snap)
 	assert.Len(t, snap.AdditionalEvents, 0)
@@ -421,9 +419,7 @@ func (b *inlineSnapshotBackend) LoadSnapshot(
 	}, nil
 }
 
-func (b *inlineSnapshotBackend) SaveSnapshot(
-	req timebox.SnapshotRequest,
-) error {
+func (b *inlineSnapshotBackend) SaveSnapshot(req timebox.SnapshotRequest) error {
 	b.saveID = req.ID
 	b.saveData = append([]byte(nil), req.Data...)
 	b.saveSequence = req.Sequence

@@ -239,9 +239,7 @@ func TestMakeDispatcher(t *testing.T) {
 	})
 
 	t.Run("empty map", func(t *testing.T) {
-		dispatcher := timebox.MakeDispatcher(
-			map[timebox.EventType]timebox.Handler{},
-		)
+		dispatcher := timebox.MakeDispatcher(map[timebox.EventType]timebox.Handler{})
 
 		err := dispatcher(&timebox.Message{Type: "any.event"})
 		assert.NoError(t, err)
@@ -530,9 +528,7 @@ func TestMakeApplier(t *testing.T) {
 		assert.NoError(t, err)
 		event1 := &timebox.Event{Type: "increment", Data: incData}
 		event2 := &timebox.Event{Type: "reset", Data: []byte("{}")}
-		st := appliers.Reduce(valueState{Value: 10}, []*timebox.Event{
-			event1, event2,
-		})
+		st := appliers.Reduce(valueState{Value: 10}, []*timebox.Event{event1, event2})
 
 		assert.Equal(t, 0, st.Value)
 	})

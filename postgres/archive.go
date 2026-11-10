@@ -9,8 +9,8 @@ import (
 	"github.com/kode4food/timebox"
 )
 
-// Archive atomically bundles id's snapshot and remaining events into the
-// shared archive queue, then removes id's live records
+// Archive atomically bundles id's snapshot and remaining events into the shared archive queue, then
+// removes id's live records
 func (b *Backend) Archive(id timebox.AggregateID) error {
 	ctx := context.Background()
 	key, _ := aggregateKey(id)
@@ -102,13 +102,9 @@ func (b *Backend) appendArchiveEventTx(
 	return err
 }
 
-func (b *Backend) deleteAggregateTx(
-	ctx context.Context, tx pgx.Tx, key string,
-) error {
+func (b *Backend) deleteAggregateTx(ctx context.Context, tx pgx.Tx, key string) error {
 	batch := &pgx.Batch{}
-	stmts := []string{
-		sqlDeleteEvents, sqlDeleteSnapshot, sqlDeleteTags, sqlDeleteStatus,
-	}
+	stmts := []string{sqlDeleteEvents, sqlDeleteSnapshot, sqlDeleteTags, sqlDeleteStatus}
 	for _, q := range stmts {
 		batch.Queue(q, key)
 	}

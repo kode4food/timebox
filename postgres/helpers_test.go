@@ -37,12 +37,8 @@ func withTestDatabase(
 		t.Fatalf("postgres unavailable: %v", err)
 	}
 
-	dbName := fmt.Sprintf(
-		"timebox_test_%d", time.Now().UnixNano(),
-	)
-	_, err = admin.Exec(ctx,
-		"CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize(),
-	)
+	dbName := fmt.Sprintf("timebox_test_%d", time.Now().UnixNano())
+	_, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize())
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -54,10 +50,7 @@ func withTestDatabase(
 			WHERE datname = $1
 			  AND pid <> pg_backend_pid()
 		`, dbName)
-		_, _ = admin.Exec(ctx,
-			"DROP DATABASE IF EXISTS "+
-				pgx.Identifier{dbName}.Sanitize(),
-		)
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{dbName}.Sanitize())
 	}()
 
 	cfg := postgres.DefaultConfig()
@@ -87,9 +80,7 @@ func statusEnvIndexer(t *testing.T) timebox.Indexer {
 				Status string `json:"status"`
 				Env    string `json:"env"`
 			}{}
-			if !assert.NoError(t,
-				json.Unmarshal(ev.Data, &data),
-			) {
+			if !assert.NoError(t, json.Unmarshal(ev.Data, &data)) {
 				return nil
 			}
 			res = append(res, &timebox.Index{
@@ -101,9 +92,7 @@ func statusEnvIndexer(t *testing.T) timebox.Indexer {
 	}
 }
 
-func testEvent(
-	t *testing.T, at time.Time, status, env string, value int,
-) *timebox.Event {
+func testEvent(t *testing.T, at time.Time, status, env string, value int) *timebox.Event {
 	t.Helper()
 
 	data, err := json.Marshal(map[string]any{
@@ -123,9 +112,7 @@ func testEvent(
 }
 
 // schemaPool opens a pool whose search_path is the store's schema
-func schemaPool(
-	t *testing.T, ctx context.Context, cfg postgres.Config,
-) *pgxpool.Pool {
+func schemaPool(t *testing.T, ctx context.Context, cfg postgres.Config) *pgxpool.Pool {
 	t.Helper()
 
 	poolCfg, err := pgxpool.ParseConfig(cfg.URL)

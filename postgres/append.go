@@ -35,8 +35,8 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	// A batch runs as one implicit transaction, so the append stays atomic
 	batch := &pgx.Batch{}
 
-	// Lock in statements of their own: the append function reads the next
-	// sequence through a subquery that would otherwise use a stale snapshot
+	// Lock in statements of their own: the append function reads the next sequence through a
+	// subquery that would otherwise use a stale snapshot
 	queueLocks(batch, reqs)
 	first := batch.Len()
 	for _, req := range reqs {
@@ -56,9 +56,7 @@ func (b *Backend) Append(reqs ...timebox.AppendRequest) error {
 	return nil
 }
 
-func (b *Backend) checkSequences(
-	ctx context.Context, reqs []timebox.AppendRequest,
-) error {
+func (b *Backend) checkSequences(ctx context.Context, reqs []timebox.AppendRequest) error {
 	keys := make([]string, 0, len(reqs))
 	for _, req := range reqs {
 		key, _ := aggregateKey(req.ID)
@@ -83,8 +81,7 @@ func (b *Backend) checkSequences(
 
 // sendAppend expects the request statements to start at batch index first
 func (b *Backend) sendAppend(
-	ctx context.Context, batch *pgx.Batch, reqs []timebox.AppendRequest,
-	first int,
+	ctx context.Context, batch *pgx.Batch, reqs []timebox.AppendRequest, first int,
 ) error {
 	br := b.pool.SendBatch(ctx, batch)
 	var failed int
@@ -130,8 +127,8 @@ func (b *Backend) versionConflict(
 	}
 }
 
-// Lock in key order, but append in request order to report the first conflict.
-// A check-only request takes a shared lock, so checks never wait on each other
+// Lock in key order, but append in request order to report the first conflict. A check-only request
+// takes a shared lock, so checks never wait on each other
 func queueLocks(batch *pgx.Batch, reqs []timebox.AppendRequest) {
 	keys := make([]string, 0, len(reqs))
 	var inserts map[string][]string

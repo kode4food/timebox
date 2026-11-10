@@ -11,8 +11,7 @@ import (
 )
 
 func (b *Backend) propose(
-	ctx context.Context, data []byte, proposalID uint64,
-	events []*timebox.Event,
+	ctx context.Context, data []byte, proposalID uint64, events []*timebox.Event,
 ) (*ApplyResult, error) {
 	select {
 	case <-b.stopCh:
@@ -46,9 +45,7 @@ func (b *Backend) propose(
 	}
 }
 
-func (b *Backend) registerProposal(
-	id uint64, data []byte, events []*timebox.Event,
-) proposalState {
+func (b *Backend) registerProposal(id uint64, data []byte, events []*timebox.Event) proposalState {
 	st := proposalState{
 		ch:     make(chan *ApplyResult, 1),
 		cmd:    append(Command(nil), data...),
@@ -68,9 +65,7 @@ func (b *Backend) unregisterProposal(id uint64, st proposalState) {
 	}
 }
 
-func (b *Backend) resolveProposal(
-	proposalID uint64, cmd Command, res *ApplyResult,
-) {
+func (b *Backend) resolveProposal(proposalID uint64, cmd Command, res *ApplyResult) {
 	if proposalID == 0 {
 		return
 	}
@@ -87,9 +82,7 @@ func (b *Backend) resolveProposal(
 	}
 }
 
-func (b *Backend) proposalEvents(
-	proposalID uint64, cmd Command,
-) []*timebox.Event {
+func (b *Backend) proposalEvents(proposalID uint64, cmd Command) []*timebox.Event {
 	if proposalID == 0 {
 		return nil
 	}
@@ -106,8 +99,7 @@ func (b *Backend) proposalEvents(
 }
 
 func (b *Backend) applyWithTimeout(
-	ctx context.Context, data []byte, proposalID uint64,
-	events []*timebox.Event,
+	ctx context.Context, data []byte, proposalID uint64, events []*timebox.Event,
 ) (*ApplyResult, error) {
 	timeout, err := b.commandTimeout(ctx)
 	if err != nil {
@@ -118,9 +110,7 @@ func (b *Backend) applyWithTimeout(
 	return b.propose(proposeCtx, data, proposalID, events)
 }
 
-func (b *Backend) commandTimeout(
-	ctx context.Context,
-) (time.Duration, error) {
+func (b *Backend) commandTimeout(ctx context.Context) (time.Duration, error) {
 	timeout := b.applyTimeout
 	if dl, ok := ctx.Deadline(); ok {
 		if rem := time.Until(dl); rem < timeout {

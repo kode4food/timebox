@@ -176,16 +176,12 @@ func (r *raftLog) startTail(first uint64) error {
 	}
 
 	logPath := logFilePath(r.logDir, id)
-	logf, err := os.OpenFile(logPath,
-		os.O_CREATE|os.O_EXCL|os.O_RDWR|os.O_APPEND, 0o600,
-	)
+	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
 	idxPath := logIdxPath(r.logDir, id)
-	idxf, err := os.OpenFile(idxPath,
-		os.O_CREATE|os.O_EXCL|os.O_RDWR|os.O_APPEND, 0o600,
-	)
+	idxf, err := os.OpenFile(idxPath, os.O_CREATE|os.O_EXCL|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		_ = logf.Close()
 		return err
@@ -208,15 +204,11 @@ func (r *raftLog) openTail() error {
 		return nil
 	}
 	id := r.tailID
-	logf, err := os.OpenFile(logFilePath(r.logDir, id),
-		os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600,
-	)
+	logf, err := os.OpenFile(logFilePath(r.logDir, id), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
-	idxf, err := os.OpenFile(logIdxPath(r.logDir, id),
-		os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600,
-	)
+	idxf, err := os.OpenFile(logIdxPath(r.logDir, id), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		_ = logf.Close()
 		return err
@@ -231,9 +223,7 @@ func (r *raftLog) reopenTailIdx(id uint64) error {
 		_ = r.idxf.Close()
 		r.idxf = nil
 	}
-	idxf, err := os.OpenFile(logIdxPath(r.logDir, id),
-		os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600,
-	)
+	idxf, err := os.OpenFile(logIdxPath(r.logDir, id), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -254,9 +244,7 @@ func (r *raftLog) closeTail() error {
 	return errors.Join(errs...)
 }
 
-func scanSeg(
-	dir string, id, first uint64, allowTrunc bool,
-) (logSeg, *raftpb.HardState, error) {
+func scanSeg(dir string, id, first uint64, allowTrunc bool) (logSeg, *raftpb.HardState, error) {
 	path := logFilePath(dir, id)
 	f, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if err != nil {
@@ -326,9 +314,7 @@ done:
 	}, walHS, nil
 }
 
-func loadEntries(
-	dir string, segs []logSeg, lo, hi, maxSize uint64,
-) ([]*raftpb.Entry, error) {
+func loadEntries(dir string, segs []logSeg, lo, hi, maxSize uint64) ([]*raftpb.Entry, error) {
 	var ents []*raftpb.Entry
 	var total uint64
 	var limited bool
@@ -337,9 +323,7 @@ func loadEntries(
 		if i < 0 {
 			return nil, bin.ErrCorruptState
 		}
-		next, size, stop, err := readSegEntries(
-			dir, segs[i], idx, hi, maxSize, total, &ents,
-		)
+		next, size, stop, err := readSegEntries(dir, segs[i], idx, hi, maxSize, total, &ents)
 		if err != nil {
 			return nil, err
 		}
@@ -354,8 +338,7 @@ func loadEntries(
 }
 
 func readSegEntries(
-	dir string, seg logSeg, lo, hi, maxSize, total uint64,
-	ents *[]*raftpb.Entry,
+	dir string, seg logSeg, lo, hi, maxSize, total uint64, ents *[]*raftpb.Entry,
 ) (uint64, uint64, bool, error) {
 	if seg.last < seg.first {
 		return lo, total, false, nil
@@ -540,9 +523,7 @@ func nextLogID(dir string, segs []logSeg) uint64 {
 		if !strings.HasSuffix(name, walLogExt) {
 			continue
 		}
-		id, err := strconv.ParseUint(
-			strings.TrimSuffix(name, walLogExt), 10, 64,
-		)
+		id, err := strconv.ParseUint(strings.TrimSuffix(name, walLogExt), 10, 64)
 		if err != nil {
 			continue
 		}

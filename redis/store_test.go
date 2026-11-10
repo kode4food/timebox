@@ -53,8 +53,6 @@ func TestStore(t *testing.T) {
 func suitePrefix(t *testing.T) string {
 	t.Helper()
 
-	name := strings.NewReplacer(
-		"/", "-", " ", "-", ":", "-", "(", "-", ")", "-",
-	).Replace(t.Name())
+	name := strings.NewReplacer("/", "-", " ", "-", ":", "-", "(", "-", ")", "-").Replace(t.Name())
 	return fmt.Sprintf("store-suite-%s-%d", name, time.Now().UnixNano())
 }

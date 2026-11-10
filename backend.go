@@ -8,8 +8,8 @@ import (
 )
 
 type (
-	// Backend provides the low-level primitives Store uses to implement
-	// Store semantics, along with its query operations
+	// Backend provides the low-level primitives Store uses to implement Store semantics, along with
+	// its query operations
 	Backend interface {
 		io.Closer
 		Queries
@@ -17,9 +17,9 @@ type (
 		// Ready reports when the backend can serve requests
 		Ready() <-chan struct{}
 
-		// Append atomically appends every distinctly named request if each
-		// expected sequence still matches. It returns a VersionConflictError
-		// naming the first request whose sequence check fails
+		// Append atomically appends every distinctly named request if each expected sequence still
+		// matches. It returns a VersionConflictError naming the first request whose sequence check
+		// fails
 		Append(...AppendRequest) error
 
 		// LoadEvents loads raw persisted events starting at fromSeq
@@ -31,9 +31,8 @@ type (
 		// SaveSnapshot stores raw snapshot data using the supplied semantics
 		SaveSnapshot(SnapshotRequest) error
 
-		// Archive atomically bundles id's snapshot and remaining events into
-		// the shared archive queue, then removes id's live records. It is a
-		// no-op if id has no live records
+		// Archive atomically bundles id's snapshot and remaining events into the shared archive
+		// queue, then removes id's live records. It is a no-op if id has no live records
 		Archive(id AggregateID) error
 	}
 
@@ -42,23 +41,22 @@ type (
 
 	// Queries provides aggregate and index query operations
 	Queries interface {
-		// ListAggregates lists aggregate IDs of the provided type, or of every
-		// type when it is empty
+		// ListAggregates lists aggregate IDs of the provided type, or of every type when it is
+		// empty
 		ListAggregates(typ ID) ([]AggregateID, error)
 
 		// GetAggregateStatus loads the current indexed status for an aggregate
 		GetAggregateStatus(id AggregateID) (string, error)
 
-		// ListAggregatesByStatus lists aggregates matching the query, ordered
-		// by status time
+		// ListAggregatesByStatus lists aggregates matching the query, ordered by status time
 		ListAggregatesByStatus(StatusQuery) ([]StatusEntry, error)
 
 		// ListAggregatesByTag lists aggregates currently indexed by tag
 		ListAggregatesByTag(tag string) ([]AggregateID, error)
 	}
 
-	// AppendRequest contains primitive inputs required for an atomic append.
-	// Delete clears the aggregate's records but keeps its sequence
+	// AppendRequest contains primitive inputs required for an atomic append. Delete clears the
+	// aggregate's records but keeps its sequence
 	AppendRequest struct {
 		StatusAt         time.Time
 		Status           *string
@@ -75,15 +73,14 @@ type (
 		FromSeq int64
 	}
 
-	// EventsResult contains raw persisted events and the sequence to assign to
-	// the first event in the slice
+	// EventsResult contains raw persisted events and the sequence to assign to the first event in
+	// the slice
 	EventsResult struct {
 		Events        []*Event
 		StartSequence int64
 	}
 
-	// LoadSnapshotRequest contains primitive inputs required for a snapshot
-	// load
+	// LoadSnapshotRequest contains primitive inputs required for a snapshot load
 	LoadSnapshotRequest struct {
 		ID AggregateID
 	}
@@ -103,9 +100,9 @@ type (
 		TrimEvents bool
 	}
 
-	// StatusQuery selects aggregates by status, optionally narrowed by
-	// aggregate type, key prefix, and a latest status time. Through is
-	// inclusive. A zero Through, Type, or KeyPrefix imposes no bound
+	// StatusQuery selects aggregates by status, optionally narrowed by aggregate type, key prefix,
+	// and a latest status time. Through is inclusive. A zero Through, Type, or KeyPrefix imposes no
+	// bound
 	StatusQuery struct {
 		Through   time.Time
 		Status    string
@@ -115,8 +112,8 @@ type (
 
 	// Index stores optional projection metadata derived from an event
 	Index struct {
-		// Status represents the resultant aggregate status. nil means no
-		// status change, and "" clears any prior status
+		// Status represents the resultant aggregate status. nil means no status change, and ""
+		// clears any prior status
 		Status *string `json:"status,omitempty"`
 
 		// Tags updates aggregate tag membership. true adds and false removes

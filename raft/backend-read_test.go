@@ -41,9 +41,7 @@ func TestLoadEventsUsesBaseSequenceAfterTrim(t *testing.T) {
 	if !assert.NoError(t, err) {
 		return
 	}
-	err = n.store.AppendEvents(id, 3, []*timebox.Event{
-		numberEvent(id, 4),
-	})
+	err = n.store.AppendEvents(id, 3, []*timebox.Event{numberEvent(id, 4)})
 	if !assert.NoError(t, err) {
 		return
 	}

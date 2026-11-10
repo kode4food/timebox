@@ -41,9 +41,7 @@ func TestEventRow(t *testing.T) {
 
 		id := timebox.NewAggregateID("order", "row")
 		ev := testEvent(t, time.Unix(1_700_000_000, 123).UTC(), "a", "dev", 1)
-		if !assert.NoError(t,
-			store.AppendEvents(id, 0, []*timebox.Event{ev}),
-		) {
+		if !assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev})) {
 			return
 		}
 

@@ -35,9 +35,7 @@ func TestArchiveToStream(t *testing.T) {
 		Type:      "event.test",
 		Data:      json.RawMessage(`{"value":1}`),
 	}
-	assert.NoError(t,
-		store.AppendEvents(id, 2, []*timebox.Event{ev}),
-	)
+	assert.NoError(t, store.AppendEvents(id, 2, []*timebox.Event{ev}))
 
 	err = store.Archive(id)
 	assert.NoError(t, err)
@@ -82,9 +80,7 @@ func TestConsumeArchive(t *testing.T) {
 		Type:      "event.test",
 		Data:      json.RawMessage(`{"value":1}`),
 	}
-	assert.NoError(t,
-		store.AppendEvents(id, 0, []*timebox.Event{ev}),
-	)
+	assert.NoError(t, store.AppendEvents(id, 0, []*timebox.Event{ev}))
 	assert.NoError(t, store.Archive(id))
 
 	var handled *timebox.ArchiveRecord

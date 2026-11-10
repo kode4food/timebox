@@ -58,9 +58,7 @@ func newRaftTransport(cfg Config) (*raftTransport, error) {
 }
 
 func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
-	conn, err := net.DialTimeout(
-		"tcp", string(addr), defaultDialTimeout,
-	)
+	conn, err := net.DialTimeout("tcp", string(addr), defaultDialTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -208,9 +206,7 @@ func (p *raftPeerConn) do(fn func(*bufio.Writer) error) error {
 	if p.conn == nil || p.wr == nil {
 		return ErrTransportClosed
 	}
-	_ = p.conn.SetDeadline(
-		time.Now().Add(defaultWriteTimeout),
-	)
+	_ = p.conn.SetDeadline(time.Now().Add(defaultWriteTimeout))
 	if err := fn(p.wr); err != nil {
 		return err
 	}
