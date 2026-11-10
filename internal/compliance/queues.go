@@ -183,7 +183,10 @@ func runQueues(t *testing.T, p Profile) {
 	t.Run("Invalid", func(t *testing.T) {
 		store := openStore(t, p, timebox.Config{})
 		cases := []queueValidationCase{
-			{name: "Message", err: timebox.ErrQueueMessageRequired},
+			{
+				name: "Message",
+				err:  timebox.ErrQueueMessageRequired,
+			},
 			{
 				name: "Type",
 				message: &timebox.Message{

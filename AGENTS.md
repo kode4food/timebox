@@ -73,7 +73,7 @@ Rules:
 
 ### Structs and Control Flow
 
-- Use named fields in struct literals except single-field wrappers. A struct literal with two or more fields always wraps, one field per line, even when it fits on one line. A table row (an element of a slice, array, or map literal) may stay on one line when it fits within the line width.
+- Use named fields in struct literals except single-field wrappers. A struct literal with two or more fields always wraps, one field per line, even when it fits on one line. A table row (an element of a slice, array, or map literal) may stay on one line when it fits within the line width. If any row of a table must wrap, every row of that table wraps.
 - Prefer guard clauses. Keep conditional nesting to one level unless an early return duplicates work.
 - Use multi-assignment only for multiple results from one call.
 - Store mutable counters, caches, registries, and lifecycle state on their owning structs.

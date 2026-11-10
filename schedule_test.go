@@ -319,8 +319,16 @@ func TestScheduleInvalid(t *testing.T) {
 	store, _ := newStore(t)
 	valid := newMessage(t, "valid")
 	cases := []validationCase{
-		{name: "Key", message: valid, err: timebox.ErrScheduleKeyRequired},
-		{name: "Message", key: "invalid", err: timebox.ErrScheduleMessageRequired},
+		{
+			name:    "Key",
+			message: valid,
+			err:     timebox.ErrScheduleKeyRequired,
+		},
+		{
+			name: "Message",
+			key:  "invalid",
+			err:  timebox.ErrScheduleMessageRequired,
+		},
 		{
 			name: "Type",
 			key:  "invalid",
