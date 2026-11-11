@@ -64,15 +64,13 @@ func statusIndexPrefix(status string) []byte {
 	return []byte(statusRootPrefix + encodeKeyPart(status) + "/")
 }
 
-// statusIndexKey orders entries by type, then status time, so a query bounded by both stops at the
-// bound
+// statusIndexKey orders entries by type, then status time, so bounded queries stop at the bound
 func statusIndexKey(status, encodedID string, at int64) []byte {
 	typ, key, _ := strings.Cut(encodedID, ".")
 	return []byte(string(statusIndexPrefix(status)) + typ + "." + statusTime(at) + "/" + key)
 }
 
-// decodeStatusIndexID reads the aggregate from the part of a status key that follows its status
-// prefix
+// decodeStatusIndexID reads the aggregate from a status key past its status prefix
 func decodeStatusIndexID(rest string) (timebox.AggregateID, error) {
 	typ, rest, _ := strings.Cut(rest, ".")
 	_, key, _ := strings.Cut(rest, "/")

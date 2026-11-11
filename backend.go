@@ -100,9 +100,8 @@ type (
 		TrimEvents bool
 	}
 
-	// StatusQuery selects aggregates by status, optionally narrowed by aggregate type, key prefix,
-	// and a latest status time. Through is inclusive. A zero Through, Type, or KeyPrefix imposes no
-	// bound
+	// StatusQuery selects aggregates by status, narrowed by type, key prefix, and status time.
+	// Through is inclusive, and a zero Through, Type, or KeyPrefix imposes no bound
 	StatusQuery struct {
 		Through   time.Time
 		Status    string

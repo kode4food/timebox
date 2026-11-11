@@ -137,8 +137,7 @@ func (s *Store) GetSnapshot[T any](id AggregateID) (*SnapshotResult[T], error) {
 	}, nil
 }
 
-// PutSnapshot saves a snapshot value and sequence if the provided sequence is newer than any stored
-// snapshot
+// PutSnapshot saves a snapshot value and sequence if its sequence is newer than the stored one
 func (s *Store) PutSnapshot[T any](id AggregateID, value T, sequence int64) error {
 	data, err := json.Marshal(value)
 	if err != nil {

@@ -181,9 +181,8 @@ func TestRebuildProjection(t *testing.T) {
 	assert.Len(t, evs, 1)
 }
 
-// TestRestartReplays verifies that when the projection's lastApplied cursor falls behind the raft
-// commit index (e.g. after a crash), the missing entries are replayed from the raft log on the next
-// startup
+// TestRestartReplays verifies that a projection lagging the raft commit index (e.g. after a crash)
+// replays the missing entries from the raft log on restart
 func TestRestartReplays(t *testing.T) {
 	cfg := nodeConfig{
 		id:      "node-1",

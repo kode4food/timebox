@@ -25,8 +25,7 @@ type (
 		staged     bool
 	}
 
-	// appendBuilder constructs the AppendRequest for one aggregate's raised
-	// events
+	// appendBuilder constructs the AppendRequest for one aggregate's raised events
 	appendBuilder func(AggregateID, int64, []*Event) AppendRequest
 )
 

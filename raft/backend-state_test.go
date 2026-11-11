@@ -21,9 +21,8 @@ type counterState struct {
 
 const incrementedEvent timebox.EventType = "incremented"
 
-// TestSnapshotTransfer verifies that when a late-joining node needs entries that have been
-// compacted away, the leader sends a full DB snapshot and the follower applies it and catches up
-// correctly
+// TestSnapshotTransfer verifies a late-joining node gets a full DB snapshot when entries are
+// compacted away, and the follower applies it and catches up
 func TestSnapshotTransfer(t *testing.T) {
 	const count = 16
 

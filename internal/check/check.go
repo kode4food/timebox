@@ -21,8 +21,7 @@ func Distinct(reqs []timebox.AppendRequest) error {
 	return nil
 }
 
-// Mutates reports whether a request changes stored state, rather than only asserting an expected
-// sequence
+// Mutates reports whether a request changes stored state, rather than only asserting a sequence
 func Mutates(req timebox.AppendRequest) bool {
 	return len(req.Events) != 0 || req.Status != nil || len(req.Tags) != 0 ||
 		req.Delete
