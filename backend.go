@@ -41,18 +41,15 @@ type (
 
 	// Queries provides aggregate and index query operations
 	Queries interface {
-		// ListAggregates lists aggregate IDs of the provided type, or of every type when it is
-		// empty
-		ListAggregates(typ ID) ([]AggregateID, error)
-
 		// GetAggregateStatus loads the current indexed status for an aggregate
 		GetAggregateStatus(id AggregateID) (string, error)
 
-		// ListAggregatesByStatus lists aggregates matching the query, ordered by status time
+		// ListAggregatesByStatus lists one page of aggregates matching the query, newest status
+		// time first with ties broken by aggregate key, descending. Limit must be at least one
 		ListAggregatesByStatus(StatusQuery) ([]StatusEntry, error)
 
-		// ListAggregatesByTag lists aggregates currently indexed by tag
-		ListAggregatesByTag(tag string) ([]AggregateID, error)
+		// GetAggregateTags loads the tags each aggregate currently holds, if any, in one read
+		GetAggregateTags(ids ...AggregateID) (map[AggregateID][]string, error)
 	}
 
 	// AppendRequest contains primitive inputs required for an atomic append. Delete clears the
@@ -100,13 +97,15 @@ type (
 		TrimEvents bool
 	}
 
-	// StatusQuery selects aggregates by status, narrowed by type, key prefix, and status time.
-	// Through is inclusive, and a zero Through, Type, or KeyPrefix imposes no bound
+	// StatusQuery selects one page of a type's aggregates in a status, newest first. Through, when
+	// set, is an inclusive upper bound on status time, After resumes past the last entry of a prior
+	// page, and Limit is the positive page size
 	StatusQuery struct {
-		Through   time.Time
-		Status    string
-		Type      ID
-		KeyPrefix ID
+		Through time.Time
+		After   *StatusEntry
+		Status  string
+		Type    ID
+		Limit   int
 	}
 
 	// Index stores optional projection metadata derived from an event
@@ -135,6 +134,9 @@ var (
 
 	// ErrDuplicateAggregate indicates one append names an aggregate twice
 	ErrDuplicateAggregate = errors.New("aggregate appended twice")
+
+	// ErrInvalidLimit indicates a paged query's Limit is below one
+	ErrInvalidLimit = errors.New("limit must be positive")
 )
 
 // PublishAppends publishes the requests' events as one batch

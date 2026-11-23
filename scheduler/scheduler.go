@@ -44,6 +44,9 @@ const (
 
 	// DefaultRetryDelay controls local retry after scheduler errors
 	DefaultRetryDelay = time.Second
+
+	// reconcilePageSize bounds each read while reconciling due schedules
+	reconcilePageSize = 256
 )
 
 var (
@@ -159,19 +162,26 @@ func (s *Scheduler) applyChanges() {
 }
 
 func (s *Scheduler) reconcileSchedules() error {
-	schedules, err := s.store.LoadSchedules(s.clock().Add(s.rescan))
-	if err != nil {
-		return err
-	}
-
-	seen := make(map[timebox.ScheduleKey]struct{}, len(schedules))
-	for _, schedule := range schedules {
-		seen[schedule.Key] = struct{}{}
-		item, ok := s.heap.byKey[schedule.Key]
-		if ok && item.schedule.At.Equal(schedule.At) {
-			continue
+	through := s.clock().Add(s.rescan)
+	seen := map[timebox.ScheduleKey]struct{}{}
+	var after *timebox.Schedule
+	for {
+		schedules, err := s.store.LoadSchedules(through, after, reconcilePageSize)
+		if err != nil {
+			return err
 		}
-		s.heap.Replace(schedule)
+		for _, schedule := range schedules {
+			seen[schedule.Key] = struct{}{}
+			item, ok := s.heap.byKey[schedule.Key]
+			if ok && item.schedule.At.Equal(schedule.At) {
+				continue
+			}
+			s.heap.Replace(schedule)
+		}
+		if len(schedules) < reconcilePageSize {
+			break
+		}
+		after = schedules[len(schedules)-1]
 	}
 	for key := range s.heap.byKey {
 		if _, ok := seen[key]; !ok {

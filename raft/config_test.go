@@ -133,9 +133,9 @@ func TestNewStore(t *testing.T) {
 	assert.NoError(t, store.AppendEvents(second, 0, []*timebox.Event{numberEvent(second, 1)}))
 	assert.NoError(t, store.AppendEvents(third, 0, []*timebox.Event{numberEvent(third, 1)}))
 
-	ids, err := store.ListAggregates("order")
-	if !assert.NoError(t, err) {
-		return
+	for _, id := range []timebox.AggregateID{first, second, third} {
+		evs, err := store.GetEvents(id, 0)
+		assert.NoError(t, err)
+		assert.Len(t, evs, 1)
 	}
-	assert.Equal(t, []timebox.AggregateID{first, second}, ids)
 }

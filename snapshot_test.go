@@ -89,11 +89,6 @@ func TestSnapshotTrimsEvents(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, events, 0)
 
-	aggregates, err := store.ListAggregates(id.Type)
-	assert.NoError(t, err)
-	assert.Len(t, aggregates, 1)
-	assert.Equal(t, id, aggregates[0])
-
 	_, err = executor.Exec(id,
 		func(st CounterState, ag *timebox.Aggregator[CounterState]) error {
 			for range 2 {

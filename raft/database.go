@@ -123,6 +123,18 @@ func (b *kvBucket) Cursor() *kvCursor {
 	}
 }
 
+// ReverseCursor walks keys in descending order. Its Seek lands on the last key at or before the
+// sought key
+func (b *kvBucket) ReverseCursor() *kvCursor {
+	opts := badger.DefaultIteratorOptions
+	opts.PrefetchValues = true
+	opts.Reverse = true
+	return &kvCursor{
+		it:  b.txn.NewIterator(opts),
+		pfx: append([]byte(nil), b.pfx...),
+	}
+}
+
 func (c *kvCursor) Close() error {
 	c.it.Close()
 	return nil

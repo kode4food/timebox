@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -8,6 +9,8 @@ import (
 
 	"github.com/kode4food/timebox"
 )
+
+const testPageSize = 100
 
 func runIndexing(t *testing.T, p Profile) {
 	for _, trimEvents := range []bool{false, true} {
@@ -38,16 +41,8 @@ func runIndexing(t *testing.T, p Profile) {
 				status, err := store.GetAggregateStatus(id)
 				assert.NoError(t, err)
 				assert.Equal(t, "", status)
-
-				statuses, err := store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: "active"},
-				)
-				assert.NoError(t, err)
-				assert.Empty(t, statuses)
-
-				ids, err := store.ListAggregatesByTag("prod")
-				assert.NoError(t, err)
-				assert.Empty(t, ids)
+				assert.Empty(t, listStatus(t, store, "active", "order"))
+				assert.Empty(t, tagsOf(t, store, id))
 			})
 
 			t.Run("EmptyAppendSkipsIndexer", func(t *testing.T) {
@@ -119,32 +114,18 @@ func runIndexing(t *testing.T, p Profile) {
 				assert.NoError(t, err)
 				assert.Equal(t, active, got)
 
-				statuses, err := store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: active},
-				)
-				assert.NoError(t, err)
 				assert.Equal(t, []timebox.StatusEntry{
-					{ID: first, Timestamp: time.Unix(1_700_000_000, 0).UTC()},
 					{ID: second, Timestamp: time.Unix(1_700_000_300, 0).UTC()},
-				}, statuses)
-
-				statuses, err = store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: paused},
-				)
-				assert.NoError(t, err)
+					{ID: first, Timestamp: time.Unix(1_700_000_000, 0).UTC()},
+				}, listStatus(t, store, active, "order"))
 				assert.Equal(t, []timebox.StatusEntry{{
 					ID:        third,
 					Timestamp: time.Unix(1_700_000_600, 0).UTC(),
-				}}, statuses)
-
-				statuses, err = store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: "missing"},
-				)
-				assert.NoError(t, err)
-				assert.Empty(t, statuses)
+				}}, listStatus(t, store, paused, "order"))
+				assert.Empty(t, listStatus(t, store, "missing", "order"))
 			})
 
-			t.Run("StatusThrough", func(t *testing.T) {
+			t.Run("StatusPaging", func(t *testing.T) {
 				store := openStore(t, p, timebox.Config{
 					Indexer:    newIndexer(t),
 					TrimEvents: trimEvents,
@@ -153,105 +134,74 @@ func runIndexing(t *testing.T, p Profile) {
 				at := func(sec int64) time.Time {
 					return time.Unix(1_700_000_000+sec, 0).UTC()
 				}
-				ids := []timebox.AggregateID{
-					timebox.NewAggregateID("order", "c"),
-					timebox.NewAggregateID("order", "a"),
-					timebox.NewAggregateID("other", "b"),
-					timebox.NewAggregateID("order", "b"),
+				entry := func(typ, key timebox.ID, sec int64) timebox.StatusEntry {
+					return timebox.StatusEntry{
+						ID:        timebox.NewAggregateID(typ, key),
+						Timestamp: at(sec),
+					}
 				}
-				for i, id := range ids {
+				k1 := entry("order", "k1", 1)
+				k2 := entry("order", "k2", 1)
+				k3 := entry("order", "k3", 2)
+				k4 := entry("order", "k4", 3)
+				k5 := entry("order", "k5", 3)
+				o1 := entry("other", "o1", 2)
+				for i, e := range []timebox.StatusEntry{k5, o1, k2, k4, k1, k3} {
 					assert.NoError(t,
-						store.AppendEvents(id, 0, []*timebox.Event{
-							testEvent(t, at(int64(i)), "event.test", i, &active, nil),
+						store.AppendEvents(e.ID, 0, []*timebox.Event{
+							testEvent(t, e.Timestamp, "event.test", i, &active, nil),
 						}),
 					)
 				}
-				// The same status at a later time replaces the entry
+				// The same status at a later time moves the entry
 				assert.NoError(t,
-					store.AppendEvents(ids[0], 1, []*timebox.Event{
+					store.AppendEvents(k1.ID, 1, []*timebox.Event{
 						testEvent(t, at(9), "event.test", 9, &active, nil),
 					}),
 				)
+				k1 = entry("order", "k1", 9)
 
 				list := func(q timebox.StatusQuery) []timebox.StatusEntry {
+					q.Status = active
 					entries, err := store.ListAggregatesByStatus(q)
 					assert.NoError(t, err)
 					return entries
 				}
-				assert.Equal(t, []timebox.StatusEntry{
-					{ID: ids[1], Timestamp: at(1)},
-					{ID: ids[3], Timestamp: at(3)},
-				}, list(timebox.StatusQuery{
-					Status:  active,
-					Type:    "order",
-					Through: at(3),
-				}))
-				assert.Equal(t, []timebox.StatusEntry{
-					{ID: ids[1], Timestamp: at(1)},
-					{ID: ids[2], Timestamp: at(2)},
-				}, list(timebox.StatusQuery{
-					Status:  active,
-					Through: at(2),
-				}))
-				assert.Equal(t, []timebox.StatusEntry{
-					{ID: ids[1], Timestamp: at(1)},
-					{ID: ids[3], Timestamp: at(3)},
-					{ID: ids[0], Timestamp: at(9)},
-				}, list(timebox.StatusQuery{
-					Status: active,
-					Type:   "order",
-				}))
-			})
 
-			t.Run("StatusKeyPrefix", func(t *testing.T) {
-				store := openStore(t, p, timebox.Config{
-					Indexer:    newIndexer(t),
-					TrimEvents: trimEvents,
-				})
-				active := "active"
-				ids := []timebox.AggregateID{
-					timebox.NewAggregateID("order", "abcd1"),
-					timebox.NewAggregateID("order", "abcd2"),
-					timebox.NewAggregateID("order", "abce1"),
-					timebox.NewAggregateID("order", "ab"),
-					timebox.NewAggregateID("other", "abcd9"),
-				}
-				for i, id := range ids {
-					assert.NoError(t,
-						store.AppendEvents(id, 0, []*timebox.Event{
-							testEvent(t,
-								time.Unix(1_700_000_000+int64(i), 0).UTC(),
-								"event.test", i, &active, nil,
-							),
-						}),
-					)
-				}
-
-				for _, tc := range []struct {
-					prefix timebox.ID
-					want   []timebox.AggregateID
-				}{
-					{"", ids[:4]},
-					{"a", ids[:4]},
-					{"abc", ids[:3]},
-					{"abcd", ids[:2]},
-					{"abcd1", ids[:1]},
-					{"abd", nil},
-				} {
-					entries, err := store.ListAggregatesByStatus(
-						timebox.StatusQuery{
-							Status:    active,
-							Type:      "order",
-							KeyPrefix: tc.prefix,
-						},
-					)
-					assert.NoError(t, err)
-					var got []timebox.AggregateID
-					for _, entry := range entries {
-						got = append(got, entry.ID)
+				t.Run("Pages", func(t *testing.T) {
+					q := timebox.StatusQuery{
+						Type:  "order",
+						Limit: 2,
 					}
-					assert.Equal(t, tc.want, got)
-				}
+					assert.Equal(t, []timebox.StatusEntry{k1, k5}, list(q))
+					q.After = &k5
+					assert.Equal(t, []timebox.StatusEntry{k4, k3}, list(q))
+					q.After = &k3
+					assert.Equal(t, []timebox.StatusEntry{k2}, list(q))
+				})
+
+				t.Run("Through", func(t *testing.T) {
+					assert.Equal(t, []timebox.StatusEntry{k3, k2}, list(timebox.StatusQuery{
+						Type:    "order",
+						Through: at(2),
+						Limit:   2,
+					}))
+				})
+
+				t.Run("OtherType", func(t *testing.T) {
+					assert.Equal(t, []timebox.StatusEntry{o1}, list(timebox.StatusQuery{
+						Type:  "other",
+						Limit: testPageSize,
+					}))
+				})
+
+				t.Run("InvalidLimit", func(t *testing.T) {
+					_, err := store.ListAggregatesByStatus(timebox.StatusQuery{
+						Status: active,
+						Type:   "order",
+					})
+					assert.ErrorIs(t, err, timebox.ErrInvalidLimit)
+				})
 			})
 
 			t.Run("StatusReplace", func(t *testing.T) {
@@ -283,21 +233,11 @@ func runIndexing(t *testing.T, p Profile) {
 				status, err := store.GetAggregateStatus(id)
 				assert.NoError(t, err)
 				assert.Equal(t, paused, status)
-
-				activeIDs, err := store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: active},
-				)
-				assert.NoError(t, err)
-				assert.Empty(t, activeIDs)
-
-				pausedIDs, err := store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: paused},
-				)
-				assert.NoError(t, err)
+				assert.Empty(t, listStatus(t, store, active, "order"))
 				assert.Equal(t, []timebox.StatusEntry{{
 					ID:        id,
 					Timestamp: time.Unix(1_700_000_200, 0).UTC(),
-				}}, pausedIDs)
+				}}, listStatus(t, store, paused, "order"))
 			})
 
 			t.Run("StatusClear", func(t *testing.T) {
@@ -333,16 +273,8 @@ func runIndexing(t *testing.T, p Profile) {
 				status, err := store.GetAggregateStatus(id)
 				assert.NoError(t, err)
 				assert.Empty(t, status)
-
-				statuses, err := store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: active},
-				)
-				assert.NoError(t, err)
-				assert.Empty(t, statuses)
-
-				ids, err := store.ListAggregatesByTag("prod")
-				assert.NoError(t, err)
-				assert.Empty(t, ids)
+				assert.Empty(t, listStatus(t, store, active, "order"))
+				assert.Empty(t, tagsOf(t, store, id))
 			})
 
 			t.Run("Tags", func(t *testing.T) {
@@ -377,17 +309,12 @@ func runIndexing(t *testing.T, p Profile) {
 					}),
 				)
 
-				ids, err := store.ListAggregatesByTag("prod")
-				assert.NoError(t, err)
-				assert.ElementsMatch(t, []timebox.AggregateID{first}, ids)
+				assert.Equal(t, []string{"eu", "prod", "shared"}, tagsOf(t, store, first))
+				assert.Equal(t, []string{"shared", "stage"}, tagsOf(t, store, second))
 
-				ids, err = store.ListAggregatesByTag("eu")
+				both, err := store.GetAggregateTags(first, second)
 				assert.NoError(t, err)
-				assert.ElementsMatch(t, []timebox.AggregateID{first}, ids)
-
-				ids, err = store.ListAggregatesByTag("shared")
-				assert.NoError(t, err)
-				assert.ElementsMatch(t, []timebox.AggregateID{first, second}, ids)
+				assert.Len(t, both, 2)
 
 				assert.NoError(t,
 					store.AppendEvents(first, 1, []*timebox.Event{
@@ -399,13 +326,8 @@ func runIndexing(t *testing.T, p Profile) {
 					}),
 				)
 
-				ids, err = store.ListAggregatesByTag("prod")
-				assert.NoError(t, err)
-				assert.Empty(t, ids)
-
-				ids, err = store.ListAggregatesByTag("shared")
-				assert.NoError(t, err)
-				assert.ElementsMatch(t, []timebox.AggregateID{second}, ids)
+				assert.Equal(t, []string{"eu"}, tagsOf(t, store, first))
+				assert.Empty(t, tagsOf(t, store, timebox.NewAggregateID("order", "none")))
 			})
 
 			t.Run("TagsOnly", func(t *testing.T) {
@@ -425,10 +347,7 @@ func runIndexing(t *testing.T, p Profile) {
 				status, err := store.GetAggregateStatus(id)
 				assert.NoError(t, err)
 				assert.Equal(t, "", status)
-
-				ids, err := store.ListAggregatesByTag("prod")
-				assert.NoError(t, err)
-				assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
+				assert.Equal(t, []string{"prod"}, tagsOf(t, store, id))
 			})
 
 			t.Run("BatchIndex", func(t *testing.T) {
@@ -460,24 +379,32 @@ func runIndexing(t *testing.T, p Profile) {
 				status, err := store.GetAggregateStatus(id)
 				assert.NoError(t, err)
 				assert.Equal(t, paused, status)
-
-				statuses, err := store.ListAggregatesByStatus(
-					timebox.StatusQuery{Status: paused},
-				)
-				assert.NoError(t, err)
 				assert.Equal(t, []timebox.StatusEntry{{
 					ID:        id,
 					Timestamp: time.Unix(1_700_000_014, 0).UTC(),
-				}}, statuses)
-
-				ids, err := store.ListAggregatesByTag("stage")
-				assert.NoError(t, err)
-				assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
-
-				ids, err = store.ListAggregatesByTag("eu")
-				assert.NoError(t, err)
-				assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
+				}}, listStatus(t, store, paused, "order"))
+				assert.Equal(t, []string{"eu", "stage"}, tagsOf(t, store, id))
 			})
 		})
 	}
+}
+
+func listStatus(
+	t *testing.T, store *timebox.Store, status string, typ timebox.ID,
+) []timebox.StatusEntry {
+	t.Helper()
+	entries, err := store.ListAggregatesByStatus(timebox.StatusQuery{
+		Status: status,
+		Type:   typ,
+		Limit:  testPageSize,
+	})
+	assert.NoError(t, err)
+	return entries
+}
+
+func tagsOf(t *testing.T, store *timebox.Store, id timebox.AggregateID) []string {
+	t.Helper()
+	tags, err := store.GetAggregateTags(id)
+	assert.NoError(t, err)
+	return slices.Sorted(slices.Values(tags[id]))
 }

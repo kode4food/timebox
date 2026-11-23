@@ -43,6 +43,8 @@ func TestRestartIndexes(t *testing.T) {
 
 	paused, err := n.store.ListAggregatesByStatus(timebox.StatusQuery{
 		Status: "paused",
+		Type:   "order",
+		Limit:  1,
 	})
 	if !assert.NoError(t, err) {
 		return
@@ -52,9 +54,9 @@ func TestRestartIndexes(t *testing.T) {
 		Timestamp: base.Add(time.Minute),
 	}}, paused)
 
-	stage, err := n.store.ListAggregatesByTag("stage")
+	tags, err := n.store.GetAggregateTags(second)
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Equal(t, []timebox.AggregateID{second}, stage)
+	assert.Contains(t, tags[second], "stage")
 }

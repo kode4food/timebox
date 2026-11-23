@@ -16,14 +16,13 @@ func (b *Backend) Archive(id timebox.AggregateID) error {
 	eventsKey := b.buildKey(id, eventsSuffix)
 	statusKey := b.buildStatusHashKey()
 	tagStateKey := b.buildTagStateKey(id)
-	tagRootKey := b.buildTagRootKey()
 	archiveEventsKey := b.buildKey(timebox.ArchiveQueueID, eventsSuffix)
 	archiveBaseKey := b.buildKey(timebox.ArchiveQueueID, baseSuffix)
 	baseKey := b.buildKey(id, baseSuffix)
 
 	keys := []string{
-		snapKey, snapSeqKey, eventsKey, statusKey, tagStateKey, tagRootKey,
-		archiveEventsKey, archiveBaseKey, baseKey,
+		snapKey, snapSeqKey, eventsKey, statusKey, tagStateKey,
+		archiveEventsKey, archiveBaseKey, baseKey, b.buildStatusTypeRootKey(),
 	}
 	args := []any{
 		joinAggregateID(id),
@@ -32,6 +31,7 @@ func (b *Backend) Archive(id timebox.AggregateID) error {
 		time.Now().UTC().Format(time.RFC3339Nano),
 		string(timebox.ArchiveQueueID.Type),
 		string(timebox.ArchiveQueueID.Key),
+		escapeIDPart(string(id.Type)),
 	}
 
 	result, err := b.archive.Run(context.Background(), b.client, keys, args...).Result()

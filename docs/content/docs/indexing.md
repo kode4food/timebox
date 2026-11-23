@@ -43,8 +43,10 @@ Query the resulting indexes through the store:
 status, err := store.GetAggregateStatus(orderID)
 active, err := store.ListAggregatesByStatus(timebox.StatusQuery{
 	Status: "active",
+	Type:   "order",
+	Limit:  100,
 })
-review, err := store.ListAggregatesByTag("awaiting-review")
+tags, err := store.GetAggregateTags(orderID)
 ```
 
-`GetAggregateStatus` returns an empty string when no status is set. `ListAggregatesByStatus` takes a `StatusQuery` and returns IDs and the timestamp of the last event in the batch that updated each status. `Type` and `KeyPrefix` narrow by aggregate, and `Through` bounds by status time (zero means all). `ListAggregatesByTag` returns IDs. Derive the result from the supplied events alone, so retries produce the same updates.
+`GetAggregateStatus` returns an empty string when no status is set. `ListAggregatesByStatus` takes a `StatusQuery` and returns one page of IDs with the timestamp of the last event in the batch that updated each status, newest first. `Type` selects the aggregate type, `Through`, when set, bounds by status time, and `Limit` is the page size, at least one. Passing the last entry of a page as `After` resumes past it. `GetAggregateTags` returns the current tags of each aggregate it's given, in one read, keyed by aggregate ID. Derive the result from the supplied events alone, so retries produce the same updates.

@@ -13,7 +13,6 @@ const (
 	stateMetaPrefix  = stateRootPrefix + "meta/"
 	aggRootPrefix    = stateRootPrefix + "agg/"
 	statusRootPrefix = stateRootPrefix + "idx/status/"
-	tagRootPrefix    = stateRootPrefix + "idx/tag/"
 	metaSuffix       = "/meta"
 	snapshotSuffix   = "/snapshot"
 	eventPrefix      = "/event/"
@@ -30,15 +29,9 @@ var bucketName = []byte("timebox")
 //   - state/archive/<stream> stores queued archive records
 //   - state/idx/status/<status>/<type>.<time>/<key> stores indexed status
 //     timestamps, ordered by type and then status time
-//   - state/idx/tag/<tag>/<aggregate> stores tag membership
 //
 // Variable key parts are base64url encoded so iteration remains lexicographically well-structured
 // without introducing ambiguous separators
-
-// AggregateMetaPrefix returns the key prefix for aggregate metadata
-func AggregateMetaPrefix() []byte {
-	return []byte(aggRootPrefix)
-}
 
 // AggregateMetaKey returns the metadata key for one encoded aggregate ID
 func AggregateMetaKey(encodedID string) []byte {
@@ -80,14 +73,6 @@ func decodeStatusIndexID(rest string) (timebox.AggregateID, error) {
 // statusTime flips the sign bit so negative times sort before positive ones
 func statusTime(at int64) string {
 	return fmt.Sprintf("%016x", uint64(at)^(1<<63))
-}
-
-func tagIndexPrefix(tag string) []byte {
-	return []byte(tagRootPrefix + encodeKeyPart(tag) + "/")
-}
-
-func tagIndexKey(tag, encodedID string) []byte {
-	return []byte(tagRootPrefix + encodeKeyPart(tag) + "/" + encodedID)
 }
 
 func lastAppliedKey() []byte {

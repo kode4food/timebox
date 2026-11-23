@@ -41,17 +41,16 @@ func TestArchiveToStream(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, events, 0)
 
-	aggregates, err := store.ListAggregates(id.Type)
-	assert.NoError(t, err)
-	assert.Empty(t, aggregates)
 	statuses, err := store.ListAggregatesByStatus(timebox.StatusQuery{
 		Status: "active",
+		Type:   id.Type,
+		Limit:  1,
 	})
 	assert.NoError(t, err)
 	assert.Empty(t, statuses)
-	tagIDs, err := store.ListAggregatesByTag("prod")
+	tags, err := store.GetAggregateTags(id)
 	assert.NoError(t, err)
-	assert.Empty(t, tagIDs)
+	assert.Empty(t, tags)
 	var handled *timebox.ArchiveRecord
 	err = store.ConsumeArchive(ctx,
 		func(_ context.Context, rec *timebox.ArchiveRecord) error {

@@ -95,7 +95,7 @@ func runTransactions(t *testing.T, p Profile) {
 	})
 
 	t.Run("ConflictOrder", func(t *testing.T) {
-		backend, _ := openBackend(t, p, timebox.Config{}, nil)
+		backend, store := openBackend(t, p, timebox.Config{}, nil)
 		first := timebox.NewAggregateID("tx", "z")
 		second := timebox.NewAggregateID("tx", "a")
 		reqs := []timebox.AppendRequest{
@@ -108,9 +108,9 @@ func runTransactions(t *testing.T, p Profile) {
 			assert.Equal(t, first, conflict.ID)
 		}
 		assert.Equal(t, first, reqs[0].ID)
-		ids, err := backend.ListAggregates("tx")
+		evs, err := store.GetEvents(second, 0)
 		assert.NoError(t, err)
-		assert.Empty(t, ids)
+		assert.Empty(t, evs)
 	})
 
 	t.Run("CheckedConflict", func(t *testing.T) {

@@ -38,10 +38,6 @@ func runSnapshots(t *testing.T, p Profile) {
 		assert.Equal(t, wantSize, snap.SnapshotSize)
 		assert.Equal(t, 0, snap.EventsSize)
 		assert.Empty(t, snap.AdditionalEvents)
-
-		ids, err := store.ListAggregates("order")
-		assert.NoError(t, err)
-		assert.ElementsMatch(t, []timebox.AggregateID{id}, ids)
 	})
 
 	t.Run("RoundTrip", func(t *testing.T) {

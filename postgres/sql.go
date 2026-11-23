@@ -6,17 +6,11 @@ var (
 	//go:embed sql/statuses-table.sql
 	sqlStatusesTable string
 
-	//go:embed sql/statuses-status-idx.sql
-	sqlStatusesStatusIdx string
-
-	//go:embed sql/statuses-type-idx.sql
-	sqlStatusesTypeIdx string
+	//go:embed sql/statuses-status-type-idx.sql
+	sqlStatusesStatusTypeIdx string
 
 	//go:embed sql/tags-table.sql
 	sqlTagsTable string
-
-	//go:embed sql/tags-lookup-idx.sql
-	sqlTagsLookupIdx string
 
 	//go:embed sql/events-table.sql
 	sqlEventsTable string
@@ -54,12 +48,6 @@ var (
 	//go:embed sql/insert-aggregate.sql
 	sqlInsertAggregate string
 
-	//go:embed sql/list-aggregates.sql
-	sqlListAggregates string
-
-	//go:embed sql/list-aggregates-by-type.sql
-	sqlListAggregatesByType string
-
 	//go:embed sql/get-events.sql
 	sqlGetEvents string
 
@@ -87,8 +75,8 @@ var (
 	//go:embed sql/list-by-status.sql
 	sqlListByStatus string
 
-	//go:embed sql/list-by-tag.sql
-	sqlListByTag string
+	//go:embed sql/get-tags.sql
+	sqlGetTags string
 
 	//go:embed sql/delete-events.sql
 	sqlDeleteEvents string

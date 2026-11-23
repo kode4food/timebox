@@ -43,7 +43,7 @@ var scheduleAppliers = timebox.Appliers[scheduleState]{
 
 func runSchedules(t *testing.T, p Profile) {
 	t.Run("Lifecycle", func(t *testing.T) {
-		backend, store := openBackend(t, p, timebox.Config{}, nil)
+		_, store := openBackend(t, p, timebox.Config{}, nil)
 		at := time.Now().UTC().Add(time.Hour)
 		msg := newScheduleMessage(t, "one")
 
@@ -79,9 +79,9 @@ func runSchedules(t *testing.T, p Profile) {
 		consumed, err = readSchedule(store, "one")
 		assert.NoError(t, err)
 		assert.Nil(t, consumed)
-		ids, err := backend.ListAggregates("")
+		schedules, err := store.LoadSchedules(time.Time{}, nil, testPageSize)
 		assert.NoError(t, err)
-		assert.Empty(t, ids)
+		assert.Empty(t, schedules)
 	})
 
 	t.Run("Replace", func(t *testing.T) {
@@ -180,7 +180,7 @@ func runSchedules(t *testing.T, p Profile) {
 		next := loadSchedule(t, store, "repeat")
 		assert.Equal(t, at, next.At)
 
-		due, err := store.LoadSchedules(at)
+		due, err := store.LoadSchedules(at, nil, testPageSize)
 		assert.NoError(t, err)
 		assert.Len(t, due, 1)
 	})
@@ -307,7 +307,7 @@ func runSchedules(t *testing.T, p Profile) {
 			)
 		}
 
-		schedules, err := store.LoadSchedules(time.Time{})
+		schedules, err := store.LoadSchedules(time.Time{}, nil, testPageSize)
 		assert.NoError(t, err)
 		keys := make([]timebox.ScheduleKey, len(schedules))
 		for i, schedule := range schedules {
@@ -315,7 +315,15 @@ func runSchedules(t *testing.T, p Profile) {
 		}
 		assert.ElementsMatch(t, []timebox.ScheduleKey{"first", "second", "later"}, keys)
 
-		due, err := store.LoadSchedules(base.Add(time.Hour))
+		page, err := store.LoadSchedules(time.Time{}, nil, 1)
+		assert.NoError(t, err)
+		if assert.Len(t, page, 1) {
+			rest, err := store.LoadSchedules(time.Time{}, page[0], testPageSize)
+			assert.NoError(t, err)
+			assert.Len(t, rest, 2)
+		}
+
+		due, err := store.LoadSchedules(base.Add(time.Hour), nil, testPageSize)
 		assert.NoError(t, err)
 		keys = make([]timebox.ScheduleKey, len(due))
 		for i, schedule := range due {
@@ -328,7 +336,7 @@ func runSchedules(t *testing.T, p Profile) {
 				return tx.Schedule("later", base.Add(30*time.Minute), msg)
 			}),
 		)
-		due, err = store.LoadSchedules(base.Add(time.Hour))
+		due, err = store.LoadSchedules(base.Add(time.Hour), nil, testPageSize)
 		assert.NoError(t, err)
 		keys = make([]timebox.ScheduleKey, len(due))
 		for i, schedule := range due {

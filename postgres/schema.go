@@ -12,10 +12,8 @@ const defaultSchemaTimeout = 60 * time.Second
 
 var schemaStatements = []string{
 	sqlStatusesTable,
-	sqlStatusesStatusIdx,
-	sqlStatusesTypeIdx,
+	sqlStatusesStatusTypeIdx,
 	sqlTagsTable,
-	sqlTagsLookupIdx,
 	sqlEventsTable,
 	sqlSnapshotsTable,
 	sqlAppendFunction,

@@ -263,29 +263,18 @@ func applyMutationsTx(
 			}
 		}
 	}
-	return applyTagMutations(b, meta, encodedID, req.Tags)
+	applyTagMutations(meta, req.Tags)
+	return nil
 }
 
-func applyTagMutations(
-	b *kvBucket, meta *AggregateMeta, encodedID string, tags map[string]bool,
-) error {
+func applyTagMutations(meta *AggregateMeta, tags map[string]bool) {
 	for tag, add := range tags {
-		if meta.Tags[tag] == add {
-			continue
-		}
 		if !add {
-			if err := b.Delete(tagIndexKey(tag, encodedID)); err != nil {
-				return err
-			}
 			delete(meta.Tags, tag)
 			continue
 		}
-		if err := b.Put(tagIndexKey(tag, encodedID), []byte{1}); err != nil {
-			return err
-		}
 		meta.Tags[tag] = true
 	}
-	return nil
 }
 
 func loadOrCreateMetaTx(b *kvBucket, encodedID string) (*AggregateMeta, error) {

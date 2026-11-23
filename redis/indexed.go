@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -13,124 +12,102 @@ import (
 	"github.com/kode4food/timebox"
 )
 
+// statusTimeWidth is the fixed width of the hex status time that leads status hash values and
+// status set members, so members sort by time, then aggregate ID
+const statusTimeWidth = 16
+
+// GetAggregateStatus loads the current indexed status for an aggregate
 func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	aggID := joinAggregateID(id)
-	status, err := b.client.HGet(context.Background(), b.buildStatusHashKey(), aggID).Result()
+	val, err := b.client.HGet(context.Background(), b.buildStatusHashKey(), aggID).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil
+	}
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return "", nil
-		}
 		return "", err
 	}
-	return status, nil
+	return val[statusTimeWidth:], nil
 }
 
-// ListAggregatesByStatus lists aggregates matching the query. Type and KeyPrefix narrow by
-// aggregate-id prefix. Through bounds by status time. Each narrowing uses its own native redis op
+// ListAggregatesByStatus lists one page of aggregates matching the query, newest first with ties
+// broken by aggregate ID. The type's status set orders members by time-prefixed ID, so each page
+// is one reverse lexical range read
 func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.StatusEntry, error) {
-	key := b.buildStatusIndexKey(q.Status)
-
-	var prefix string
-	if q.Type != "" || q.KeyPrefix != "" {
-		prefix = joinAggregateID(timebox.NewAggregateID(q.Type, q.KeyPrefix))
+	if q.Limit <= 0 {
+		return nil, timebox.ErrInvalidLimit
+	}
+	maxMember := "+"
+	if !q.Through.IsZero() {
+		maxMember = "(" + statusTime(q.Through.UnixMilli()+1)
+	}
+	if q.After != nil {
+		maxMember = "(" + statusTime(q.After.Timestamp.UnixMilli()) + joinAggregateID(q.After.ID)
+	}
+	members, err := b.client.ZRangeArgs(context.Background(), redis.ZRangeArgs{
+		Key:   b.buildStatusTypeKey(q.Status, q.Type),
+		Start: maxMember,
+		Stop:  "-",
+		ByLex: true,
+		Rev:   true,
+		Count: int64(q.Limit),
+	}).Result()
+	if err != nil {
+		return nil, err
 	}
 
-	if !q.Through.IsZero() {
-		members, err := b.client.ZRangeByScoreWithScores(
-			context.Background(), key, &redis.ZRangeBy{
-				Min: "-inf",
-				Max: strconv.FormatInt(q.Through.UnixMilli(), 10),
-			},
-		).Result()
+	res := make([]timebox.StatusEntry, 0, len(members))
+	for _, m := range members {
+		bits, err := strconv.ParseUint(m[:statusTimeWidth], 16, 64)
 		if err != nil {
 			return nil, err
 		}
-		// no native op scores and pattern-matches in one call, so a concurrent prefix filters the
-		// score-bounded result in-process
-		return statusEntriesFromZ(members, prefix), nil
+		res = append(res, timebox.StatusEntry{
+			ID:        parseAggregateID(m[statusTimeWidth:]),
+			Timestamp: time.UnixMilli(int64(bits ^ (1 << 63))).UTC(),
+		})
 	}
-
-	if prefix != "" {
-		return b.scanStatusPrefix(key, prefix)
-	}
-
-	members, err := b.client.ZRangeWithScores(context.Background(), key, 0, -1).Result()
-	if err != nil {
-		return nil, err
-	}
-	return statusEntriesFromZ(members, ""), nil
+	return res, nil
 }
 
-func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error) {
-	members, err := b.client.SMembers(context.Background(), b.buildTagIndexKey(tag)).Result()
+// GetAggregateTags loads the tags each aggregate currently holds, in one pipelined round trip
+func (b *Backend) GetAggregateTags(
+	ids ...timebox.AggregateID,
+) (map[timebox.AggregateID][]string, error) {
+	cmds := make([]*redis.StringSliceCmd, len(ids))
+	_, err := b.client.Pipelined(context.Background(), func(p redis.Pipeliner) error {
+		for i, id := range ids {
+			cmds[i] = p.SMembers(context.Background(), b.buildTagStateKey(id))
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	ids := make([]timebox.AggregateID, 0, len(members))
-	for _, member := range members {
-		ids = append(ids, parseAggregateID(member))
+	res := map[timebox.AggregateID][]string{}
+	for i, cmd := range cmds {
+		if tags := cmd.Val(); len(tags) > 0 {
+			res[ids[i]] = tags
+		}
 	}
-	return ids, nil
+	return res, nil
 }
 
 func (b *Backend) buildStatusHashKey() string {
 	return fmt.Sprintf("%s:%s", b.prefix, statusSuffix)
 }
 
-func (b *Backend) buildStatusIndexKey(status string) string {
-	return fmt.Sprintf("%s:%s:%s", b.prefix, statusSuffix, status)
+func (b *Backend) buildStatusTypeRootKey() string {
+	return fmt.Sprintf("%s:%s", b.prefix, statusTypeSuffix)
 }
 
-func (b *Backend) buildTagIndexKey(tag string) string {
-	return fmt.Sprintf("%s:%s:%s", b.prefix, tagSuffix, escapeKeyPart(tag))
+// buildStatusTypeKey names one type's set for a status. The escaped type ends at the first
+// unescaped separator, so the status after it stays as written
+func (b *Backend) buildStatusTypeKey(status string, typ timebox.ID) string {
+	return fmt.Sprintf("%s:%s:%s", b.buildStatusTypeRootKey(), escapeIDPart(string(typ)), status)
 }
 
-func (b *Backend) scanStatusPrefix(key, prefix string) ([]timebox.StatusEntry, error) {
-	pattern := escapeScanPattern(prefix) + "*"
-	var cursor uint64
-	var res []timebox.StatusEntry
-	for {
-		members, next, err := b.client.ZScan(
-			context.Background(), key, cursor, pattern, 128,
-		).Result()
-		if err != nil {
-			return nil, err
-		}
-		for i := 0; i+1 < len(members); i += 2 {
-			score, err := strconv.ParseFloat(members[i+1], 64)
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, timebox.StatusEntry{
-				ID:        parseAggregateID(members[i]),
-				Timestamp: time.UnixMilli(int64(score)).UTC(),
-			})
-		}
-		if next == 0 {
-			return res, nil
-		}
-		cursor = next
-	}
-}
-
-func statusEntriesFromZ(members []redis.Z, prefix string) []timebox.StatusEntry {
-	res := make([]timebox.StatusEntry, 0, len(members))
-	for _, member := range members {
-		m := fmt.Sprint(member.Member)
-		if prefix != "" && !strings.HasPrefix(m, prefix) {
-			continue
-		}
-		res = append(res, timebox.StatusEntry{
-			ID:        parseAggregateID(m),
-			Timestamp: time.UnixMilli(int64(member.Score)).UTC(),
-		})
-	}
-	return res
-}
-
-func escapeScanPattern(value string) string {
-	return strings.NewReplacer(
-		`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`,
-	).Replace(value)
+// statusTime flips the sign bit so negative times sort before positive ones
+func statusTime(at int64) string {
+	return fmt.Sprintf("%016x", uint64(at)^(1<<63))
 }

@@ -126,27 +126,36 @@ func (s *Store) TakeScheduleChanges() map[ScheduleKey]*Schedule {
 	return res
 }
 
-// LoadSchedules reads active schedules due through the provided time, or all when through is zero.
-// The read is non-transactional and non-consuming
-func (s *Store) LoadSchedules(through time.Time) ([]*Schedule, error) {
-	entries, err := s.backend.ListAggregatesByStatus(StatusQuery{
+// LoadSchedules reads one page of active schedules due through the provided time, when set, latest
+// deadline first, past after. The read runs outside any transaction and leaves each schedule in
+// place
+func (s *Store) LoadSchedules(through time.Time, after *Schedule, limit int) ([]*Schedule, error) {
+	q := StatusQuery{
 		Status:  scheduleActiveStatus,
 		Type:    scheduleAggregateType,
 		Through: through,
-	})
+		Limit:   limit,
+	}
+	if after != nil {
+		q.After = &StatusEntry{
+			ID:        makeScheduleID(after.Key),
+			Timestamp: after.At,
+		}
+	}
+	entries, err := s.backend.ListAggregatesByStatus(q)
 	if err != nil {
 		return nil, err
 	}
+
 	res := make([]*Schedule, 0, len(entries))
 	for _, entry := range entries {
 		proj, _, err := s.schedule.readProjection(entry.ID)
 		if err != nil {
 			return nil, err
 		}
-		if proj.state.Active == nil {
-			continue
+		if proj.state.Active != nil {
+			res = append(res, proj.state.Active)
 		}
-		res = append(res, proj.state.Active)
 	}
 	return res, nil
 }

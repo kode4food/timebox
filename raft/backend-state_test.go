@@ -648,17 +648,19 @@ func TestRestart(t *testing.T) {
 
 	statuses, err := n.store.ListAggregatesByStatus(timebox.StatusQuery{
 		Status: "paused",
+		Type:   "order",
+		Limit:  1,
 	})
 	if !assert.NoError(t, err) {
 		return
 	}
 	assert.Equal(t, []timebox.StatusEntry{{ID: id, Timestamp: secondTS}}, statuses)
 
-	ids, err := n.store.ListAggregatesByTag("stage")
+	tags, err := n.store.GetAggregateTags(id)
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Equal(t, []timebox.AggregateID{id}, ids)
+	assert.Equal(t, []string{"stage"}, tags[id])
 }
 
 func TestRestartRetainedLog(t *testing.T) {

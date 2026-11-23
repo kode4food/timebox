@@ -34,20 +34,8 @@ func runDelete(t *testing.T, p Profile) {
 		evs, err := store.GetEvents(id, 0)
 		assert.NoError(t, err)
 		assert.Empty(t, evs)
-
-		ids, err := store.ListAggregates("order")
-		assert.NoError(t, err)
-		assert.Empty(t, ids)
-
-		statuses, err := store.ListAggregatesByStatus(timebox.StatusQuery{
-			Status: active,
-		})
-		assert.NoError(t, err)
-		assert.Empty(t, statuses)
-
-		ids, err = store.ListAggregatesByTag("prod")
-		assert.NoError(t, err)
-		assert.Empty(t, ids)
+		assert.Empty(t, listStatus(t, store, active, "order"))
+		assert.Empty(t, tagsOf(t, store, id))
 
 		snap, err := store.GetSnapshot[map[string]int](id)
 		assert.NoError(t, err)
@@ -66,10 +54,6 @@ func runDelete(t *testing.T, p Profile) {
 		if assert.Len(t, evs, 1) {
 			assert.Equal(t, int64(2), evs[0].Sequence)
 		}
-
-		ids, err = store.ListAggregates("order")
-		assert.NoError(t, err)
-		assert.Equal(t, []timebox.AggregateID{id}, ids)
 	})
 
 	t.Run("Fence", func(t *testing.T) {
@@ -159,19 +143,8 @@ func runDelete(t *testing.T, p Profile) {
 			Delete:           true,
 		}))
 
-		statuses, err := store.ListAggregatesByStatus(timebox.StatusQuery{
-			Status: active,
-		})
-		assert.NoError(t, err)
-		assert.Empty(t, statuses)
-
-		ids, err := store.ListAggregatesByTag("prod")
-		assert.NoError(t, err)
-		assert.Empty(t, ids)
-
-		ids, err = store.ListAggregates("order")
-		assert.NoError(t, err)
-		assert.Empty(t, ids)
+		assert.Empty(t, listStatus(t, store, active, "order"))
+		assert.Empty(t, tagsOf(t, store, id))
 	})
 
 	t.Run("Atomic", func(t *testing.T) {

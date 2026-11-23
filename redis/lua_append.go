@@ -48,7 +48,7 @@ func (b *Backend) appendLuaCall(keys []string, args []any, in luaAppendInput) ([
 		delete: in.delete,
 	}
 	keys = append(keys, b.buildLuaAppendKeys(in.id, spec)...)
-	args = append(args, buildLuaAppendArgs(joinAggregateID(in.id), in, ops, spec)...)
+	args = append(args, buildLuaAppendArgs(in, ops, spec)...)
 	return keys, args
 }
 
@@ -56,19 +56,18 @@ func (b *Backend) appendLuaCall(keys []string, args []any, in luaAppendInput) ([
 func (b *Backend) buildLuaAppendKeys(id timebox.AggregateID, spec luaAppendSpec) []string {
 	keys := []string{b.buildKey(id, eventsSuffix), b.buildKey(id, baseSuffix)}
 	if spec.status {
-		keys = append(keys, b.buildStatusHashKey())
+		keys = append(keys, b.buildStatusHashKey(), b.buildStatusTypeRootKey())
 	}
 	if spec.tags {
 		keys = append(keys, b.buildTagStateKey(id))
-		keys = append(keys, b.buildTagRootKey())
 	}
 	if spec.delete {
 		keys = append(keys,
 			b.buildStatusHashKey(),
 			b.buildTagStateKey(id),
-			b.buildTagRootKey(),
 			b.buildKey(id, snapshotValSuffix),
 			b.buildKey(id, snapshotSeqSuffix),
+			b.buildStatusTypeRootKey(),
 		)
 	}
 	return keys
@@ -76,9 +75,7 @@ func (b *Backend) buildLuaAppendKeys(id timebox.AggregateID, spec luaAppendSpec)
 
 // buildLuaAppendArgs lists a request's args in the order the script's arg cursor reads them, led by
 // the flags naming its optional parts
-func buildLuaAppendArgs(
-	joinedID string, in luaAppendInput, ops []luaAppendOp, spec luaAppendSpec,
-) []any {
+func buildLuaAppendArgs(in luaAppendInput, ops []luaAppendOp, spec luaAppendSpec) []any {
 	flags := 0
 	if spec.status {
 		flags |= luaAppendStatus
@@ -90,13 +87,15 @@ func buildLuaAppendArgs(
 		flags |= luaAppendDelete
 	}
 
-	args := []any{flags, in.atSeq, len(in.events), joinedID}
+	args := []any{
+		flags, in.atSeq, len(in.events), joinAggregateID(in.id), escapeIDPart(string(in.id.Type)),
+	}
 	if spec.status {
 		status := ""
 		if in.status != nil {
 			status = *in.status
 		}
-		args = append(args, status, in.statusAt.UnixMilli())
+		args = append(args, status, statusTime(in.statusAt.UnixMilli()))
 	}
 	if spec.tags {
 		args = append(args, len(ops))
@@ -114,7 +113,7 @@ func newLuaAppendOps(tags map[string]bool) []luaAppendOp {
 	ops := make([]luaAppendOp, 0, len(tags))
 	for tag, add := range tags {
 		ops = append(ops, luaAppendOp{
-			tag: escapeKeyPart(tag),
+			tag: tag,
 			add: add,
 		})
 	}

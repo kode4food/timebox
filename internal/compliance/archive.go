@@ -65,19 +65,8 @@ func runArchive(t *testing.T, p Profile) {
 		assert.NoError(t, err)
 		assert.Empty(t, evs)
 
-		ids, err := store.ListAggregates("order")
-		assert.NoError(t, err)
-		assert.Empty(t, ids)
-
-		statuses, err := store.ListAggregatesByStatus(timebox.StatusQuery{
-			Status: active,
-		})
-		assert.NoError(t, err)
-		assert.Empty(t, statuses)
-
-		ids, err = store.ListAggregatesByTag("prod")
-		assert.NoError(t, err)
-		assert.Empty(t, ids)
+		assert.Empty(t, listStatus(t, store, active, "order"))
+		assert.Empty(t, tagsOf(t, store, id))
 
 		var rec *timebox.ArchiveRecord
 		err = store.ConsumeArchive(context.Background(),

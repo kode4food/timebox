@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -36,8 +35,9 @@ const (
 
 	idxPrefix    = "idx"
 	statusSuffix = idxPrefix + ":status"
-	tagsSuffix   = idxPrefix + ":tags"
-	tagSuffix    = idxPrefix + ":tag"
+	// statusTypeSuffix roots the per-type status sets that paged status queries read
+	statusTypeSuffix = idxPrefix + ":status-type"
+	tagsSuffix       = idxPrefix + ":tags"
 
 	defaultSnapshot   = "snapshot"
 	snapshotValSuffix = defaultSnapshot + ":val"
@@ -222,63 +222,12 @@ func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
 	return err
 }
 
-// ListAggregates lists aggregate IDs of the given type, or of every type when it is empty
-func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
-	searchKeys := []string{b.listAggregateKey(eventsSuffix), b.listAggregateKey(snapshotValSuffix)}
-
-	seen := map[timebox.AggregateID]struct{}{}
-	for _, searchKey := range searchKeys {
-		keys, err := b.client.Keys(context.Background(), searchKey).Result()
-		if err != nil {
-			return nil, err
-		}
-
-		for _, key := range keys {
-			aid := b.parseAggregateIDFromKey(key)
-			if typ == "" || aid.Type == typ {
-				seen[aid] = struct{}{}
-			}
-		}
-	}
-
-	ids := make([]timebox.AggregateID, 0, len(seen))
-	for aid := range seen {
-		ids = append(ids, aid)
-	}
-	return ids, nil
-}
-
-func (b *Backend) listAggregateKey(suffix string) string {
-	return fmt.Sprintf("%s:*:%s", b.prefix, suffix)
-}
-
 func (b *Backend) buildKey(id timebox.AggregateID, suffix string) string {
 	return fmt.Sprintf("%s:%s:%s", b.prefix, joinAggregateID(id), suffix)
 }
 
 func (b *Backend) buildTagStateKey(id timebox.AggregateID) string {
 	return fmt.Sprintf("%s:%s:%s", b.prefix, joinAggregateID(id), tagsSuffix)
-}
-
-func (b *Backend) buildTagRootKey() string {
-	return fmt.Sprintf("%s:%s", b.prefix, tagSuffix)
-}
-
-func (b *Backend) parseAggregateIDFromKey(key string) timebox.AggregateID {
-	str, _ := strings.CutPrefix(key, b.prefix+":")
-
-	for _, suffix := range [...]string{
-		":" + eventsSuffix,
-		":" + snapshotValSuffix,
-		":" + snapshotSeqSuffix,
-	} {
-		if trimmed, ok := strings.CutSuffix(str, suffix); ok {
-			str = trimmed
-			break
-		}
-	}
-
-	return parseAggregateID(str)
 }
 
 // appendConflict turns the script result into a VersionConflictError naming the request that
@@ -317,12 +266,6 @@ func appendConflict(reqs []timebox.AppendRequest, result any) error {
 		ActualSequence:   seq,
 		NewEvents:        newEvents,
 	}
-}
-
-func escapeKeyPart(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, "%", `\%`)
-	return strings.ReplaceAll(s, ":", `%`)
 }
 
 func decodeEvents(items []any) ([]*timebox.Event, error) {

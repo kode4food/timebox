@@ -1,9 +1,6 @@
 package raft
 
 import (
-	"bytes"
-	"strings"
-
 	"github.com/kode4food/timebox"
 )
 
@@ -77,49 +74,6 @@ func (b *Backend) LoadSnapshot(req timebox.LoadSnapshotRequest) (*timebox.Snapsh
 		return nil, err
 	}
 	return rec, nil
-}
-
-// ListAggregates lists known aggregate IDs of the given type, or of every type when it is empty
-func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
-	var ids []timebox.AggregateID
-
-	err := b.db.View(func(tx *kvTx) error {
-		b := tx.Bucket(bucketName)
-		c := b.Cursor()
-		defer func() { _ = c.Close() }()
-		pfx := AggregateMetaPrefix()
-		if typ != "" {
-			pfx = append(pfx, encodeAggregateType(typ)...)
-		}
-		for k, v := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
-			key := string(k)
-			if !strings.HasSuffix(key, metaSuffix) {
-				k, v = c.Next()
-				continue
-			}
-			meta, err := unmarshalMeta(v)
-			if err != nil {
-				return err
-			}
-			if meta.Deleted {
-				k, v = c.Next()
-				continue
-			}
-			enc := strings.TrimPrefix(key, aggRootPrefix)
-			enc = strings.TrimSuffix(enc, metaSuffix)
-			nextID, err := decodeAggregateID(enc)
-			if err != nil {
-				return err
-			}
-			ids = append(ids, nextID)
-			k, v = c.Next()
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return ids, nil
 }
 
 func (b *Backend) checkConflict(id timebox.AggregateID, expected int64) error {

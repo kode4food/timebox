@@ -257,7 +257,7 @@ func TestScheduleList(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	schedules, err := store.LoadSchedules(time.Time{})
+	schedules, err := store.LoadSchedules(time.Time{}, nil, 10)
 	assert.NoError(t, err)
 	keys := make([]timebox.ScheduleKey, len(schedules))
 	for i, schedule := range schedules {
@@ -265,13 +265,19 @@ func TestScheduleList(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []timebox.ScheduleKey{"first", "second", "third"}, keys)
 
-	due, err := store.LoadSchedules(base.Add(2 * time.Hour))
+	due, err := store.LoadSchedules(base.Add(2*time.Hour), nil, 10)
 	assert.NoError(t, err)
 	keys = make([]timebox.ScheduleKey, len(due))
 	for i, schedule := range due {
 		keys[i] = schedule.Key
 	}
-	assert.Equal(t, []timebox.ScheduleKey{"first", "second"}, keys)
+	assert.Equal(t, []timebox.ScheduleKey{"second", "first"}, keys)
+
+	rest, err := store.LoadSchedules(base.Add(2*time.Hour), due[0], 10)
+	assert.NoError(t, err)
+	if assert.Len(t, rest, 1) {
+		assert.Equal(t, timebox.ScheduleKey("first"), rest[0].Key)
+	}
 }
 
 func TestScheduleRecovery(t *testing.T) {

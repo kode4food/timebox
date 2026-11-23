@@ -452,11 +452,13 @@ Read the resulting projections and inspect the history, status index, and custom
     }
     shipped, err := store.ListAggregatesByStatus(timebox.StatusQuery{
         Status: "shipped",
+        Type:   "order",
+        Limit:  10,
     })
     if err != nil {
         return err
     }
-    customerOrders, err := store.ListAggregatesByTag("customer:CUS-42")
+    orderTags, err := store.GetAggregateTags(orderID)
     if err != nil {
         return err
     }
@@ -465,8 +467,8 @@ Read the resulting projections and inspect the history, status index, and custom
         order.Status, order.TrackingNumber)
     fmt.Printf("stock: %d available, %d reserved, %d shipped\n",
         product.Available, product.Reserved, product.Shipped)
-    fmt.Printf("history: %d events; shipped index: %d; customer index: %d\n",
-        len(events), len(shipped), len(customerOrders))
+    fmt.Printf("history: %d events; shipped index: %d; order tags: %v\n",
+        len(events), len(shipped), orderTags[orderID])
     return nil
 }
 ```

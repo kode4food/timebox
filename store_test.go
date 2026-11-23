@@ -258,30 +258,6 @@ func TestEmptyAppendSkipsIndexer(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
-func TestListAggregates(t *testing.T) {
-	store, err := memory.Open().NewStore(timebox.Config{})
-	assert.NoError(t, err)
-
-	id1 := timebox.NewAggregateID("order", "1")
-	id2 := timebox.NewAggregateID("order", "2")
-
-	ev := &timebox.Event{
-		Timestamp: time.Now(),
-		Type:      "event.test",
-		Data:      json.RawMessage(`{"value":1}`),
-	}
-	assert.NoError(t, store.AppendEvents(id1, 0, []*timebox.Event{ev}))
-	assert.NoError(t, store.AppendEvents(id2, 0, []*timebox.Event{ev}))
-
-	ids, err := store.ListAggregates("order")
-	assert.NoError(t, err)
-	assert.ElementsMatch(t, []timebox.AggregateID{id1, id2}, ids)
-
-	ids, err = store.ListAggregates("invoice")
-	assert.NoError(t, err)
-	assert.Empty(t, ids)
-}
-
 func TestGetEventsEmpty(t *testing.T) {
 	store, err := memory.Open().NewStore(timebox.Config{})
 	assert.NoError(t, err)
@@ -331,15 +307,19 @@ func TestStoreCombinedIndexing(t *testing.T) {
 					)
 
 					statuses, err := store.ListAggregatesByStatus(
-						timebox.StatusQuery{Status: "active"},
+						timebox.StatusQuery{
+							Status: "active",
+							Type:   "order",
+							Limit:  1,
+						},
 					)
 					assert.NoError(t, err)
 					assert.Len(t, statuses, 1)
 					assert.Equal(t, id, statuses[0].ID)
 
-					ids, err := store.ListAggregatesByTag("prod")
+					tags, err := store.GetAggregateTags(id)
 					assert.NoError(t, err)
-					assert.Equal(t, []timebox.AggregateID{id}, ids)
+					assert.Equal(t, []string{"prod"}, tags[id])
 				},
 			)
 		})
@@ -419,10 +399,6 @@ func (f *fakeBackend) SaveSnapshot(timebox.SnapshotRequest) error {
 	return nil
 }
 
-func (f *fakeBackend) ListAggregates(timebox.ID) ([]timebox.AggregateID, error) {
-	return nil, nil
-}
-
 func (f *fakeBackend) GetAggregateStatus(timebox.AggregateID) (string, error) {
 	return "", nil
 }
@@ -431,7 +407,9 @@ func (f *fakeBackend) ListAggregatesByStatus(timebox.StatusQuery) ([]timebox.Sta
 	return nil, nil
 }
 
-func (f *fakeBackend) ListAggregatesByTag(string) ([]timebox.AggregateID, error) {
+func (f *fakeBackend) GetAggregateTags(
+	...timebox.AggregateID,
+) (map[timebox.AggregateID][]string, error) {
 	return nil, nil
 }
 

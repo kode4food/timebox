@@ -216,37 +216,6 @@ func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
 	return tx.Commit(ctx)
 }
 
-// ListAggregates lists aggregate IDs of the given type, or of every type when it is empty
-func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
-	ctx := context.Background()
-
-	var rows pgx.Rows
-	var err error
-	if typ == "" {
-		rows, err = b.pool.Query(ctx, sqlListAggregates)
-	} else {
-		rows, err = b.pool.Query(ctx, sqlListAggregatesByType, string(typ))
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var res []timebox.AggregateID
-	for rows.Next() {
-		var parts []string
-		if err := rows.Scan(&parts); err != nil {
-			return nil, err
-		}
-		aggID, err := aggregateID(parts)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, aggID)
-	}
-	return res, rows.Err()
-}
-
 func (b *Backend) loadSnapshotState(
 	ctx context.Context, tx pgx.Tx, key string,
 ) (snapshotState, bool, error) {

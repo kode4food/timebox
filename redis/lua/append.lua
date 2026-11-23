@@ -10,6 +10,7 @@ for i = 1, reqCount do
 	r.atSeq = tonumber(ARGV[ai]); ai = ai + 1
 	r.count = tonumber(ARGV[ai]); ai = ai + 1
 	r.aggID = ARGV[ai]; ai = ai + 1
+	r.aggType = ARGV[ai]; ai = ai + 1
 	r.status = flags % 2 == 1
 	r.tags = math.floor(flags / 2) % 2 == 1
 	local delete = math.floor(flags / 4) % 2 == 1
@@ -18,19 +19,20 @@ for i = 1, reqCount do
 	r.baseKey = ki; ki = ki + 1
 	if r.status then
 		r.statusKey = ki; ki = ki + 1
+		r.statusTypeKey = ki; ki = ki + 1
 		r.newStatus = ARGV[ai]; ai = ai + 1
 		r.statusAt = ARGV[ai]; ai = ai + 1
 	end
 	if r.tags then
 		r.tagStateKey = ki; ki = ki + 1
-		r.tagRootKey = ki; ki = ki + 1
 		r.tagCount = tonumber(ARGV[ai]); ai = ai + 1
 		r.firstTag = ai; ai = ai + r.tagCount * 2
 	end
 	r.firstEvent = ai; ai = ai + r.count
 
 	if delete then
-		-- status hash, tag state, tag root, snapshot value, snapshot sequence
+		-- status hash, tag state, snapshot value, snapshot sequence,
+		-- status type root
 		r.deleteKey = ki; ki = ki + 5
 	end
 
@@ -64,19 +66,21 @@ for i = 1, reqCount do
 	end
 
 	if r.status then
-		local prefix = KEYS[r.statusKey] .. ":"
-		local old = redis.call(
-			'HGET', KEYS[r.statusKey], r.aggID
-		) or ""
-		if old ~= "" and old ~= r.newStatus then
-			redis.call('ZREM', prefix .. old, r.aggID)
+		-- Hash values and set members both lead with the 16-char status time
+		local typed = KEYS[r.statusTypeKey] .. ":" .. r.aggType .. ":"
+		local old = redis.call('HGET', KEYS[r.statusKey], r.aggID)
+		if old then
+			redis.call(
+				'ZREM', typed .. string.sub(old, 17),
+				string.sub(old, 1, 16) .. r.aggID
+			)
 		end
 		if r.newStatus ~= "" then
 			redis.call(
-				'HSET', KEYS[r.statusKey], r.aggID, r.newStatus
+				'HSET', KEYS[r.statusKey], r.aggID, r.statusAt .. r.newStatus
 			)
 			redis.call(
-				'ZADD', prefix .. r.newStatus, r.statusAt, r.aggID
+				'ZADD', typed .. r.newStatus, 0, r.statusAt .. r.aggID
 			)
 		else
 			redis.call('HDEL', KEYS[r.statusKey], r.aggID)
@@ -86,14 +90,10 @@ for i = 1, reqCount do
 	if r.tags then
 		for j = 0, r.tagCount - 1 do
 			local a = r.firstTag + (j * 2)
-			local tag = ARGV[a]
-			local member = KEYS[r.tagRootKey] .. ":" .. tag
 			if ARGV[a + 1] == "1" then
-				redis.call('SADD', KEYS[r.tagStateKey], tag)
-				redis.call('SADD', member, r.aggID)
+				redis.call('SADD', KEYS[r.tagStateKey], ARGV[a])
 			else
-				redis.call('SREM', KEYS[r.tagStateKey], tag)
-				redis.call('SREM', member, r.aggID)
+				redis.call('SREM', KEYS[r.tagStateKey], ARGV[a])
 			end
 		end
 	end
@@ -104,18 +104,18 @@ for i = 1, reqCount do
 	local r = reqs[i]
 	if r.deleteKey then
 		local k = r.deleteKey
-		local status = redis.call('HGET', KEYS[k], r.aggID) or ""
-		if status ~= "" then
-			redis.call('ZREM', KEYS[k] .. ":" .. status, r.aggID)
+		local status = redis.call('HGET', KEYS[k], r.aggID)
+		if status then
+			redis.call(
+				'ZREM',
+				KEYS[k + 4] .. ":" .. r.aggType .. ":" .. string.sub(status, 17),
+				string.sub(status, 1, 16) .. r.aggID
+			)
 			redis.call('HDEL', KEYS[k], r.aggID)
 		end
-		local tags = redis.call('SMEMBERS', KEYS[k + 1])
-		for j = 1, #tags do
-			redis.call('SREM', KEYS[k + 2] .. ":" .. tags[j], r.aggID)
-		end
 		local seq = r.atSeq + r.count
-		redis.call('DEL', KEYS[r.eventsKey], KEYS[k + 1], KEYS[k + 3])
-		redis.call('SET', KEYS[k + 4], seq)
+		redis.call('DEL', KEYS[r.eventsKey], KEYS[k + 1], KEYS[k + 2])
+		redis.call('SET', KEYS[k + 3], seq)
 		redis.call('SET', KEYS[r.baseKey], seq)
 	end
 end

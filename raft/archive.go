@@ -22,12 +22,6 @@ func deleteAggregateTx(b *kvBucket, encodedID string, meta *AggregateMeta) error
 			return err
 		}
 	}
-	for tag := range meta.Tags {
-		if err := b.Delete(tagIndexKey(tag, encodedID)); err != nil {
-			return err
-		}
-	}
-
 	// A cursor in the batched apply transaction re-sorts its pending writes, so delete the event
 	// keys the meta already bounds
 	pfx := aggregateEventPrefix(encodedID)

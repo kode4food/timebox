@@ -17,6 +17,14 @@ func joinAggregateID(id timebox.AggregateID) string {
 	return b.String()
 }
 
+// escapeIDPart escapes one AggregateID component as joinAggregateID does
+func escapeIDPart(value string) string {
+	var b strings.Builder
+	b.Grow(escapedLen(value))
+	appendEscaped(&b, value)
+	return b.String()
+}
+
 func parseAggregateID(value string) timebox.AggregateID {
 	typ, key := cutEscaped(value)
 	return timebox.NewAggregateID(timebox.ID(typ), timebox.ID(key))

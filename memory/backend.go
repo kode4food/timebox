@@ -3,7 +3,8 @@ package memory
 import (
 	"encoding/json"
 	"errors"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -157,24 +158,6 @@ func (b *Backend) SaveSnapshot(req timebox.SnapshotRequest) error {
 	return nil
 }
 
-// ListAggregates lists aggregate IDs of the given type, or of every type when it is empty
-func (b *Backend) ListAggregates(typ timebox.ID) ([]timebox.AggregateID, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if err := b.checkClosed(); err != nil {
-		return nil, err
-	}
-
-	var res []timebox.AggregateID
-	for id, a := range b.aggs {
-		if !a.deleted && (typ == "" || id.Type == typ) {
-			res = append(res, id)
-		}
-	}
-	return res, nil
-}
-
 // GetAggregateStatus gets the current status for an aggregate
 func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	b.mu.RLock()
@@ -191,8 +174,12 @@ func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	return a.status, nil
 }
 
-// ListAggregatesByStatus lists aggregates matching the query, ordered by status time
+// ListAggregatesByStatus lists one page of aggregates matching the query, newest first with ties
+// broken by aggregate key
 func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.StatusEntry, error) {
+	if q.Limit <= 0 {
+		return nil, timebox.ErrInvalidLimit
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -202,31 +189,31 @@ func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.Statu
 
 	var res []timebox.StatusEntry
 	for _, a := range b.aggs {
-		if a.status != q.Status {
-			continue
-		}
-		if q.Type != "" && a.id.Type != q.Type {
-			continue
-		}
-		if !strings.HasPrefix(string(a.id.Key), string(q.KeyPrefix)) {
-			continue
-		}
-		if !q.Through.IsZero() && a.statusAt.After(q.Through) {
-			continue
-		}
-		res = append(res, timebox.StatusEntry{
+		e := timebox.StatusEntry{
 			ID:        a.id,
 			Timestamp: a.statusAt,
-		})
+		}
+		if a.status != q.Status || a.id.Type != q.Type {
+			continue
+		}
+		if !q.Through.IsZero() && e.Timestamp.After(q.Through) {
+			continue
+		}
+		if q.After != nil && compareStatusEntries(e, *q.After) >= 0 {
+			continue
+		}
+		res = append(res, e)
 	}
-	sort.Slice(res, func(i, j int) bool {
-		return res[i].Timestamp.Before(res[j].Timestamp)
+	slices.SortFunc(res, func(l, r timebox.StatusEntry) int {
+		return compareStatusEntries(r, l)
 	})
-	return res, nil
+	return res[:min(len(res), q.Limit)], nil
 }
 
-// ListAggregatesByTag lists aggregates for a tag
-func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error) {
+// GetAggregateTags loads the tags each aggregate currently holds
+func (b *Backend) GetAggregateTags(
+	ids ...timebox.AggregateID,
+) (map[timebox.AggregateID][]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -234,10 +221,10 @@ func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error)
 		return nil, err
 	}
 
-	var res []timebox.AggregateID
-	for _, a := range b.aggs {
-		if a.tags[tag] {
-			res = append(res, a.id)
+	res := map[timebox.AggregateID][]string{}
+	for _, id := range ids {
+		if a, ok := b.aggs[id]; ok && len(a.tags) > 0 {
+			res[id] = slices.Collect(maps.Keys(a.tags))
 		}
 	}
 	return res, nil
@@ -366,6 +353,13 @@ func (b *Backend) checkClosed() error {
 		return ErrClosed
 	}
 	return nil
+}
+
+func compareStatusEntries(l, r timebox.StatusEntry) int {
+	if c := l.Timestamp.Compare(r.Timestamp); c != 0 {
+		return c
+	}
+	return strings.Compare(string(l.ID.Key), string(r.ID.Key))
 }
 
 func firstEventIndex(evs []*timebox.Event, seq int64) int {

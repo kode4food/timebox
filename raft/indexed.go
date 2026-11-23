@@ -2,9 +2,8 @@ package raft
 
 import (
 	"bytes"
-	"math"
-	"sort"
-	"strings"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/kode4food/timebox"
@@ -27,79 +26,81 @@ func (b *Backend) GetAggregateStatus(id timebox.AggregateID) (string, error) {
 	return status, err
 }
 
-// ListAggregatesByStatus lists aggregates matching the query, ordered by status time. Type narrows
-// the status-index scan, and with Type set the scan stops at Through. KeyPrefix filters each entry
+// ListAggregatesByStatus lists one page of aggregates matching the query, newest first with ties
+// broken by aggregate key. It walks the type's status keys backward from Through or After
 func (b *Backend) ListAggregatesByStatus(q timebox.StatusQuery) ([]timebox.StatusEntry, error) {
-	bound := int64(math.MaxInt64)
-	if !q.Through.IsZero() {
-		bound = q.Through.UnixMilli()
+	if q.Limit <= 0 {
+		return nil, timebox.ErrInvalidLimit
 	}
-
 	var res []timebox.StatusEntry
 	err := b.db.View(func(tx *kvTx) error {
-		b := tx.Bucket(bucketName)
-		c := b.Cursor()
-		defer func() { _ = c.Close() }()
 		base := statusIndexPrefix(q.Status)
-		pfx := base
-		if q.Type != "" {
-			pfx = append(pfx, []byte(encodeAggregateType(q.Type))...)
-		}
-		for k, v := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
+		pfx := append(base, encodeAggregateType(q.Type)...)
+		c := tx.Bucket(bucketName).ReverseCursor()
+		defer func() { _ = c.Close() }()
+
+		k, v := c.Seek(statusStart(pfx, q))
+		for ; k != nil && bytes.HasPrefix(k, pfx) && len(res) < q.Limit; k, v = c.Next() {
+			if q.After != nil && bytes.Equal(k, statusPosition(pfx, *q.After)) {
+				continue
+			}
 			ts, err := decodeOptionalInt64(v)
 			if err != nil {
 				return err
-			}
-			if ts > bound && q.Type != "" {
-				break
 			}
 			id, err := decodeStatusIndexID(string(k[len(base):]))
 			if err != nil {
 				return err
 			}
-			if ts <= bound &&
-				strings.HasPrefix(string(id.Key), string(q.KeyPrefix)) {
-				res = append(res, timebox.StatusEntry{
-					ID:        id,
-					Timestamp: time.UnixMilli(ts).UTC(),
-				})
-			}
-			k, v = c.Next()
+			res = append(res, timebox.StatusEntry{
+				ID:        id,
+				Timestamp: time.UnixMilli(ts).UTC(),
+			})
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	sort.Slice(res, func(i, j int) bool {
-		return res[i].Timestamp.Before(res[j].Timestamp)
-	})
 	return res, nil
 }
 
-// ListAggregatesByTag lists aggregates currently indexed by tag
-func (b *Backend) ListAggregatesByTag(tag string) ([]timebox.AggregateID, error) {
-	var ids []timebox.AggregateID
-
+// GetAggregateTags loads the tags each aggregate currently holds, in one read transaction
+func (b *Backend) GetAggregateTags(
+	ids ...timebox.AggregateID,
+) (map[timebox.AggregateID][]string, error) {
+	res := map[timebox.AggregateID][]string{}
 	err := b.db.View(func(tx *kvTx) error {
-		b := tx.Bucket(bucketName)
-		c := b.Cursor()
-		defer func() { _ = c.Close() }()
-		pfx := tagIndexPrefix(tag)
-		for k, _ := c.Seek(pfx); k != nil && bytes.HasPrefix(k, pfx); {
-			parts := strings.Split(string(k), "/")
-			id, err := decodeAggregateID(parts[len(parts)-1])
+		bkt := tx.Bucket(bucketName)
+		for _, id := range ids {
+			meta, ok, err := loadMetaTx(bkt, encodeAggregateID(id))
 			if err != nil {
 				return err
 			}
-			ids = append(ids, id)
-			k, _ = c.Next()
+			if ok && len(meta.Tags) > 0 {
+				res[id] = slices.Collect(maps.Keys(meta.Tags))
+			}
 		}
 		return nil
 	})
-	if err != nil {
-		return nil, err
+	return res, err
+}
+
+// statusStart is where a backward walk begins: After's own key, the end of Through's millisecond,
+// or the end of the type's keys
+func statusStart(pfx []byte, q timebox.StatusQuery) []byte {
+	if q.After != nil {
+		return statusPosition(pfx, *q.After)
 	}
-	return ids, nil
+	end := string(pfx)
+	if !q.Through.IsZero() {
+		end += statusTime(q.Through.UnixMilli()) + "/"
+	}
+	return append([]byte(end), 0xff)
+}
+
+// statusPosition is the index key an entry of pfx's status and type occupies
+func statusPosition(pfx []byte, e timebox.StatusEntry) []byte {
+	return []byte(string(pfx) + statusTime(e.Timestamp.UnixMilli()) + "/" +
+		encodeKeyPart(string(e.ID.Key)))
 }

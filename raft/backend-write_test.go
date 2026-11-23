@@ -38,17 +38,19 @@ func TestAppend(t *testing.T) {
 
 	statuses, err := n.store.ListAggregatesByStatus(timebox.StatusQuery{
 		Status: "active",
+		Type:   "order",
+		Limit:  1,
 	})
 	if !assert.NoError(t, err) {
 		return
 	}
 	assert.Equal(t, []timebox.StatusEntry{{ID: id, Timestamp: secondTS}}, statuses)
 
-	ids, err := n.store.ListAggregatesByTag("prod")
+	tags, err := n.store.GetAggregateTags(id)
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Equal(t, []timebox.AggregateID{id}, ids)
+	assert.Contains(t, tags[id], "prod")
 
 	err = n.store.AppendEvents(id, 1, []*timebox.Event{
 		indexedEvent(id, "paused", "stage", secondTS.Add(time.Minute)),
