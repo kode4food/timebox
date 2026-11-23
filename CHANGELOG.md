@@ -2,6 +2,17 @@
 
 Notable changes to Timebox.
 
+## 0.5
+
+### Querying
+
+- Status and schedule reads return pages, latest first: `ListAggregatesByStatus` through `StatusQuery.Limit` and `After`, and `Store.LoadSchedules(through, after, limit)`
+- `GetAggregateTags(ids...)` loads the tags of many aggregates in one read
+
+### Removed
+
+- `ListAggregates`, `ListAggregatesByTag`, `StatusQuery.KeyPrefix`, and `Store.ListSchedules`
+
 ## 0.4
 
 ### Event sourcing
