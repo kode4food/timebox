@@ -174,7 +174,17 @@ func (t *raftTransport) peer(addr ServerAddress) (*raftPeerConn, error) {
 		return current, nil
 	}
 	t.peers[addr] = peer
+	go t.watchPeer(addr, peer, peer.conn)
 	return peer, nil
+}
+
+// watchPeer drops a peer once its remote end closes, such as when the peer restarts. Peers never
+// write back, so writes alone keep succeeding into a dead socket until its buffer fills
+func (t *raftTransport) watchPeer(
+	addr ServerAddress, peer *raftPeerConn, conn net.Conn,
+) {
+	_, _ = conn.Read(make([]byte, 1))
+	t.dropPeer(addr, peer)
 }
 
 func (t *raftTransport) dropPeer(addr ServerAddress, peer *raftPeerConn) {
@@ -206,7 +216,7 @@ func (p *raftPeerConn) do(fn func(*bufio.Writer) error) error {
 	if p.conn == nil || p.wr == nil {
 		return ErrTransportClosed
 	}
-	_ = p.conn.SetDeadline(time.Now().Add(defaultWriteTimeout))
+	_ = p.conn.SetWriteDeadline(time.Now().Add(defaultWriteTimeout))
 	if err := fn(p.wr); err != nil {
 		return err
 	}
