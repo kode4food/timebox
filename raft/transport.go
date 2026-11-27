@@ -32,6 +32,7 @@ const (
 	defaultDialTimeout  = time.Second
 	defaultKeepAlive    = 30 * time.Second
 	defaultWriteTimeout = 2 * time.Second
+	defaultUserTimeout  = 5 * time.Second
 )
 
 var (
@@ -58,7 +59,11 @@ func newRaftTransport(cfg Config) (*raftTransport, error) {
 }
 
 func newRaftPeerConn(addr ServerAddress) (*raftPeerConn, error) {
-	conn, err := net.DialTimeout("tcp", string(addr), defaultDialTimeout)
+	d := net.Dialer{
+		Timeout: defaultDialTimeout,
+		Control: setUserTimeout,
+	}
+	conn, err := d.Dial("tcp", string(addr))
 	if err != nil {
 		return nil, err
 	}
