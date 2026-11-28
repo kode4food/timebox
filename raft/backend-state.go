@@ -9,8 +9,6 @@ import (
 
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
-
-	bin "github.com/kode4food/timebox/internal/binary"
 )
 
 const snapshotRefSize = 8
@@ -164,8 +162,8 @@ func (b *Backend) restoreMaterializedState(log *raftLog, fastForward bool) error
 	if err != nil {
 		return err
 	}
-	if applied > log.CommitIndex() {
-		return bin.ErrCorruptState
+	if err := log.raiseCommit(applied); err != nil {
+		return err
 	}
 	if compacted := log.Compacted(); applied < compacted {
 		if !fastForward {

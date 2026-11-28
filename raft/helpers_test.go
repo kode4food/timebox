@@ -42,6 +42,9 @@ const (
 	testEventType      timebox.EventType = "event.test"
 	testProjectionPath string            = "projection/badger"
 	testBucketPrefix   string            = "timebox/"
+
+	testProjectionMarker      = "test/marker"
+	testHardStateFrame   byte = 0xFF
 )
 
 func newNode(t *testing.T, cfg nodeConfig) *node {
@@ -282,6 +285,89 @@ func truncateRaftTail(t *testing.T, dataDir string) {
 		t.FailNow()
 	}
 	assert.NoError(t, os.Truncate(path, info.Size()/2))
+}
+
+func dropTrailingHardStates(t *testing.T, dataDir string) int {
+	t.Helper()
+
+	files, err := filepath.Glob(filepath.Join(dataDir, "log", "*.log"))
+	if !assert.NoError(t, err) || !assert.NotEmpty(t, files) {
+		t.FailNow()
+	}
+
+	path := files[len(files)-1]
+	data, err := os.ReadFile(path)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+
+	var keep int64
+	dropped := 0
+	for off := int64(0); off+4 <= int64(len(data)); {
+		size := int64(binary.BigEndian.Uint32(data[off : off+4]))
+		end := off + 4 + size + 4
+		if end > int64(len(data)) {
+			break
+		}
+		if data[off+4] == testHardStateFrame {
+			dropped++
+		} else {
+			keep = end
+			dropped = 0
+		}
+		off = end
+	}
+	assert.NoError(t, os.Truncate(path, keep))
+	return dropped
+}
+
+func setLastApplied(t *testing.T, dataDir string, idx uint64) {
+	t.Helper()
+
+	db, err := openTestBadger(filepath.Join(dataDir, testProjectionPath))
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], idx)
+	assert.NoError(t, db.Update(func(tx *badger.Txn) error {
+		return tx.Set([]byte(testBucketPrefix+"state/meta/last-applied-log"), buf[:])
+	}))
+}
+
+func putProjectionMarker(t *testing.T, dataDir string) {
+	t.Helper()
+
+	db, err := openTestBadger(filepath.Join(dataDir, testProjectionPath))
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+	assert.NoError(t, db.Update(func(tx *badger.Txn) error {
+		return tx.Set([]byte(testProjectionMarker), []byte{1})
+	}))
+}
+
+func hasProjectionMarker(t *testing.T, dataDir string) bool {
+	t.Helper()
+
+	db, err := openTestBadger(filepath.Join(dataDir, testProjectionPath))
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+	err = db.View(func(tx *badger.Txn) error {
+		_, err := tx.Get([]byte(testProjectionMarker))
+		return err
+	})
+	return err == nil
 }
 
 func serverCfgs(t *testing.T, n int) ([]raft.Server, []nodeConfig) {

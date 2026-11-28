@@ -255,3 +255,71 @@ func TestRestartRepairsTruncatedTail(t *testing.T) {
 	}
 	assert.Len(t, evs, next+1)
 }
+
+func TestRestartAppliedPastCommit(t *testing.T) {
+	const count = 16
+
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	id := timebox.NewAggregateID("order", "applied-past-commit")
+	appendN(t, n.store, id, count)
+	closeNode(t, n)
+
+	if !assert.Positive(t, dropTrailingHardStates(t, cfg.dataDir)) {
+		return
+	}
+	putProjectionMarker(t, cfg.dataDir)
+
+	n = newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	evs, err := n.store.GetEvents(id, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Len(t, evs, count)
+
+	err = n.store.AppendEvents(id, count, []*timebox.Event{numberEvent(id, count+1)})
+	assert.NoError(t, err)
+	closeNode(t, n)
+
+	assert.True(t, hasProjectionMarker(t, cfg.dataDir))
+}
+
+func TestRestartAppliedPastLog(t *testing.T) {
+	const count = 8
+
+	cfg := nodeConfig{
+		id:      "node-1",
+		addr:    freeAddr(t),
+		dataDir: t.TempDir(),
+	}
+
+	n := newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	id := timebox.NewAggregateID("order", "applied-past-log")
+	appendN(t, n.store, id, count)
+	closeNode(t, n)
+
+	setLastApplied(t, cfg.dataDir, 1<<40)
+	putProjectionMarker(t, cfg.dataDir)
+
+	n = newNode(t, cfg)
+	waitForWrite(t, n.store)
+
+	evs, err := n.store.GetEvents(id, 0)
+	if assert.NoError(t, err) {
+		assert.Len(t, evs, count)
+	}
+	closeNode(t, n)
+
+	assert.False(t, hasProjectionMarker(t, cfg.dataDir))
+}

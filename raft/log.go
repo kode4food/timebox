@@ -219,7 +219,7 @@ func (r *raftLog) Save(rd raft.Ready, compactBound uint64) error {
 		}
 	}
 
-	needSync := len(rd.Entries) != 0 || !hardStateEqual(hs, r.hs)
+	needSync := raft.MustSync(hs, r.hs, len(rd.Entries))
 	if needSync {
 		if err := r.syncLog(); err != nil {
 			return err
@@ -300,6 +300,26 @@ func (r *raftLog) CommitIndex() uint64 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.hs.GetCommit()
+}
+
+// Applied entries were committed, even when a crash lost their unsynced commit index
+func (r *raftLog) raiseCommit(idx uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if idx <= r.hs.GetCommit() {
+		return nil
+	}
+	if idx > r.last {
+		return bin.ErrCorruptState
+	}
+	hs := proto.Clone(r.hs).(*raftpb.HardState)
+	hs.Commit = new(idx)
+	if err := r.storeMeta(hs, r.cs, true); err != nil {
+		return err
+	}
+	r.hs = hs
+	return nil
 }
 
 func (r *raftLog) ReplayCommitted(
