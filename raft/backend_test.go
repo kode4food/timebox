@@ -82,8 +82,13 @@ func TestBadRaftLogPath(t *testing.T) {
 
 func TestBusyRaftAddr(t *testing.T) {
 	addr := freeAddr(t)
+	_, port, err := net.SplitHostPort(addr)
+	if !assert.NoError(t, err) {
+		return
+	}
 
-	ln, err := net.Listen("tcp", addr)
+	// The node listens on its port across all interfaces
+	ln, err := net.Listen("tcp", net.JoinHostPort("", port))
 	if !assert.NoError(t, err) {
 		return
 	}

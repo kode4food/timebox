@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -40,7 +41,12 @@ var (
 )
 
 func newRaftTransport(cfg Config) (*raftTransport, error) {
-	ln, err := net.Listen("tcp", cfg.Address)
+	_, port, err := parseAddress(cfg.Address)
+	if err != nil {
+		return nil, err
+	}
+	// Peers dial the advertised name, so the listener binds its port before that name resolves
+	ln, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
 	if err != nil {
 		return nil, err
 	}
